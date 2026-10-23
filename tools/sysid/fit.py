@@ -819,16 +819,18 @@ def gate(tau_s, omega_noload, mass, kappas=(0.72, 0.6, 0.5), u_max=0.85):
 
 # ---------------------------------------------------------------- hat
 def fit_servo(path, mass=1.95, knee_rms=None, verbose=False):
-    runs = load_dir(path)
+    allr = load_dir(path)
+    runs = [r for r in allr if str(r.meta.get("status")) == "ok"]     # yarida kesilen kosular kullanilmaz
     if not runs:
-        raise SystemExit("log yok: %s" % path)
+        raise SystemExit("basarili kosu yok: %s" % path)
     meta0 = runs[0].meta
     cls = runs[0].cfg.get("cls", "ds")
     by = {}
     for r in runs:
         by.setdefault(r.program, []).append(r)
     res = dict(schema="openduck-tr/sysid/v1", servo=dict(id=meta0.get("servo_id", Path(path).name), cls=cls,
-               mjcf_class=MJCF_CLASS.get(cls), model=meta0.get("servo_model"), files=[r.path.name for r in runs]))
+               mjcf_class=MJCF_CLASS.get(cls), model=meta0.get("servo_model"), files=[r.path.name for r in runs],
+               skipped=[r.path.name for r in allr if r not in runs]))
     log = (lambda *a: print(*a, file=sys.stderr)) if verbose else (lambda *a: None)
     # 1-2
     pm, pc = None, None
@@ -986,8 +988,14 @@ def main(argv=None):
         raise SystemExit("log bulunamadi: %s" % root)
     results = []
     for d in dirs:
-        r = fit_servo(d, a.mass, a.knee_rms, a.verbose)
+        try:
+            r = fit_servo(d, a.mass, a.knee_rms, a.verbose)
+        except SystemExit as e:
+            print("atlandi:", d, e)
+            continue
         results.append(_clean(r))
+    if not results:
+        raise SystemExit("uydurulacak servo yok")
     out = Path(a.out) if a.out else root / "sysid_params.json"
     payload = results[0] if len(results) == 1 else dict(schema="openduck-tr/sysid/v1", servos=results)
     out.write_text(json.dumps(payload, indent=1, ensure_ascii=False))

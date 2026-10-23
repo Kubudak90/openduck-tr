@@ -182,19 +182,26 @@ def command(link, cmd, timeout=3.0):
     return out
 
 
-def run_program(link, prog, params, answer_fn=None, echo=print, max_s=6 * 3600):
-    """Bir firmware programini kostur, RunRecorder dondur."""
+def run_program(link, prog, params, answer_fn=None, echo=print, max_s=6 * 3600, silent_s=30.0):
+    """Bir firmware programini kostur, RunRecorder dondur. silent_s boyunca satir gelmezse (istem disinda) kesilir."""
     rec = RunRecorder()
     for ln in command(link, "cfg", 1.5):
         rec.feed(ln)
     args = " ".join("%s=%s" % (k, v) for k, v in params.items() if not k.startswith("_"))
     link.send(("run %s %s" % (prog, args)).strip())
     t0, nD, last = time.time(), 0, time.time()
+    rx = time.time()
     try:
         while time.time() - t0 < max_s:
             m = link.get(0.2)
             if m is None:
+                if time.time() - rx > silent_s:
+                    echo("  betikten %d s satir yok: kesildi (kart resetlendi ya da kablo koptu?)" % silent_s)
+                    link.send("!")
+                    rec.status = "abort:sessiz"
+                    break
                 continue
+            rx = time.time()
             if m[0] == "#ERR":
                 echo("seri hata: " + m[1])
                 rec.status = "abort:seri"
@@ -209,6 +216,7 @@ def run_program(link, prog, params, answer_fn=None, echo=print, max_s=6 * 3600):
             elif tag == "P":
                 pid, text = rec.prompts[-1]
                 answer_prompt(link, pid, text, answer_fn)
+                rx = time.time()
             elif tag in ("W", "R", "S", "#"):
                 echo("  " + ln)
             elif tag == "END":

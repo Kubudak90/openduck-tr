@@ -153,7 +153,12 @@ def test_rejections(tmp_path):
         rec = b.run(prog, **kw)
         rec.write(tmp_path / "S" / ("%02d_%s" % (k, prog)), dict(servo_id="S", test=prog,
                                                                     host_time="2026-10-23T10:%02d" % k))
+    # yarida kesilmis bir kosu (son kosu olsa da) kullanilmaz
+    rec = synth.Bench(truth=synth.Truth(), seed=12).run("track", freq=300, tag="f300")
+    rec.status = "abort:kullanici"
+    rec.write(tmp_path / "S" / "99_track", dict(servo_id="S", test="accept300", host_time="2026-10-23T10:59"))
     res = fit.fit_servo(tmp_path / "S", mass=1.85)
+    assert res["servo"]["skipped"] == ["99_track.json"]
     assert res["pwm"]["accept_300hz"] is False and res["pwm"]["accept_3v3"] is False
     v = {x["item"]: x for x in res["verdicts"]}
     assert "50 Hz" in v["DS 300 Hz"]["action"] and "Seviye cevirici" in v["3.3 V darbe"]["action"]
