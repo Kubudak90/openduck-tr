@@ -1,0 +1,55 @@
+# OpenDuck carpisma raporu
+
+## 1) Tasarim kontrolu (tek eklem taramasi)
+  -> 107 poz, 0 carpisma
+
+## 2) Rastgele birlesik pozlar (bilgi amacli)
+  carpismasiz: 14 / 40
+   15x  head_tilt_bracket <-> lower_bill
+   11x  head_tilt_bracket <-> lower_bill_pad
+    5x  torso_shell_left <-> left_thigh_inner_plate
+    4x  head_pitch_servo <-> lower_bill
+    3x  torso_shell_left <-> left_knee_horn
+    3x  torso_shell_left <-> left_shin_bracket
+    3x  chassis <-> lower_bill
+    3x  torso_shell_right <-> lower_bill
+    3x  right_thigh_wing <-> right_foot_body
+    3x  right_thigh_wing <-> right_sole
+    2x  torso_shell_left <-> left_knee_servo
+    2x  left_hip_cradle_bracket <-> left_sole
+    2x  left_hip_pitch_servo <-> left_foot_body
+    2x  left_hip_pitch_servo <-> left_sole
+    2x  left_thigh_inner_plate <-> left_foot_body
+    2x  left_thigh_inner_plate <-> left_sole
+    2x  left_thigh_wing <-> left_foot_body
+    2x  left_thigh_wing <-> left_sole
+    2x  torso_shell_left <-> lower_bill
+    2x  torso_shell_left <-> lower_bill_pad
+    2x  torso_shell_right <-> lower_bill_pad
+    2x  torso_shell_right <-> right_knee_servo
+    2x  torso_shell_right <-> right_thigh_inner_plate
+    2x  torso_shell_right <-> right_shin_bracket
+    1x  chassis <-> left_thigh_inner_plate
+    1x  left_hip_bracket <-> left_sole
+    1x  chassis <-> lower_bill_pad
+    1x  right_hip_cradle_bracket <-> upper_bill
+    1x  right_foot_body <-> head_hood
+    1x  right_sole <-> head_hood
+    1x  chassis <-> right_knee_servo
+    1x  chassis <-> right_thigh_inner_plate
+    1x  torso_shell_right <-> right_hip_pitch_servo
+    1x  torso_shell_right <-> right_knee_horn
+    1x  battery_np_f550 <-> right_thigh_inner_plate
+    1x  battery_np_f550 <-> right_shin_bracket
+    1x  right_hip_yaw_servo <-> right_thigh_inner_plate
+    1x  left_hip_cradle_bracket <-> left_foot_body
+    1x  torso_shell_left <-> left_ankle_servo
+    1x  right_thigh_inner_plate <-> right_foot_body
+    1x  right_thigh_inner_plate <-> right_sole
+    1x  neck_pitch_servo <-> lower_bill
+    1x  head_pitch_servo <-> lower_bill_pad
+    1x  neck_splice <-> lower_bill
+    1x  neck_splice <-> lower_bill_pad
+
+## 3) Ayni link ici cakismalar (HOME pozu, > 1 mm3)
+  -> 0 cakisma (0 izinli)

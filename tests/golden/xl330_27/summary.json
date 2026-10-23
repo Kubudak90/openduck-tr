@@ -1,0 +1,18 @@
+{
+  "robot": "OpenDuck (Microduck benzeri)",
+  "mass_kg": 0.676,
+  "printed_mass_kg": 0.296,
+  "height_stand_mm": 272.7,
+  "height_zero_pose_mm": 265.6,
+  "size_stand_mm": [
+    124.5,
+    146.0,
+    272.7
+  ],
+  "dof_total": 15,
+  "servo_count": 15,
+  "servo_model": "DYNAMIXEL XL330-M288-T",
+  "printed_parts": 34,
+  "links": 16,
+  "trunk_height_stand_mm": 118.3
+}
