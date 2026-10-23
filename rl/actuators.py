@@ -35,9 +35,6 @@ Fonksiyonlar xp (numpy | jax.numpy) ilk arguman, toplu ya da tek ortam (task_mat
 import mujoco
 import numpy as np
 
-from . import config as C
-
-PROFILES = tuple(C.ROBOT_PROFILES)
 TR35 = "tr35_b2"
 MARK = "openduck_robot:"           # derlenmis modelde profil isareti (mjOBJ_TEXT adi)
 PLAY_SUFFIX = "_play"
@@ -65,6 +62,12 @@ JOINT_CLASS = {TR35: {
 RAILS = {"leg": dict(volt=6.5, i_cc=16.0), "aux": dict(volt=6.0, i_cc=None)}   # 20 A buck CC ~16 A; XL4015
 I_CC = RAILS["leg"]["i_cc"]
 
+# config buradan sonra: tr35_b2 surecinde config import'unun sonunda CLASSES/JOINT_CLASS okunur (bas egim siniri);
+# hangi modul once yuklenirse yuklensin dongusel import bu tablolar tanimliyken olur
+from . import config as C  # noqa: E402
+
+PROFILES = tuple(C.ROBOT_PROFILES)
+
 # bolum basina DR (spec 4; Adim 0 sonrasi kabulde olculenin +-%15'ine daralir). Carpanlar nominale; P-bandi
 # log-duzgun (derece); bosluk tam genislik (derece, yalniz DS); gecikme alt adim (kart 0, kart 1).
 DR = {
@@ -84,6 +87,16 @@ def profile(robot=None):
     r = C.ROBOT_PROFILE if robot is None else str(robot)
     if r not in PROFILES:
         raise ValueError("robot profili %r (gecerli: %s)" % (r, ", ".join(PROFILES)))
+    return r
+
+
+def env_profile(robot=None):
+    """Ortamlarin robot= dogrulamasi: profile(robot); tr35_b2 SURECINDE (config.ROBOT_PROFILE, geometri/gorev profili)
+    yalniz None | "tr35_b2" (xl330 surecinde robot="tr35_b2" 27 cm MJCF'de de calisir)."""
+    r = profile(robot)
+    if C.ROBOT_PROFILE == TR35 and r != TR35:
+        raise ValueError("tr35_b2 surecinde robot=%r gecersiz (None ya da %r; OPENDUCK_ROBOT surec profilini secer)"
+                         % (robot, TR35))
     return r
 
 

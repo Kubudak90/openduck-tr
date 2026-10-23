@@ -20,7 +20,10 @@ hedef, PWM kuantalama, olu bant, LEG ray CC olceklemesi; her alt adimda pot/IMU 
 modelinden (q/qd pot, gyro, tamamlayici filtre gravity), oduller/kritik gercek durumdan; genel OBS_NOISE kapali.
 RNG: bolum basina sifirlama blogundan SONRA rng.random(actuators.n_uniform(nu) + sensors.n_episode(14)), her adimda
 U blogundan SONRA rng.random(N_SUBSTEPS * sensors.n_tick(14)). backlash=True: DS bosluk eklemleri (bankalar
-robot_model.expand_state ile genisletilir).
+robot_model.expand_state ile genisletilir). tr35_b2 SURECINDE (OPENDUCK_ROBOT) robot None ya da "tr35_b2" olmali.
+Poz bankalari ortamin robot'u ve sahnesiyle (pose_bank.bank(..., robot=, scene_path=)).
+getup_head (yalniz getup): "free" (varsayilan C.GETUP_HEAD_DEFAULT) bas politikada; "fixed" kirpmadan sonra 4 bas aksiyonu
+0 ve bas hedefi radians(C.HEAD_TUCK_DEG) (mutlak); gozlem/aksiyon duzeni ayni.
 """
 import copy
 import multiprocessing as mp
@@ -115,9 +118,10 @@ def reset_spec(task, reset_probs=None):
     return t2
 
 
-def load_banks(task, reset_probs=None, bank_n=None, variant=None):
+def load_banks(task, reset_probs=None, bank_n=None, variant=None, robot=None, scene_path=None):
     """Gorevin olasiligi > 0 olan bankali sifirlama turleri icin poz bankalari {tur: {qpos, qvel, ctrl, label}}.
-    bank_n: None (config boyutlari), int ya da {tur: n} (testler / hizli oynatma icin onek)."""
+    bank_n: None (config boyutlari), int ya da {tur: n} (testler / hizli oynatma icin onek). robot/scene_path: ortamin
+    aktuator modeli ve sahnesi (None: surec varsayilani)."""
     t = reset_spec(task, reset_probs)
     variant = variant or t.model_variant
     out = {}
@@ -125,7 +129,7 @@ def load_banks(task, reset_probs=None, bank_n=None, variant=None):
         if p <= 0 or kind not in PB.KINDS:
             continue
         n = bank_n.get(kind) if isinstance(bank_n, dict) else bank_n
-        b = PB.bank(kind, n)
+        b = PB.bank(kind, n, robot=robot, scene_path=scene_path)
         PB.check_variant(b, variant)
         out[kind] = {k: b[k] for k in ("qpos", "qvel", "ctrl", "label")}
     return out
@@ -224,6 +228,10 @@ class _EnvSlice(object):
         self.K = int(self.dr["action_delay_steps"][1]) if self.randomize else 0
         if self.task == "getup":
             self.act_scale = TK.action_scale_vector(spec, idx.default_action_q, idx.action_lo, idx.action_hi)
+        self.getup_head = flags.get("getup_head") or C.GETUP_HEAD_DEFAULT
+        self.head_fixed = self.task == "getup" and self.getup_head == "fixed"
+        if self.head_fixed:                 # bas aksiyon boyutlari ve toplanmis bas hedefi (mutlak)
+            self.head_mask, self.head_tuck = T.head_fix_arrays(np, spec.action_joints)
 
         # adim basina cekilen duzgun sayilarin yerlesimi (her ortam her adimda ayni miktari tuketir)
         self.o_noise, nu = 0, (self.num_obs if self.noise_obs else 0)
@@ -760,8 +768,11 @@ class _EnvSlice(object):
             return T.action_to_targets(np, a, idx.default_action_q)
         if self.task == "main":
             return T.action_to_targets(np, a, ref["q_ref"])
-        return T.action_to_targets(np, a, idx.default_action_q, scale=self.act_scale, clip=self.spec.action_clip,
+        t, a = T.action_to_targets(np, a, idx.default_action_q, scale=self.act_scale, clip=self.spec.action_clip,
                                    lo=idx.action_lo, hi=idx.action_hi)
+        if self.head_fixed:
+            t, a = T.fixed_head(np, t, a, self.head_mask, self.head_tuck)
+        return t, a
 
     def _substeps_head_peak(self, m, d, nsub):
         """nsub kez mj_step(m, d) (mj_step(m, d, nsub) ile bit-duzeyinde ayni); dondurur: alt adimlarin her birinden
@@ -1064,8 +1075,10 @@ class VecEnv(object):
     model_variant      fizik modeli degisikligi (oynatma: main politikasi getup modelinde, devir icin ayni geomlar)
     head_force_peak    True: fizik alt adim alt adim (dinamik ayni); task_state()["head_force_peak"] (N,) = son kontrol
                        adimindaki alt adimlarin kafa-zemin normal kuvveti en buyugu (N; degerlendirme A4)
-    robot              None (config.ROBOT_PROFILE) | "xl330_27" | "tr35_b2" (aktuator + sensor modeli; modul notu)
+    robot              None (config.ROBOT_PROFILE) | "xl330_27" | "tr35_b2" (aktuator + sensor modeli; modul notu);
+                       tr35_b2 surecinde yalniz None | "tr35_b2"
     backlash           tr35: DS eklemlerinde seri bosluk eklemi (None/False: yok)
+    getup_head         None (C.GETUP_HEAD_DEFAULT) | "free" | "fixed" (yalniz getup; modul notu); self.getup_head
     """
 
     num_obs = C.NUM_OBS                 # sinif degerleri walk icin; ornek degerleri gorevden
@@ -1077,9 +1090,10 @@ class VecEnv(object):
                  push=True, fixed_command=None, start_method=None, scene_path=None, textures=None,
                  task="walk", terminate=True, reset_probs=None, max_episode_steps=None, progress=0.0,
                  episode_details=False, bank_n=None, model_variant=None, head_force_peak=False, robot=None,
-                 backlash=None):
+                 backlash=None, getup_head=None):
         self.spec = spec = TK.get_task(task)
-        self.robot = ACT.profile(robot)
+        self.robot = ACT.env_profile(robot)
+        self.getup_head = TK.getup_head_mode(getup_head, spec)
         self.backlash = bool(backlash)
         self.task = spec.name
         self.num_obs, self.num_critic_obs, self.num_actions = spec.num_obs, spec.num_critic_obs, spec.num_actions
@@ -1102,8 +1116,10 @@ class VecEnv(object):
         flags = dict(randomize=randomize, noise=noise, head_random=head_random, push=push, task=self.task,
                      terminate=terminate, reset_probs=None if reset_probs is None else dict(reset_probs),
                      max_episode_steps=max_episode_steps, progress=float(progress), model_variant=model_variant,
-                     head_force_peak=bool(head_force_peak), robot=self.robot, backlash=self.backlash)
-        banks = load_banks(spec, reset_probs, bank_n, self.model_variant) if self.task != "walk" else {}
+                     head_force_peak=bool(head_force_peak), robot=self.robot, backlash=self.backlash,
+                     getup_head=self.getup_head)
+        banks = load_banks(spec, reset_probs, bank_n, self.model_variant, self.robot, scene_path) \
+            if self.task != "walk" else {}
         self._progress = float(progress)
         self._core, self._conns, self._procs, self._broken, self._idx = None, [], [], False, None
         self._finalizer = None

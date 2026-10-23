@@ -15,6 +15,15 @@ ayricalikli parcalar (kritik = aktor (gurultusuz) + critic_layout). Ad -> anlam 
   (x OBS_SCALES.joint_vel), last_action num_actions, command (walk: [vx,vy,wz]; main: [vx,vy,wz,h_n,sit]),
   posture 2 ([h_ref_n, alpha]), phase 2 (cos/sin), linvel 3, trunk_z 1, foot_contact 2, foot_z 2,
   friction 1, trunk_floor 1, head_floor 1.
+
+Profil (config.ROBOT_PROFILE, surec basina): xl330_27 TaskSpec'leri bugunku ile ayni. tr35_b2: sabitler tr35 config'ten
+(odul anahtarlari "torques" -> "torque_ratio" + limit_torque, rail_demand; getup 12 s), uc gorevde aktor (256,128,64)
+/ kritik (512,256,128) ve MJX Newton yinelemesi walk 8, main 8, getup 16 (ls 8, egitici varsayilani). Olcum (P5a,
+tr35 stub, CPU-JAX, DR + gurultu): 4 yineleme yakinsamiyor (tek adim dv p99 0.2-1.5 rad/s); 8'de p99 <= 1e-6, en
+buyuk 2.5e-3 (main) / 0.08 rad/s (getup, nadir yapis-kay); 16'da en buyuk <= 1.7e-4. 16'nin 8'e maliyeti 256 ortamda
++%2-3, 2048 ortamda +%8-12; frictionloss %1'e cekmek hiz kazandirmiyor (spec %3'te kalir). tools/mjx_solver_bench.py.
+getup aksiyon olcegi tr35'te kafa eklemlerinde C.GETUP_HEAD_SCALE ile sinirli (eski kafa-yaw savurma stratejisi yerine
+guclu DS boyun + bacaklar; neck_pitch tam ctrlrange eslemesi).
 """
 import numpy as np
 
@@ -22,6 +31,17 @@ from . import config as C
 
 TASK_NAMES = ("walk", "main", "getup")
 GETUP_ACTION_JOINTS = tuple(C.LEG_JOINTS) + tuple(C.HEAD_JOINTS)
+_TR35 = C.ROBOT_PROFILE == "tr35_b2"
+# tr35: (aktor, kritik, MJX Newton yinelemesi); xl330: mevcut degerler (modul notu)
+_NET35 = ((256, 128, 64), (512, 256, 128))
+_SOLVER35 = {"walk": 8, "main": 8, "getup": 16}
+
+
+def _net(name, actor, critic, solver):
+    """{actor_hidden, critic_hidden, solver_iterations}: tr35 profilinde tr35 degerleri, yoksa verilenler."""
+    if _TR35:
+        actor, critic, solver = _NET35 + (_SOLVER35[name],)
+    return {"actor_hidden": actor, "critic_hidden": critic, "solver_iterations": solver}
 
 
 class TaskSpec(object):
@@ -94,8 +114,8 @@ WALK = TaskSpec(
     reward_weights=dict(C.REWARD_WEIGHTS), reward_late={}, late_p=None,
     termination_penalty=C.TERMINATION_PENALTY, terminate_on_fall=True, episode_length_s=C.EPISODE_LENGTH_S,
     reset_probs=(("home", 1.0),), segment_names=(), segment_probs=(), head_mode="random",
-    gamma=None, actor_hidden=None, critic_hidden=None, init_noise_std=None, solver_iterations=None,
-    episode_metrics=(),
+    gamma=None, init_noise_std=None, episode_metrics=(),
+    **_net("walk", None, None, None)
 )
 
 MAIN = TaskSpec(
@@ -108,7 +128,8 @@ MAIN = TaskSpec(
     termination_penalty=C.TERMINATION_PENALTY, terminate_on_fall=True, episode_length_s=C.MAIN_EPISODE_S,
     reset_probs=tuple(C.MAIN["reset_probs"].items()), segment_names=tuple(C.MAIN_SEGMENTS),
     segment_probs=tuple(C.MAIN["segment_probs"]), head_mode="script",
-    gamma=0.97, actor_hidden=None, critic_hidden=None, init_noise_std=None, solver_iterations=8,
+    gamma=0.97, init_noise_std=None,
+    **_net("main", None, None, 8),
     episode_metrics=("walk_steps", "sit_steps", "seated_ok_steps", "standup_attempts", "standup_success",
                      "sitdown_attempts", "sitdown_success", "falls_walk", "falls_sit", "falls_transition"),
 )
@@ -123,9 +144,10 @@ GETUP = TaskSpec(
     late_p=tuple(C.GETUP["late_p"]),
     termination_penalty=C.TERMINATION_PENALTY, terminate_on_fall=False, episode_length_s=C.GETUP_EPISODE_S,
     reset_probs=tuple(C.GETUP["reset_probs"].items()), segment_names=(), segment_probs=(), head_mode="policy",
-    gamma=0.99, actor_hidden=(512, 256, 128), critic_hidden=(512, 256, 128),
+    gamma=0.99,
+    **_net("getup", (512, 256, 128), (512, 256, 128), 8),
     # tam ctrlrange eslemesi (S_j 25-170 derece): 1.0 gurultu %32 kirpilan bang-bang verir; 0.5 ~ microduck
-    init_noise_std=0.5, solver_iterations=8,
+    init_noise_std=0.5,
     episode_metrics=("getup_success", "head_impacts", "head_impact_v2", "torque_sat_steps"),
 )
 
@@ -144,12 +166,28 @@ def get_task(task="walk"):
 
 def action_scale_vector(task, default_action_q, action_lo, action_hi):
     """(num_actions,) eklem basina aksiyon olcegi. walk/main: ACTION_SCALE; getup:
-    S_j = max(|hi_j - HOME_j|, |lo_j - HOME_j|) (RobotIndex.action_lo/hi, default_action_q)."""
+    S_j = max(|hi_j - HOME_j|, |lo_j - HOME_j|) (RobotIndex.action_lo/hi, default_action_q); C.GETUP_HEAD_SCALE
+    varsa (tr35) o eklemlerde S_j = min(S_j, GETUP_HEAD_SCALE[j])."""
     t = get_task(task)
     if t.action_mode == "home_clip":
         q0 = np.asarray(default_action_q, dtype=np.float64)
-        return np.maximum(np.abs(np.asarray(action_hi) - q0), np.abs(np.asarray(action_lo) - q0))
+        s = np.maximum(np.abs(np.asarray(action_hi) - q0), np.abs(np.asarray(action_lo) - q0))
+        for j, n in enumerate(t.action_joints):
+            if C.GETUP_HEAD_SCALE and n in C.GETUP_HEAD_SCALE:
+                s[j] = min(s[j], float(C.GETUP_HEAD_SCALE[n]))
+        return s
     return np.full(t.num_actions, float(t.action_scale))
+
+
+def getup_head_mode(getup_head, task="getup"):
+    """Ortamlarin getup_head= dogrulamasi: None -> C.GETUP_HEAD_DEFAULT; C.GETUP_HEAD_MODES disi ValueError; getup'ta
+    "fixed" C.HEAD_TUCK_DEG ister (xl330: yok -> ValueError). walk/main'de etkisiz (deger saklanir)."""
+    g = C.GETUP_HEAD_DEFAULT if getup_head is None else str(getup_head)
+    if g not in C.GETUP_HEAD_MODES:
+        raise ValueError("getup_head=%r (gecerli: %s)" % (getup_head, ", ".join(C.GETUP_HEAD_MODES)))
+    if g == "fixed" and get_task(task).name == "getup" and C.HEAD_TUCK_DEG is None:
+        raise ValueError("getup_head='fixed' icin C.HEAD_TUCK_DEG gerekli (profil %s)" % C.ROBOT_PROFILE)
+    return g
 
 
 def pad_command(task, command):
