@@ -238,6 +238,15 @@ def _write_mjcf(model, data, stand, base_z, path):
             q = _quat_x(d["box_angle_x"])
             L.append('%s  <geom name="%s_collision" class="collision" pos="%s %s %s" quat="%s" size="%s %s %s"/>'
                      % (sp, name, _f(c.x), _f(c.y), _f(c.z), " ".join(_f(x) for x in q), _f(h[0]), _f(h[1]), _f(h[2])))
+        # parca adli carpisma kutulari (meta["collision_geoms"]: Item adlari; TR-35 cene/alin tamponu "neck_bumper",
+        # spec 3.1); meta'da yoksa (27 cm) hicbir sey yazilmaz
+        for it in model.links[name].items:
+            if it.name in model.meta.get("collision_geoms", ()):
+                gc, gh, ga = it.collision_box
+                gc = gc - model.links[name].origin
+                L.append('%s  <geom name="%s" class="collision" pos="%s" quat="%s" size="%s"/>'
+                         % (sp, it.name, _vec_m(gc), " ".join(_f(x) for x in _quat_x(ga)),
+                            " ".join(_f(v / 1000.0) for v in gh)))
         if name == "trunk":
             imu = [it for it in model.links["trunk"].items if it.name == model.meta["imu_item"]][0]
             ic = imu.shape.BoundBox.Center - model.links["trunk"].origin
