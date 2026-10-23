@@ -98,4 +98,54 @@ def build_xl330(m, sv):
         m.shared.setdefault("hip_yaw_horn", {})[side] = h
 
 
-GENERATORS = {"xl330_27": build_xl330}
+# ---------------------------------------------------------------------------
+# TR-35 yer tutucu (P2-0 arayuz dondurma; P2b bu bolumu sasi, kabuk, elektronik yerlesimi, havalandirma ile
+# degistirir: cad/trunk.py + cad/electronics.py)
+# ---------------------------------------------------------------------------
+def build_tr35_stub(m, sv):
+    """TR-35 govdesi, P2-0 yer tutucu: kalca yaw ES3054 + doner tabla yataklari (2 rulman/bacak, yuva tupu),
+    boyun DS govdesi + idler yuvasi (horn ve idler pimi -> shared, P2c boyun link'ine ekler), elektronik zarflari
+    (cad/electronics.py, params.trunk.electronics yerlesimi), sasi kutle bloklari. Kabuk ve gercek sasi P2b."""
+    import electronics
+    from geom import box, zcyl
+    servos.require(m, sv, ("hip_yaw",), "ES3054", "trunk.tr35_b2")
+    servos.require(m, sv, ("neck_pitch",), "DS32XX", "trunk.tr35_b2")
+    p, T = m.p, m.p["trunk"]
+    tt = servos.turntable_stack(p["turntable"])
+    b = tt["bearing_rec"]
+    yx, yy, _ = p["j_hip_yaw"]
+    for side, mir in (("left", False), ("right", True)):
+        sp = m.servo_parts("hip_yaw", mir, horn_toward=T["hip_yaw_horn_toward"])
+        m._add("trunk", side + "_hip_yaw_servo", sp["body"], "servo", m.servo_mass("hip_yaw"))
+        m.shared.setdefault("hip_yaw_horn", {})[side] = sp["horn"]
+        sy = -1.0 if mir else 1.0
+        hz0, hz1 = tt["lower"][0], tt["upper"][1]
+        hous = zcyl(tt["housing_r"], yx, sy * yy, hz0, hz1).cut(zcyl(b["D"] / 2.0, yx, sy * yy, hz0 - 1, hz1 + 1))
+        r = tt["housing_r"]       # iki yuva ortada birlesir (P2b tek parca yapar): yer tutucuda y = 0'da ayrik
+        hous = hous.common(box(yx - r - 1, yx + r + 1, 0.0 if sy > 0 else -yy - r - 1, yy + r + 1 if sy > 0 else 0.0,
+                               hz0 - 1, hz1 + 1))
+        m._add("trunk", side + "_hip_yaw_housing", hous, "bracket")
+        for k, (z0, z1) in (("lo", tt["lower"]), ("hi", tt["upper"])):
+            ring = zcyl(b["D"] / 2.0, yx, sy * yy, z0, z1).cut(zcyl(b["d"] / 2.0, yx, sy * yy, z0 - 1, z1 + 1))
+            m._add("trunk", "%s_hip_yaw_bearing_%s" % (side, k), ring, "metal", b["mass_g"] / 1000.0)
+    # boyun: DS govdesi trunk'ta sabit (spec 3.1, horn -y); besik idler yuvasi + rulman trunk'ta
+    sp = m.servo_parts("neck_pitch", horn_toward=T["neck_horn_toward"])
+    m._add("trunk", "neck_pitch_servo", sp["body"], "servo", m.servo_mass("neck_pitch"))
+    m._add("trunk", "neck_pitch_idler_seat", sp["idler_seat"], "bracket")
+    m._add("trunk", "neck_pitch_idler_bearing", sp["idler_bearing"], "metal",
+           servos.BEARINGS[p["idler"]["bearing"]]["mass_g"] / 1000.0)
+    m.shared["neck_pitch_horn"] = sp["horn"]
+    m.shared["neck_pitch_idler_pin"] = sp["idler_pin"]
+    # elektronik (gercek zarf kutulari) ve sasi kutle bloklari
+    for name, pl in T["electronics"].items():
+        part = name.rsplit("#", 1)[0]
+        rec = electronics.PARTS[part]
+        shape = electronics.solid(part, pl[:3], pl[3] if len(pl) > 3 else 0.0, pl[4] if len(pl) > 4 else "xyz")
+        m._add("trunk", name.replace("#", "_"), shape, rec["kind"], rec["mass_g"] / 1000.0)
+    for name, (c, half, mass_g) in T["mass_blocks"].items():
+        blk = box(c[0] - half[0], c[0] + half[0], c[1] - half[1], c[1] + half[1], c[2] - half[2], c[2] + half[2])
+        m._add("trunk", name, blk, "bracket", mass_g / 1000.0)
+    m.meta["imu_item"] = T["imu_item"]
+
+
+GENERATORS = {"xl330_27": build_xl330, "tr35_b2": build_tr35_stub}
