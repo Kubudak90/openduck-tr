@@ -3,9 +3,10 @@
 sysID testleri: bilinen servodan (synth) uretilen Adim 0 log'larindan parametreler +-%5 icinde geri bulunur.
 
   python -m pytest tools/sysid/tests -q -p no:cacheprovider
-Sentetik servo: model.simulate (MuJoCo position aktuatoru + eklem sonumu/armature/frictionloss + play olu bant +
-gecikme); algilayicilar gercekci gurultulu (pot 0.6 mV pin, INA 1.5 mA, aciolcer hizalama 0.15 derece, pot egriligi).
-Ayrica analitik modelin MuJoCo tek eklemiyle ayni anlamda oldugu kontrol edilir.
+Sentetik servo: model.simulate (MuJoCo position aktuatoru + eklem sonumu/armature/frictionloss + gecikme + olu bant =
+hata olu bolgesi, rl/actuators.dead_band, half = deadband/2); algilayicilar gercekci gurultulu (pot 0.6 mV pin, INA
+1.5 mA, aciolcer hizalama 0.15 derece, pot egriligi). Ayrica analitik modelin MuJoCo tek eklemiyle (olu bant her
+mj_step oncesi ctrl'ye uygulanarak) ayni anlamda oldugu kontrol edilir.
 """
 import math
 import sys
@@ -187,7 +188,7 @@ def test_model_basics():
     m = (t > 0.12) & (t < 0.2)
     w = np.polyfit(t[m], s["q"][m], 1)[0]
     assert abs(w / p.omega_noload - 1) < 0.01                         # yuksuz plato = (tau_s - tf)/b
-    # kalinti: play + surtunme (db/2 + tf/kp) ve hareket yokken akim ~ bosta
+    # kalinti: olu bant + surtunme (db/2 + tf/kp) ve hareket yokken akim ~ bosta
     assert abs(s["q"][-1] - math.radians(60)) < 0.5 * p.deadband + p.frictionloss / p.kp + 1e-4
     assert abs(s["i_avg"][-1] - p.i_idle) < 0.01
     y = M.play(np.array([0, 1, 2, 1.8, 1.0, 1.0]), 0.4, y0=0.0)
@@ -198,26 +199,58 @@ def test_model_basics():
     assert M.heat_center(2.0, 1.47, 0.2) is None
 
 
-def test_analytic_model_matches_mujoco():
-    """Analitik servo = MuJoCo position aktuatoru (kp, forcerange) + eklem damping/armature/frictionloss."""
-    mujoco = pytest.importorskip("mujoco")
-    p = M.ServoParams(deadband=0.0, latency=0.0, frictionloss=0.05)
+def _mujoco_servo(mujoco, p):
     xml = """<mujoco><option timestep="0.00025" integrator="Euler"><flag gravity="disable" contact="disable"/></option>
       <worldbody><body><inertial pos="0 0 0" mass="1e-6" diaginertia="1e-9 1e-9 1e-9"/>
       <joint name="j" type="hinge" axis="0 0 1" damping="%g" armature="%g" frictionloss="%g"/></body></worldbody>
       <actuator><position joint="j" kp="%g" forcelimited="true" forcerange="%g %g"/></actuator></mujoco>""" % (
         p.damping, p.armature, p.frictionloss, p.kp, -p.tau_s, p.tau_s)
     mdl = mujoco.MjModel.from_xml_string(xml)
-    d = mujoco.MjData(mdl)
+    return mdl, mujoco.MjData(mdl)
+
+
+def _mujoco_step_response(mujoco, mdl, d, amp, half, dur=0.3):
+    """Basamak yaniti; olu bant rl/actuators.dead_band gibi her mj_step oncesi: e = komut - q,
+    ctrl = q + sign(e)*max(|e| - half, 0)."""
+    mujoco.mj_resetData(mdl, d)
+    n = int(round(dur / mdl.opt.timestep))
+    qs = np.empty(n)
+    for i in range(n):
+        q = float(d.qpos[0])
+        e = amp - q
+        d.ctrl[0] = q + math.copysign(max(abs(e) - half, 0.0), e)
+        mujoco.mj_step(mdl, d)
+        qs[i] = d.qpos[0]
+    return qs
+
+
+def test_analytic_model_matches_mujoco():
+    """Analitik servo = MuJoCo position aktuatoru (kp, forcerange) + eklem damping/armature/frictionloss."""
+    mujoco = pytest.importorskip("mujoco")
+    p = M.ServoParams(deadband=0.0, latency=0.0, frictionloss=0.05)
+    mdl, d = _mujoco_servo(mujoco, p)
     for amp in (math.radians(2.0), math.radians(30.0)):
-        mujoco.mj_resetData(mdl, d)
-        d.ctrl[0] = amp
-        n = int(0.3 / mdl.opt.timestep)
-        qs = np.empty(n)
-        for i in range(n):
-            mujoco.mj_step(mdl, d)
-            qs[i] = d.qpos[0]
-        t = (np.arange(n) + 1) * mdl.opt.timestep
-        s = M.simulate(p, [0.0], [amp], t, q0=0.0, ceff0=0.0, rc_tau=0.0)
-        err = np.abs(s["q"] - qs).max()
+        qs = _mujoco_step_response(mujoco, mdl, d, amp, 0.0)
+        t = np.arange(len(qs) + 1) * mdl.opt.timestep          # t[0] = 0: mj_step oncesi durum
+        s = M.simulate(p, [0.0], [amp], t, q0=0.0, rc_tau=0.0)
+        err = np.abs(s["q"][1:] - qs).max()
+        # fark MuJoCo'nun yumusak frictionloss'undan (analitik: sert Coulomb tutmasi)
         assert err < 0.03 * amp + math.radians(0.05), (amp, err)
+
+
+def test_dead_band_matches_mujoco_substep_dead_zone():
+    """Olu bant: analitik hata olu bolgesi = MuJoCo'da her alt adimda ctrl = q + sign(e)*max(|e| - db/2, 0)
+    (rl/actuators.dead_band, half = deadband/2). Surtunmesiz (bant icinde yalniz sonum durdurur): esit olmali.
+    Bant icinde sertlik 0: servo komutun db/2 gerisinde durmaz, sonumle bant icine kayar (play'de durur)."""
+    mujoco = pytest.importorskip("mujoco")
+    p = M.ServoParams(deadband=math.radians(2.0), latency=0.0, frictionloss=0.0)
+    half = 0.5 * p.deadband
+    mdl, d = _mujoco_servo(mujoco, p)
+    for amp in (math.radians(1.5), math.radians(2.0), math.radians(5.0), math.radians(30.0)):
+        qs = _mujoco_step_response(mujoco, mdl, d, amp, half)
+        t = np.arange(len(qs) + 1) * mdl.opt.timestep
+        s = M.simulate(p, [0.0], [amp], t, q0=0.0, rc_tau=0.0)
+        err = np.abs(s["q"][1:] - qs).max()
+        assert err < math.radians(0.005), (math.degrees(amp), math.degrees(err))
+        q_end = float(s["q"][-1])
+        assert amp - half + math.radians(0.05) < q_end < amp + half, (math.degrees(amp), math.degrees(q_end))

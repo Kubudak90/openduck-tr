@@ -15,8 +15,10 @@ Siralama (her adim oncekilerin sonucunu kullanir; eksik test -> ilgili alanlar N
     frictionloss sabit; Latin hiperkup + LM + merkezi fark cilasi), sonra model tabanli frictionloss + i_idle
     (yavas ramp parcalarinin tik-ortalamali akimi) ve dinamik cila   8 track: 300 Hz / 3.3 V kabul
   9 overshoot: ray asimi   10 heat: T_diz   11 kapi: u(kappa), karar tablosu
-Neden bu ayrim: yavas/duragan testlerde olu bant ile surtunme ayni izi birakir (play genisligi db + 2*tau_f/kp)
-ve plato hizinda tau_f, tau_s'ten ayrilamaz; surtunmeyi sabit hizdaki besleme akimi (I ~ tau_act*tau_net) ayirir.
+Olu bant: model.simulate'teki hata olu bolgesi (rl/actuators.py dead_band, half = deadband/2; e = c - q her alt
+adimda). Neden bu ayrim: yavas/duragan testlerde olu bant ile surtunme ayni izi birakir (histerezis genisligi
+db + 2*tau_f/kp) ve plato hizinda tau_f, tau_s'ten ayrilamaz; surtunmeyi sabit hizdaki besleme akimi
+(I ~ tau_act*tau_net) ayirir.
 Aci: pot alt/ust ucu (ADS AIN2-3, ADC1 ph) bagliysa oranli/duzeltmeli okuma kullanilir; tek uclu okuma hizli
 adimlarda akim kadar kayar (ortak-mod hata, ayrica raporlanir).
 """
@@ -44,6 +46,16 @@ def _tail(run, t0, t1, frac=0.5, col=None):
     v = run.d[col][m]
     v = v[np.isfinite(v)]
     return float(np.mean(v)) if len(v) else float("nan")
+
+
+def _q_rest(c, q):
+    """Pencere basindaki durgun konum: komut ilk kez degisene kadarki orneklerin ortalamasi (pencereler onceki
+    tutmada baslar; gecikme + RC yuzunden bu ornekler hareketten oncedir). Hata olu bolgesinde durgun servo bant
+    icinde herhangi bir yerde durabilir (yay geri cekmez): tek ornegin gurultusu hareketin baslangicini kaydirirdi."""
+    c, q = np.asarray(c, float), np.asarray(q, float)
+    ch = np.abs(c - c[0]) > 1e-12
+    n = int(np.argmax(ch)) if ch.any() else len(c)
+    return float(np.mean(q[:max(n, 1)]))
 
 
 def _linfit(x, y):
@@ -448,8 +460,8 @@ def fit_friction_model(run, pm, cm, p, omega_p, i_stall, tf0, rc_tau, dt=2.5e-4)
         use = sorted(cand, key=lambda c: c[0])[:6]
     for share, t0, t1, kv, a, b_, m in use:
         wmask = run.mask(t0 - 0.05, t1)
-        d = int(kv.get("dir", 1))
-        wins.append((run.t[wmask], cm.rad(run.d["cmd_us"][wmask]), pm.rad_d(run.d, wmask), d, a, b_))
+        c = cm.rad(run.d["cmd_us"][wmask])
+        wins.append((run.t[wmask], c, _q_rest(c, pm.rad_d(run.d, wmask)), a, b_))
         segs.append(float(np.mean(run.d["i_ma"][m])) * 1e-3)
     if len(segs) < 2:
         return None
@@ -460,9 +472,9 @@ def fit_friction_model(run, pm, cm, p, omega_p, i_stall, tf0, rc_tau, dt=2.5e-4)
         b = (q.tau_s - tf) / omega_p
         q.omega0 = q.tau_s / b
         out = []
-        for t, c, qm, d, a, b_ in wins:
-            s = M.simulate(q, t, c, t, q0=float(qm[0]), ceff0=float(c[0]) + d * 0.5 * q.deadband, dt=dt,
-                           rc_tau=rc_tau)
+        for t, c, q0, a, b_ in wins:
+            # pencere onceki tutmada baslar: onceki komut c[0]; olu bant durumu yalniz durgun q0'dan (_q_rest)
+            s = M.simulate(q, t, c, t, q0=q0, c_prev=float(c[0]), dt=dt, rc_tau=rc_tau)
             sel = (t >= a) & (t < b_)
             out.append(float(np.mean(s["i_avg"][sel])))
         return np.array(out)
@@ -498,8 +510,8 @@ class Dyn:
         self.dt = dt
         self.blocks = []           # (tur, veri)
 
-    def add_dyn(self, t, c, q, sigma, ce_dir=0, w=1.0, dec=1):
-        self.blocks.append(("dyn", dict(t=t, c=c, q=q, sig=sigma, ce_dir=ce_dir, w=w, dec=dec)))
+    def add_dyn(self, t, c, q, sigma, w=1.0, dec=1):
+        self.blocks.append(("dyn", dict(t=t, c=c, q=q, q0=_q_rest(c, q), sig=sigma, w=w, dec=dec)))
 
     def add_play(self, c, q, sigma):
         self.blocks.append(("play", dict(c=c, q=q, sig=sigma)))
@@ -513,14 +525,17 @@ class Dyn:
     def resid(self, x, kinds=("dyn", "play")):
         p = self.params(x)
         out = []
+        # yari-duragan blok: hata olu bolgesi + Coulomb surtunmesi statikte play(c, 2h) ile esdegerdir. Servo
+        # kp*(|e| - db/2) < frictionloss iken takili kalir, yani |c - q| < h = db/2 + frictionloss/kp; komut
+        # 1 sayim (asimsiz) ilerledikce q, |c - q| = h sinirinda komutun arkasindan gelir -> genislik 2h.
         h = 0.5 * p.deadband + p.frictionloss / p.kp
         for kind, b in self.blocks:
             if kind not in kinds:
                 continue
             if kind == "dyn":
-                q0 = float(b["q"][0])
-                ce0 = float(b["c"][0]) + b["ce_dir"] * 0.5 * p.deadband if b["ce_dir"] else q0
-                s = M.simulate(p, b["t"], b["c"], b["t"], q0=q0, ceff0=ce0, dt=self.dt, rc_tau=self.rc)
+                # pencereler onceki tutmada baslar (onceki komut c[0]); olu bant gecmisi yok; durum: durgun q0
+                s = M.simulate(p, b["t"], b["c"], b["t"], q0=b["q0"], c_prev=float(b["c"][0]),
+                               dt=self.dt, rc_tau=self.rc)
                 r = (s["q_rc"] - b["q"])[::b["dec"]] / b["sig"] * math.sqrt(b["w"])
             else:
                 y = M.play(b["c"], 2.0 * h, y0=float(b["q"][0]))
@@ -606,11 +621,10 @@ def build_dyn(runs, pm, cm, fixed, rc_tau, noise_deg):
                     continue
                 t2 = segs[k + 1][1] if k + 1 < len(segs) else t1
                 m = r.mask(t0 - 0.05, min(t2, t1 + 0.3))
-                d = int(kv.get("dir", 1))
-                # onceki hareket -d yonundeydi: play cikisi komutun +d*db/2 onunde
-                dyn.add_dyn(r.t[m], cm.rad(r.d["cmd_us"][m]), pm.rad_d(r.d, m), sig, ce_dir=d, dec=2)
+                # yon degisimi: komut bant (db/2 + tf/kp) disina cikana kadar servo durur (baslangic: durgun q0)
+                dyn.add_dyn(r.t[m], cm.rad(r.d["cmd_us"][m]), pm.rad_d(r.d, m), sig, dec=2)
         elif r.program == "deadband":
-            # 1 sayimlik basamaklar asim yapmaz: yari-duragan play modeli gecerli (sweep'in 10 us basamaklari degil)
+            # 1 sayimlik basamaklar asim yapmaz: yari-duragan play esdegeri gecerli (sweep'in 10 us basamaklari degil)
             st = [(t0, t1, kv) for t0, t1, kv in segs if kv.get("kind") == "stair"]
             if len(st) < 6:
                 continue
@@ -909,8 +923,10 @@ def fit_servo(path, mass=1.95, knee_rms=None, verbose=False):
     if tau_s and act["kp"] and b:
         res["mjcf"] = dict(cls=MJCF_CLASS.get(cls), position=dict(kp=act["kp"], forcerange=[-tau_s, tau_s]),
                            joint=dict(damping=b, armature=act["armature"], frictionloss=tf),
-                           deadband_rad=(act["deadband_deg"] or 0.0) * D2R, latency_s=act["latency_s"],
-                           dr_accept_frac=0.15)
+                           deadband_rad=(act["deadband_deg"] or 0.0) * D2R,
+                           deadband_model="hata olu bolgesi, tam genislik: rl/actuators.dead_band(ctrl, q, half = "
+                                          "deadband_rad/2), e = ctrl - q her alt adimda, gecikmeden sonra",
+                           latency_s=act["latency_s"], dr_accept_frac=0.15)
     res["fit"] = dict(speed=sp, friction={k: v for k, v in (fr or {}).items() if k != "segs"} or None,
                       dynamic=dynres, stall={k: v for k, v in (stl or {}).items() if k != "points"} or None,
                       stall_points=(stl or {}).get("points"))

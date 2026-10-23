@@ -2,11 +2,19 @@
 """
 Tek eklemli PWM servo modeli (spec 3.2.3 anlami; MuJoCo position aktuatoru + eklem parametreleri):
 
-  c_eff   = play(c(t - latency), deadband)          olu bant: ctrl sekillendirme (play operatoru, +-db/2)
-  tau_act = clip(kp*(c_eff - q), -tau_s, tau_s)     kp = tau_s / p_band  (actuator_force)
+  c_d     = c(t - latency)                          gecikme olu banttan once, komuta uygulanir
+  e       = c_d - q;  e' = sign(e)*max(|e| - deadband/2, 0);  ctrl' = q + e'
+                                                    olu bant = hata olu bolgesi: her entegrasyon adiminda o anki
+                                                    q'ya karsi; bant icinde P kuvveti 0 (hobi servo |komut - konum|
+                                                    < db/2 iken motoru surmez). rl/actuators.py dead_band(ctrl, q,
+                                                    half) ile ayni kural, half = deadband/2 (deadband tam genislik)
+  tau_act = clip(kp*(ctrl' - q), -tau_s, tau_s)     kp = tau_s / p_band  (actuator_force)
   tau_net = tau_act - b*qd                          b = tau_s / omega0   (eklem sonumu, spec tork tanimi)
   (armature + J_yuk)*qdd = tau_net - frictionloss*sgn(qd) + tau_yuk(q)
   I_besleme = i_stall*|tau_act|*|tau_net|/tau_s^2 + i_idle            (spec 3.2.3)
+Duragan: surtunme servoyu kp*(|e| - db/2) < frictionloss iken tutar, yani |e| < db/2 + frictionloss/kp; yari-duragan
+histerezis genisligi db + 2*frictionloss/kp (play(c, db + 2*frictionloss/kp) esdegeri; fit.Dyn "play" blogu).
+Dinamikte play'den farkli: bant icinde sertlik 0 (play kaydirilmis komut etrafinda tam kp tutardi).
 Pot: aci q'nun dogrusal (+ kucuk egrilik) fonksiyonu; ADC pininde bolucu + RC (tau_rc).
 Bosta hiz (yuksuz plato) = (tau_s - frictionloss)/b; omega0 model parametresidir (tau_s/b).
 Ic dongu duz Python (numpy dizi yukunden hizli; ~1.5 us/adim). Birimler SI (rad, N.m, s, A).
@@ -61,9 +69,11 @@ def supply_current(p, tau_act, tau_net):
     return p.i_stall * np.abs(tau_act) * np.abs(tau_net) / p.tau_s ** 2 + p.i_idle
 
 
-def simulate(p, t_cmd, c_cmd, t_out, load=None, q0=None, qd0=0.0, ceff0=None, dt=2.5e-4, rc_tau=3.2e-3):
+def simulate(p, t_cmd, c_cmd, t_out, load=None, q0=None, qd0=0.0, c_prev=None, dt=2.5e-4, rc_tau=3.2e-3):
     """Komut dizisi (t_cmd[k]'dan itibaren c_cmd[k], rad) ile t_out anlarinda durum.
-    Donus: dict q, qd, q_rc (RC suzulmus), tau_act, tau_net, i (besleme)."""
+    c_prev: ilk komut + gecikmeden once etkin olan (onceki) komut, rad; None: q0 (hata 0, motor bant icinde).
+    Olu bant her alt adimda o anki q'ya karsi uygulanir (hata olu bolgesi, ustteki formul); gecmis durumu yoktur.
+    Donus: dict q, qd, q_rc (RC suzulmus), tau_act, tau_net, i (besleme), c_end (sondaki etkin komut)."""
     load = load or Load()
     tc = [float(x) for x in t_cmd]
     cc = [float(x) for x in c_cmd]
@@ -77,9 +87,9 @@ def simulate(p, t_cmd, c_cmd, t_out, load=None, q0=None, qd0=0.0, ceff0=None, dt
     t = to[0]
     q = cc[0] if q0 is None else float(q0)
     qd = float(qd0)
-    ce = q if ceff0 is None else float(ceff0)
+    cp = q if c_prev is None else float(c_prev)
     qf = q
-    # k: etkin komut indeksi (-1: ilk komut + gecikmeden once, ce tutulur). Alt adimlar komut gecis anlarinda
+    # k: etkin komut indeksi (-1: ilk komut + gecikmeden once, c_prev etkin). Alt adimlar komut gecis anlarinda
     # (tc + L) bolunur: gecikme alt adim izgarasina kuantalanmaz, maliyet L'de surekli olur.
     k = -1
     while k + 1 < nc and tc[k + 1] + L <= t + 1e-12:
@@ -101,12 +111,14 @@ def simulate(p, t_cmd, c_cmd, t_out, load=None, q0=None, qd0=0.0, ceff0=None, dt
                 tsw = tc[k + 1] + L
                 if tsw < t + h:
                     h = tsw - t
-            c = cc[k] if k >= 0 else ce
-            if c - hw > ce:
-                ce = c - hw
-            elif c + hw < ce:
-                ce = c + hw
-            ta = kp * (ce - q)
+            # olu bant (hata olu bolgesi): e = c - q; kp*(ctrl' - q) = kp*sign(e)*max(|e| - hw, 0)
+            e = (cc[k] if k >= 0 else cp) - q
+            if e > hw:
+                ta = kp * (e - hw)
+            elif e < -hw:
+                ta = kp * (e + hw)
+            else:
+                ta = 0.0
             if ta > ts:
                 ta = ts
             elif ta < -ts:
@@ -140,12 +152,15 @@ def simulate(p, t_cmd, c_cmd, t_out, load=None, q0=None, qd0=0.0, ceff0=None, dt
     out["i"] = supply_current(p, out["tau_act"], out["tau_net"])
     # aralik ortalamali besleme akimi (INA226 ortalama okur); isaretli hali ray modeli icin (fren geri beslemesi)
     out["i_avg"], out["i_signed_avg"] = np.array(oia), np.array(ois)
-    out["ce_end"] = ce
+    while k + 1 < nc and tc[k + 1] + L <= t + 1e-12:
+        k += 1
+    out["c_end"] = cc[k] if k >= 0 else cp
     return out
 
 
 def play(c, width, y0=None):
-    """Play (bosluk) operatoru: cikis, komutun +-width/2 bandinda kalir."""
+    """Play (bosluk) operatoru: cikis, komutun +-width/2 bandinda kalir. Simulasyonda kullanilmaz; yalniz
+    yari-duragan olu bant basamaklarinin statik esdegeri (fit.Dyn "play" blogu, width = db + 2*frictionloss/kp)."""
     hw = 0.5 * width
     y = c[0] if y0 is None else y0
     out = np.empty(len(c))

@@ -122,7 +122,7 @@ class Bench:
         self.dt = dt
         self.t0 = 1.0
         self.cur_us = self.us_c
-        self.state = None          # (q, qd, ce) son kosu sonu
+        self.state = None          # (q, qd, c) son kosu sonu: konum, hiz, etkin (gecikmeli) komut
         self.temp = self.tr.t_amb
         self.mass_g = float(self.cfg.get("mass_g", 0.0))
 
@@ -164,8 +164,8 @@ class Bench:
             n0 = 40
             c = np.concatenate([np.linspace(float(self.tr.us_to_rad(u0)), float(self.tr.us_to_rad(u)), n0),
                                 np.full(len(tt) - n0, float(self.tr.us_to_rad(u)))])
-            q0, qd0, ce0 = st if st else (float(c[0]), 0.0, float(c[0]))
-            sm = M.simulate(self.tr.p, tt, c, tt, load=load, q0=q0, qd0=qd0, ceff0=ce0, dt=self.dt)
+            q0, qd0, c0 = st if st else (float(c[0]), 0.0, float(c[0]))
+            sm = M.simulate(self.tr.p, tt, c, tt, load=load, q0=q0, qd0=qd0, c_prev=c0, dt=self.dt)
             err = q_target - float(sm["q"][-1])
             if abs(err) < 2e-5:
                 break
@@ -213,12 +213,11 @@ class Bench:
                 last = us_f[i]
         c = self.tr.us_to_rad(us_f)
         if sim is None:
-            q0, qd0, ce0 = self.state if self.state else (float(c[0]), 0.0, float(c[0]))
+            q0, qd0, c0 = self.state if self.state else (float(c[0]), 0.0, float(c[0]))
             # INA226 akimi tik araligi boyunca ortalama okur (AVG x donusum ~ tik): i_avg
-            sim = M.simulate(self.tr.p, t, c, t, load=load, q0=q0, qd0=qd0, ceff0=ce0, dt=self.dt,
+            sim = M.simulate(self.tr.p, t, c, t, load=load, q0=q0, qd0=qd0, c_prev=c0, dt=self.dt,
                              rc_tau=self.tr.rc_ms * 1e-3)
-            ce_end = float(sim.get("ce_end", sim["q"][-1]))
-            self.state = (float(sim["q"][-1]), float(sim["qd"][-1]), ce_end)
+            self.state = (float(sim["q"][-1]), float(sim["qd"][-1]), float(sim["c_end"]))
         i_sup = sim.get("i_avg", sim["i"])
         i_signed = sim.get("i_signed_avg", self.tr.p.i_stall * sim["tau_act"] * sim["tau_net"] / self.tr.p.tau_s ** 2
                            + self.tr.p.i_idle)
@@ -555,7 +554,7 @@ class Bench:
             q0 = float(out["sim"]["q"][i0 - 1])
             c_prev = float(tr.us_to_rad(out["us"][i0 - 1]))
             sim = M.simulate(tr.p, [t0 - 1.0, t0], [c_prev, float(tr.us_to_rad(self.quant(u)))], tb,
-                             q0=q0, ceff0=q0, dt=self.dt, rc_tau=0.0)
+                             q0=q0, dt=self.dt, rc_tau=0.0)
             isg = tr.p.i_stall * sim["tau_act"] * sim["tau_net"] / tr.p.tau_s ** 2 + tr.p.i_idle
             v = tr.v_rail - tr.r_src * isg
             vmax = max(vmax, float(v.max()))
@@ -607,7 +606,7 @@ class Bench:
             cf = tr.us_to_rad(u_h + (qc_deg + P["amp_deg"] * np.sin(2 * np.pi * P["f_hz"] * tf)) / self.dpu_nom)
             sm = M.simulate(tr.p, tf, cf, tf, load=ld, q0=float(cf[0]), dt=self.dt, rc_tau=tr.rc_ms * 1e-3)
             sel = tf >= 3 * per
-            sims.append((k0, k1, tf[sel] - 3 * per, {k: v[sel] for k, v in sm.items() if k != "ce_end"}, per))
+            sims.append((k0, k1, tf[sel] - 3 * per, {k: v[sel] for k, v in sm.items() if k != "c_end"}, per))
             msq = float(np.mean(sm["tau_net"][sel] ** 2))
             dTss = tr.k_heat * msq + tr.dT0
             tt = np.arange(nn) / rate

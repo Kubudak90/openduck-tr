@@ -320,7 +320,7 @@ python tools/bench/logger.py --port PORT --servo DS3230-1 --model DS3230 --cls d
 | 1 | `scan`, `osc` | — | Bağlantı kontrolü, PCA osilatörü | 10 s |
 | 2 | `sweep` | serbest | 550→2450 µs basamaklar: µs→açı, aralık, monotonluk, orta uç gerilimi | 1.5 dk |
 | 3 | `potcal` | serbest, açıölçer | Kolu −60/−30/0/30/60° çizgilerine `+5`/`-5` ile getirin, `ok`: pot ofset/ölçek/doğrusallık | 5 dk |
-| 4 | `deadband` | serbest | 1 sayımlık basamaklar: ölü bant (play) | 1 dk |
+| 4 | `deadband` | serbest | 1 sayımlık basamaklar: ölü bant + sürtünme histerezisi | 1 dk |
 | 5 | `speed` | serbest | 100° adımlar: boşta hız, 60° süresi | 30 s |
 | 6 | `step`, `chirp` | serbest | Basamak ve frekans taraması: P-bandı, armature, gecikme | 1.5 dk |
 | 7 | `ramp` | serbest | 5…160 °/s sabit hızlar: sürtünme (hareket akımı), takip gecikmesi | 1.5 dk |
@@ -384,6 +384,9 @@ Bu komut `bench_logs/sysid_params.json` ve `bench_logs/sysid_rapor.md` üretir. 
 
 `sysid_params.json` içindeki `actuator` ve `mjcf` blokları `rl/actuators.py`'e girer:
 kp = τs/P-bandı, forcerange = ±τs, damping = τs/ω0, armature, frictionloss, ölü bant, gecikme.
+Ölü bant (`deadband_rad`) tam genişliktir ve `rl/actuators.py` içindeki `dead_band` ile aynı kuraldır:
+e = ctrl − q, ctrl' = q + sign(e)·max(|e| − ölü bant/2, 0). Kural her alt adımda o anki q ile uygulanır;
+bant içinde P kuvveti 0'dır. Gecikme ölü banttan önce komuta uygulanır.
 Besleme akımı modeli `supply_current` bloğundadır.
 
 ---
