@@ -74,6 +74,9 @@ def test_profile_selection():
         pass
     code = "from rl import config as C, actuators as A; print(C.ROBOT_PROFILE, A.profile(None))"
     env = dict(os.environ, OPENDUCK_ROBOT=TR, PYTHONDONTWRITEBYTECODE="1")
+    if not os.path.isfile(C.DERIVED_PATHS[TR]):          # P5a: tr35 sureci turetilmis dosya ister (derive oncesi)
+        from rl.tests.tr35_scene import bootstrap_for
+        env["OPENDUCK_DERIVED"] = bootstrap_for(C.SCENE_PATH)
     r = subprocess.run([sys.executable, "-c", code], cwd=C.ROOT, env=env, capture_output=True, text=True, timeout=120)
     assert r.returncode == 0 and r.stdout.split() == [TR, TR], (r.stdout, r.stderr)
     env["OPENDUCK_ROBOT"] = "yok"
