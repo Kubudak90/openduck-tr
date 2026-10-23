@@ -648,7 +648,7 @@ def _jaw(m, sv, H, hz):
     tray = tray.cut(rbox(lx0 + w, lx1 - w, -lw + w, lw - w, lz0 + w, lz1 + 1.0, lr - w, 0.0,
                          max(J["bill"]["r_bot"] - w, 0.0)))
     parts.append(tray)
-    parts.append(ycyl(J["pin_r"], mx, mz, -yh1 + 0.01, -W2 + w + J["bushing_wall_gap"] + J["bushing_t"] -
+    parts.append(ycyl(J["pin_r"], mx, mz, -yh1 - 0.01, -W2 + w + J["bushing_wall_gap"] + J["bushing_t"] -
                       J["pin_tip_gap"]))
     low = parts[0].fuse(parts[1:]).removeSplitter()
     low = _cut(low, [ycyl(F["m2_clear_d"] / 2.0, x, z, yh1 - 0.01, yh1 + at + 0.01) for x, z in jscr] +

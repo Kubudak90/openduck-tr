@@ -243,7 +243,14 @@
         "posts": [[-29.0, -24.0, 13.5, 19.5, 30.8, 35.0], [-29.0, -24.0, -19.5, -13.5, 30.8, 35.0]],
         "xl4015_posts": [[-62.0, 17.3], [-44.0, -30.7]], "post_r": 2.5, "pocket_gap": 0.2,
         "floor_notches": [[41.5, 46.5, 20.8, 38.5, -3.5, -1.4]],
-        "seat_pad_t": 0.4, "seat_pad_g": 0.1, "chin_gap": 0.5, "housing_gap": 0.5, "shell_back_y0": 32.0, "shell_back_z0": 3.0,
+        "seat_pad_t": 0.4, "seat_pad_g": 0.1,
+        "_seat_tie": "P2 entegrasyonu ICR-1: idler yuvasi + PETG bag (K_T seat_tie kutusu): kol z araligi, kol x ucu (yuva diskine), govde x ucu (DS govdesinden 0.33), kabuk ic yuzu boslugu, ayak kalinligi (sol on ES3054 tab'i ustunde, tab vidasi M3 x 8), ayak kenari (vida deliginden), ES3054 kasa ucu boslugu",
+        "seat_tie": {"arm_z": [34.6, 39.7], "arm_x1": 30.5, "web_x1": 23.0, "shell_gap": 0.2, "foot_t": 2.0,
+                     "foot_edge": 3.5, "case_gap": 0.25},
+        "_door": "P2 entegrasyonu ICR-2: batarya kapagi (K_T door kutusu, PETG): kalinlik, kaput arka duvarina bosluk, +y kenari (XT30 agzi acik), ust kenar (buck penceresi acik), 4 konum dili (batarya agzinda, y araligi, z araliklari, tunel duvari ucuna bosluk)",
+        "door": {"t": 2.0, "gap": 0.2, "y1": 22.0, "z1": 30.6, "tab_y": [20.3, 21.8], "tab_z": [[2.0, 8.0], [20.0, 26.0]],
+                 "tab_gap": 0.2},
+        "chin_gap": 0.5, "chin_y0": -9.7, "housing_gap": 0.5, "shell_back_y0": 32.0, "shell_back_z0": 3.0,
         "hood": {
           "x1": -25.0, "top_hw": 33.5, "posts": [[-27.0, -25.0, 20.0, 22.0]],
           "ports": [[-93.0, -89.2, -22.0, 22.0, -2.5, 30.8], [-93.0, -89.2, 22.0, 28.2, -2.5, 12.0], [-93.0, -89.2, -27.0, 27.0, 30.6, 58.0]],
@@ -251,7 +258,7 @@
           "intake_side": [-86.0, -64.0, 34.0, 56.0, 3.0, 5.0]
         },
         "shell_cuts": {
-          "left": [[43.3, 47.0, 21.3, 36.7, -2.2, 19.2]],
+          "left": [[43.3, 47.0, 21.3, 36.7, -2.2, 19.2], [19.7, 21.1, 18.9, 21.1, 34.4, 43.8]],
           "right": [[43.3, 47.0, -21.2, -9.7, -2.0, 61.0]]
         },
         "shell_holes": {"left": [], "right": [[33.332, -34.4, 2.8, 13.5, 21.0]]},
@@ -337,7 +344,7 @@
           "d": 6.5,
           "bend_r": 26.0,
           "cross": [5.128, 44.5, -22.435],
-          "in": [[5.128, 44.5, -10.0]],
+          "in": [[5.128, 44.5, -13.5]],
           "out": [[-5.0, 44.5, -30.0]]
         },
         "knee": {
@@ -393,7 +400,9 @@
             ["box", -66.0, -40.0, -36.0, 36.0, -24.0, -3.0],
             ["box", -42.0, -16.0, -40.0, 40.0, 62.0, 72.0],
             ["box", 26.2, 40.5, 21.0, 26.65, 34.4, 48.7],
-            ["cyl", "y", 33.332, 41.537, 0.0, 3.0, -24.0, -21.0]
+            ["cyl", "y", 33.332, 41.537, 0.0, 3.0, -24.0, -21.0],
+            ["box", 19.9, 26.2, 21.0, 26.65, 34.4, 39.7],
+            ["box", -95.0, -92.0, -24.0, 24.0, -3.0, 31.0]
           ],
           "cut": [
             ["cyl", "z", 7.692, 12.0, 0.0, 5.0, -4.0, 24.0],
@@ -413,14 +422,23 @@
           ["cyl", "y", 33.332, 41.537, 0.0, 16.0, 26.75, 34.5],
           ["box", 21.332, 45.332, 26.75, 34.5, 44.586999999999996, 118.0],
           ["box", 21.332, 45.332, -31.4, 34.5, 84.0, 118.0],
-          ["box", 51.0, 59.0, -16.0, 16.0, 88.0, 102.0]
+          ["box", 51.0, 59.0, -16.0, 16.0, 88.0, 102.0],
+          ["box", 45.332, 51.5, -9.5, 9.5, 84.0, 98.0]
         ],
         "head_tilt": [["box", 21.332, 45.332, -27.0, 26.0, 88.0, 136.0]],
         "head_turn": [["box", 3.0, 46.0, -24.0, 20.0, 118.0, 168.0]],
         "head": [["box", -39.044, 118.329, -58.851, 58.851, 126.533, 201.787]],
-        "jaw": [["box", 15.0, 52.0, 50.0, 57.0, 140.0, 164.0]]
+        "jaw": [
+          ["box", 15.0, 52.0, 50.0, 57.0, 140.0, 164.0],
+          ["cyl", "y", 33.46, 152.045, 0.0, 7.0, 56.5, 62.4],
+          ["box", 26.0, 92.0, 58.9, 62.4, 125.0, 159.5],
+          ["box", 26.0, 92.0, -62.4, -58.9, 125.0, 159.5],
+          ["cyl", "y", 33.46, 152.045, 0.0, 3.0, -58.9, -52.0],
+          ["box", 81.5, 116.5, -62.4, 62.4, 125.0, 135.0]
+        ]
       },
-      "scans": "single(limits) + leg_leg(required)"
+      "scans": "single(limits) + leg_leg(required)",
+      "_p2_entegrasyon": "P2 entegrasyonu (orkestrator kararlari, docs/workflow/openduck-tr/p2-entegrasyon.md): trunk.add sonuna ICR-1 boyun idler yuvasi bagi [19.9..26.2, 21..26.65, 34.4..39.7] ve ICR-2 batarya kapagi [-95..-92, -24..24, -3..31]; neck'e tampon govde dili kutusu [45.332..51.5, -9.5..9.5, 84..98]; jaw P2c talebiyle degisti (SG90 horn plakasi + gobek + iki kol + cene cubugu); harness.crossings.hip_pitch.in z -10 -> -13.5 (P2a ICR: hip_roll +-20'de tup K_T'ye girmez)"
     }
   }
 }

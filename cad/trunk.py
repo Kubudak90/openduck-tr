@@ -109,7 +109,8 @@ def build_xl330(m, sv):
 #   elektronik: cad/electronics.py zarflari, yerlesim params.trunk.electronics
 #   kablo (harness): kalca ve boyun demetlerinin govde ici kanallari, batarya ana kablosu
 # ---------------------------------------------------------------------------
-KT_NAMES = ("core", "low_l", "low_r", "mid_l", "mid_r", "flow_l", "flow_r", "back", "belly", "deck", "seat")
+KT_NAMES = ("core", "low_l", "low_r", "mid_l", "mid_r", "flow_l", "flow_r", "back", "belly", "deck", "seat",
+            "seat_tie", "door")      # son ikisi P2 entegrasyonu (ICR-1 idler yuvasi bagi, ICR-2 batarya kapagi)
 
 
 class _D(dict):
@@ -119,11 +120,10 @@ class _D(dict):
 
 
 def _kt(p):
-    """K_T kutulari (p2-interface.md 4.3 sirasi) -> {ad: (x0, x1, y0, y1, z0, z1)}."""
-    add = p["iface"]["envelopes"]["trunk"]["add"]
+    """K_T kutulari (p2-interface.md 4.3 sirasi, silindirler atlanir) -> {ad: (x0, x1, y0, y1, z0, z1)}."""
+    add = [prim for prim in p["iface"]["envelopes"]["trunk"]["add"] if prim[0] == "box"]
     out = {}
     for name, prim in zip(KT_NAMES, add):
-        assert prim[0] == "box", (name, prim)
         out[name] = tuple(float(v) for v in prim[1:7])
     assert out["low_l"][2] > 0 > out["low_r"][3] and out["mid_l"][2] > 0 and out["flow_l"][2] > 0, "K_T sirasi"
     return out
@@ -377,11 +377,14 @@ def _shell(m, d, sy):
         return tuple(sorted((sy * a, sy * b_)))
 
     zchin = d.nb_z[0] - S["chin_gap"]
+    # cene yuzu: sag yarinin boyun cercevesi centigi (shell_cuts) ile ayrik kalan seridi sol kabuga baglanir
+    # (chin_y0 < 0); omuz cekirdek yan duvarinin altina uzanir (duvar yalniz bir kenarla degiyordu). P2 entegrasyonu.
+    cy0 = S.get("chin_y0", 0.0)
     P = [box(d.xm0, d.xfl, *(yb(d.ylo - w, d.ylo) + (d.zft, d.zlo))),          # alt yan duvar
          box(d.xfl, d.xf - w, *(yb(d.ylo - w, d.ylo) + (d.zft, d.zfl))),       # on alt yan duvar
          box(d.xf - w, d.xf, *(yb(d.yc, d.ylo) + (d.zft, d.zfl))),             # on yuz
-         box(d.xf - w, d.xf, *(yb(0.0, d.yc) + (d.zft, zchin))),               # cene yuzu
-         box(d.xm1, d.xfl, *(yb(d.yc, d.ylo) + (d.zlo - w, d.zlo))),            # omuz
+         box(d.xf - w, d.xf, *((cy0, d.yc) if sy > 0 else (-d.yc, cy0)) + (d.zft, zchin)),   # cene yuzu
+         box(d.xm1, d.xfl, *(yb(d.yc - w, d.ylo) + (d.zlo - w, d.zlo))),        # omuz
          box(d.xfl, d.xf - w, *(yb(d.yc, d.ylo - w) + (d.zfl - w, d.zfl))),     # on omuz
          box(d.xm1, d.xfl, *(yb(d.yc - w, d.yc) + (d.zlo, d.ztop - w))),        # cekirdek yan duvari
          box(d.xm0, d.xm1, *(yb(d.ymid - w, d.ymid) + (d.zlo, d.ztop - w))),    # orta yan duvar
@@ -434,6 +437,56 @@ def _deck(m, d):
     return dk.cut(box(ux - uw / 2.0, ux + uw / 2.0, y1 - w - 1, y1 + 1, uz - uh / 2.0, uz + uh / 2.0))
 
 
+def _seat_tie(m, d, seat):
+    """neck_pitch_idler_seat + PETG bag (ICR-1, K_T 'seat_tie' kutusu): yuva plakasi duzleminde -x'e kol (yuva
+    plakasiyla ayni kalinlik, rulman cebi ve M3 deligi yeniden kesilir), DS govdesinin -x yaninda cekirdege inen
+    govde (kabuk yan duvarinda centik, shell_cuts) ve sol on ES3054 tab'inin ustune oturan ayak; ayak tab vidasiyla
+    (M3 x 8, kafes plakasindaki somun) sikilir. U-link pimi takiliyken hizalanir, sonra vida sikilir (delik bosluklu).
+    Doner (kati, (hx, hy) vida deligi)."""
+    from geom import box, ycyl, zcyl
+    S, f = d.S["seat_tie"], d.fit
+    st = servos.idler_stack(m.servo_type("neck_pitch"), m.p["idler"]["bearing"])
+    b = st["bearing_rec"]
+    nx, nz = d.n_axis
+    sb = seat.BoundBox
+    y0, y1 = sb.YMin, sb.YMax                                   # yuva plakasi (DS arka yuzu + seat_gap)
+    tx0 = d.kt["seat_tie"][0]
+    az0, az1 = S["arm_z"]
+    wx1 = S["web_x1"]
+    yw0 = d.yc - d.w - S["shell_gap"]                            # kabuk yan duvarinin ic yuzu - bosluk
+    hx, hy = max(d.es_holes)                                     # sol on ES3054 tab deligi
+    fz0 = d.es_tab_z[1]
+    fz1 = fz0 + S["foot_t"]
+    e = S["foot_edge"]
+    parts = [seat, box(tx0, S["arm_x1"], y0, y1, az0, az1),       # kol (yuva plakasi duzleminde)
+             box(tx0, wx1, yw0, y1, az0, az1),                    # govde (kol -> cekirdek)
+             box(tx0, wx1, yw0, d.yc, az1 - 0.01, fz1),            # govde (cekirdekte ayaga kadar)
+             box(d.es_x[1] + S["case_gap"], wx1, hy - e, yw0 + 0.01, fz0, fz1)]   # ayak (ES3054 tab'i ustunde)
+    tie = _fuse(parts)
+    tie = tie.cut(_fuse([ycyl(b["D"] / 2.0 + 0.05, nx, nz, y1 - (b["B"] - b["flange_t"]) - 0.01, y1 + 1),
+                         ycyl(b["d"] / 2.0 + 1.5, nx, nz, y0 - 1, y1 + 1),
+                         zcyl(f["clear_d"] / 2.0, hx, hy, fz0 - 1, fz1 + 1)]))
+    return tie, (hx, hy)
+
+
+def _door(m, d):
+    """battery_door (PETG, ICR-2, K_T 'door' kutusu): batarya arka ucunu (K_T arka duzleminde, x = xb) geri
+    dusmelere karsi koruyan 2 mm kapak; kaput arka duvarindan gap kadar acik (darbe cerceveye, batarya ucuna degil),
+    batarya agzina giren 4 konum dili (batarya yani ile agiz kenari arasinda, surtunmeli gecme). XT30 agzi acik kalir
+    (kapak +y kenari XT30 agzinin kenarinda); buck penceresi acik (kapak ustu pencere altinda)."""
+    from geom import box
+    D = d.S["door"]
+    x0, x1, y0, y1, z0, z1 = d.kt["door"]
+    xa = d.xb - D["gap"]
+    parts = [box(xa - D["t"], xa, y0, D["y1"], z0, D["z1"])]
+    ty0, ty1 = D["tab_y"]
+    for sy in (1, -1):
+        a, b_ = sorted((sy * ty0, sy * ty1))
+        for tz0, tz1 in D["tab_z"]:
+            parts.append(box(xa - 0.01, d.x_tun0 - D["tab_gap"], a, b_, tz0, tz1))
+    return _fuse(parts)
+
+
 def _screw(d, axis, x, y, z0, length, head_dir):
     """M3 SHCS (bas d 5.5 x 3) + somun (5.5 AF x 2.4): axis 'z'/'y', govde z0'dan head_dir'in tersine length;
     bas z0'dan head_dir yonunde."""
@@ -458,11 +511,14 @@ def _nut(d, axis, x, y, a0, a1):
 def _fasteners(m, d):
     """Modellenen M3 baglantilari: ES3054 tab vidalari (4 x M3 x es_screw_len), boyun DS tab vidalari (4 x M3 x
     neck_screw_len) + somun yuvalarindaki somunlar. Kutle: params.trunk.struct.fastener_mass_g (govde vida butcesi;
-    modellenmeyen kabuk/kaput baglantilari dahil)."""
+    modellenmeyen kabuk/kaput baglantilari dahil). Idler yuvasi bagi varsa sol on ES3054 tab vidasi bag ayagini da
+    sikar (foot_t kadar uzun: M3 x 8)."""
     out = []
+    tie = d.get("tie_screw")
     for sy in (1, -1):
         for hx, hy in d.es_holes:
-            out.append(_screw(d, "z", hx, sy * hy, d.es_tab_z[1], d.S["es_screw_len"], 1))
+            dz = d.S["seat_tie"]["foot_t"] if tie is not None and sy > 0 and (hx, hy) == tie else 0.0
+            out.append(_screw(d, "z", hx, sy * hy, d.es_tab_z[1] + dz, d.S["es_screw_len"] + dz, 1))
             out.append(_nut(d, "z", hx, sy * hy, d.cp_z[0] + 0.1, d.cp_z[0] + 0.1 + 2.4))
     fy0, fy1 = d.fy
     for hx, hz in d.n_holes:
@@ -512,18 +568,23 @@ def build_tr35_b2(m, sv):
             m._add("trunk", "%s_hip_yaw_bearing_%s" % (side, k), ring, "metal", b["mass_g"] / 1000.0)
     sp = m.servo_parts("neck_pitch", horn_toward=T["neck_horn_toward"])
     m._add("trunk", "neck_pitch_servo", sp["body"], "servo", m.servo_mass("neck_pitch"))
-    m._add("trunk", "neck_pitch_idler_seat", sp["idler_seat"], "bracket")
+    if "seat_tie" in d.kt and S.get("seat_tie"):
+        # idler yuvasi PETG bagla sol on ES3054 tab vidasina (ICR-1, P2 entegrasyonu; VHB yerine)
+        seat, d.tie_screw = _seat_tie(m, d, sp["idler_seat"])
+        m._add("trunk", "neck_pitch_idler_seat", seat, "bracket")
+    else:
+        m._add("trunk", "neck_pitch_idler_seat", sp["idler_seat"], "bracket")
+        # idler yuvasi DS arka yuzune VHB ile yapisik (donmus K_T'de yuvayi govdeye baglayan kol yok)
+        st = servos.datums(m.servo_type("neck_pitch"))["idler"]
+        nx, nz = d.n_axis
+        y_rear = d.nb_y[1]
+        pad = ycyl(st["seat_r"], nx, nz, y_rear, y_rear + S["seat_pad_t"]).cut(
+            ycyl(st["bearing_rec"]["d"] / 2.0 + 1.5, nx, nz, y_rear - 1, y_rear + 1))
+        m._add("trunk", "neck_seat_vhb", pad, "chip", S["seat_pad_g"] / 1000.0)
     m._add("trunk", "neck_pitch_idler_bearing", sp["idler_bearing"], "metal",
            servos.BEARINGS[p["idler"]["bearing"]]["mass_g"] / 1000.0)
     m.shared["neck_pitch_horn"] = sp["horn"]
     m.shared["neck_pitch_idler_pin"] = sp["idler_pin"]
-    # idler yuvasi DS arka yuzune VHB ile yapisik (donmus K_T'de yuvayi govdeye baglayan kol yok; ICR p2b-hacim.md)
-    st = servos.datums(m.servo_type("neck_pitch"))["idler"]
-    nx, nz = d.n_axis
-    y_rear = d.nb_y[1]
-    pad = ycyl(st["seat_r"], nx, nz, y_rear, y_rear + S["seat_pad_t"]).cut(
-        ycyl(st["bearing_rec"]["d"] / 2.0 + 1.5, nx, nz, y_rear - 1, y_rear + 1))
-    m._add("trunk", "neck_seat_vhb", pad, "chip", S["seat_pad_g"] / 1000.0)
     # yapi
     m._add("trunk", "trunk_base", _base(m, d, sv).fuse(_cage(m, d)).removeSplitter(), "bracket")
     m._add("trunk", "buck_hood", _hood(m, d), "bracket")
@@ -542,6 +603,8 @@ def build_tr35_b2(m, sv):
                    box(sx0, sx1, -d.by_out - t, d.by_out + t, d.zf - t, d.zf)])
     strap = strap.cut(box(sx0 - 1, sx1 + 1, -d.by_out, d.by_out, d.zf - 0.01, bat[5]))
     m._add("trunk", "battery_strap", strap, "pad")
+    if "door" in d.kt and S.get("door"):
+        m._add("trunk", "battery_door", _door(m, d), "bracket")
     # elektronik
     for name, pl in T["electronics"].items():
         rec = E.PARTS[E.part_of(name)]
@@ -570,7 +633,9 @@ PRINT_NOTES = {
     "torso_top": "flat plate on the bed",
     "deck_cover": "top face on the bed (upside down), no supports",
     "battery_strap": "TPU, printed flat as a strip and wrapped",
-    "neck_pitch_idler_seat": "flat disc on the bed",
+    "neck_pitch_idler_seat": "seat plate outer face (+y) on the bed with the tie arm in the same plane; the web and "
+                             "the foot grow toward -y; small support under the foot ear (x < 19.9)",
+    "battery_door": "outer face on the bed, locating tabs up, no supports",
 }
 
 

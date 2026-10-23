@@ -4,6 +4,7 @@ TR-35 govdesi (P2b; freecadcmd yoksa atlanir): OpenDuck(config="tr35_b2") kurulu
 A1 / plan P2b: ayni link icinde 0 cakisma (elektronik ve govde ici kablolar dahil), P2b parcalari K_T icinde, isi
 kaynaklari PETG uzerinde ve PLA'ya >= 5 mm, butun govde baski parcalari 256 mm kupe sigar, kutle butcesi, IMU govde
 COM'una yakin ve duz, paylasilan horn/idler anahtarlari, kalca/boyun kablo kanallari donmus giris tuplerine bagli.
+P2 entegrasyonu: baski parcalari tek kati, idler yuvasi bagi (ICR-1) ve batarya kapagi (ICR-2).
 
   pytest tests/cad -q -p no:cacheprovider
 """
@@ -78,6 +79,12 @@ for a, b in (("left_hip_trunk_wiring", "left_hip_yaw_harness_in"),
     links[a] = by[a].shape.distToShape(by[b].shape)[0]
 res["wire_links"] = links
 res["names"] = [it.name for it in items]
+res["solids"] = {it.name: len(it.shape.Solids) for it in items if it.kind in openduck.PRINT_KINDS}
+seat = by["neck_pitch_idler_seat"].shape
+res["tie"] = {n: seat.distToShape(by[n].shape)[0] for n in ("left_hip_yaw_servo", "trunk_fasteners",
+                                                             "neck_pitch_idler_bearing", "neck_pitch_servo")}
+db = by["battery_door"].shape.BoundBox if "battery_door" in by else None
+res["door_bb"] = db and [db.XMin, db.XMax, db.YMin, db.YMax, db.ZMin, db.ZMax]
 with open(os.path.join(OUT, "res.json"), "w") as f:
     json.dump(res, f, indent=1)
 '''
@@ -131,9 +138,29 @@ def test_print_parts_fit_bed(built):
     bed = min(CFG["targets"]["bed_mm"])
     trunk_print = [n for n in built["print"] if n in built["names"]]
     assert {"trunk_base", "buck_hood", "belly_duct", "torso_shell_left", "torso_shell_right", "torso_top",
-            "deck_cover", "battery_strap"} <= set(trunk_print)
+            "deck_cover", "battery_strap", "battery_door", "neck_pitch_idler_seat"} <= set(trunk_print)
     for n in trunk_print:
         assert built["print"][n][-1] <= bed, (n, built["print"][n])
+
+
+def test_print_parts_single_solid(built):
+    """P2 entegrasyonu: her govde baski parcasi tek kati (kabuk cekirdek duvari ve sag cene seridi ayrik kalmaz)."""
+    bad = {n: k for n, k in built["solids"].items() if n in built["names"] and k != 1}
+    assert bad == {}
+
+
+def test_seat_tie_and_battery_door(built):
+    """ICR-1: idler yuvasi PETG bagla sol on ES3054 tab'ina oturur, tab vidasi ayagi sikar, VHB yok, DS ve rulmanla
+    cakismaz. ICR-2: batarya kapagi K_T 'door' kutusunda (K_T icerme testi), batarya ucunu orter."""
+    tie = built["tie"]
+    assert tie["left_hip_yaw_servo"] < 1e-6 and tie["trunk_fasteners"] < 1e-6, tie
+    assert tie["neck_pitch_servo"] >= 0.3 - 1e-6, tie
+    assert "neck_seat_vhb" not in built["names"]
+    add = CFG["params"]["iface"]["envelopes"]["trunk"]["add"]
+    assert ["box", 19.9, 26.2, 21.0, 26.65, 34.4, 39.7] in add and ["box", -95.0, -92.0, -24.0, 24.0, -3.0, 31.0] in add
+    x0, x1, y0, y1, z0, z1 = built["door_bb"]
+    bat = CFG["params"]["trunk"]["electronics"]["battery_4s_lipo"]
+    assert x0 >= -95.0 - 1e-6 and y0 <= -20.0 and y1 >= 20.0 and z0 <= bat[2] and z1 >= bat[2] + 30.0
 
 
 def test_mass_budget(built):
