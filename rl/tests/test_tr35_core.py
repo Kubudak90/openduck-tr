@@ -718,7 +718,9 @@ def test_tr35_lockstep_cpu_mjx():
     o = _run(_LOCKSTEP, tr35_env(scene, path, OPENDUCK_BANK_N=32, JAX_PLATFORMS="cpu"), timeout=2400)
     for task in ("main", "getup"):
         r = o[task]
-        assert len(r["kinds"]) >= 2 and "torque_ratio" in r["keys"] and r["keys"][-2:] == ["limit_torque", "rail_demand"]
+        assert len(r["kinds"]) >= 2 and r["keys"][-2:] == ["limit_torque", "rail_demand"]
+        assert ("torque_ratio" if task == "main" else "torque_sat") in r["keys"] and "torques" not in r["keys"]
+        print("lockstep", task, {k: v for k, v in r.items() if k != "keys"})
         assert r["rew"] < 1e-3 and r["terms"] <= 1.0 and r["crit"] < 2e-3 and r["obs_rest"] < 2e-3, (task, r)
         assert r["dq"] < 1.0 and r["dv"] < 1.0 and r["tau_ratio"] > 0.1, (task, r)
 

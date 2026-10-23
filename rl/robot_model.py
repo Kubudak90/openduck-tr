@@ -70,9 +70,10 @@ MAIN_PAIR_SUBSET = True                    # main: yalniz main_pairs alt kumesi 
 
 def main_pairs(pairs):
     """main alt kumesi: uyluk/incik <-> govde, ayak <-> ayni bacagin uyluk/kalca besigi (getup tam liste).
-    Olcum (P5a, stub, CPU-JAX 256 ortam, 8 yineleme, tools/mjx_solver_bench.py): spec 3.2.2 tam listesi (43 cift,
-    kutu-kutu cift basina 4 temas yuvasi) main adimini +%310, getup'i +%264 pahalilastiriyor; bu alt kume (8 cift)
-    main'de +%78. Esik +%25 asildigindan main bu alt kumeyle kurulur; P5b son MJCF ve GPU'da yeniden olcer."""
+    Olcum (P5a, stub, CPU-JAX 256 ortam, 8 yineleme, paylasimli makine, tools/mjx_solver_bench.py): spec 3.2.2 tam
+    listesi (43 cift, kutu-kutu cift basina 4 temas yuvasi) main adimini +%310..330, getup'i +%180..264
+    pahalilastiriyor; bu alt kume (8 cift) main'de +%40..78. Esik +%25 asildigindan main bu alt kumeyle kurulur
+    (condim 1 tam listeyi yaklasik yariya indirir); P5b son MJCF ve GPU'da yeniden olcer."""
     out = []
     for a, b in pairs:
         for x, y in ((a, b), (b, a)):
