@@ -1,10 +1,11 @@
-# Spec: OpenDuck-TR (v3.1, CAD + simülasyon + RL)
+# Spec: OpenDuck-TR (v3.2, CAD + simülasyon + RL)
 
 Girdi: `research/` (parts-research, torque-needs, servo-mechanics, cad-map, power-electronics, rl-map,
 discovery-critic). İnceleme: `review.md` (tur 1: 34 itiraz, tur 2: 20 itiraz; tur 2'deki iki kritik itiraz kullanıcı
 kararıyla çözüldü). Sayıların kaynakları research'tedir; bu belge kararları verir.
 v3.1 (2026-10-23, P2-0 bulguları): öz-çarpışma çiftlerine kafa ↔ trunk ve ayak ↔ aynı bacağın uyluk/kalça beşiği
 eklendi; A1 komşu çift taraması modül içinde sayılır, modellenen temaslar ayrı listelenir (`p2-interface.md` §12).
+v3.2 (2026-10-24, P2 entegrasyonu): öz-çarpışma çiftlerine çene ↔ boyun/trunk eklendi (`p2-entegrasyon.md`).
 
 ## 1. Problem ve hedef
 
@@ -105,7 +106,7 @@ yedeklerle ≤ 27.5k TL (kullanıcı).
 2. **Dışa aktarma** (`cad/export.py`, `cad/docs.py`):
    - Sınıf başına MJCF `position` aktüatörü (`ds32xx`, `es3054`, `mg90s`, `sg90`); ctrlrange = eklem sınırı.
    - Öz-çarpışma çiftleri: uyluk/incik ↔ trunk/kafa/çene, ayak ↔ kafa, bacak ↔ bacak, kafa ↔ trunk,
-     ayak ↔ aynı bacağın uyluk/kalça beşiği. Tampon geomu.
+     ayak ↔ aynı bacağın uyluk/kalça beşiği, çene ↔ boyun/trunk. Tampon geomu.
    - BOM: Türkiye mağaza, TL, URL, stok, doğrulama tarihi ve yedek kaynak.
    - Baskı seti 256 mm kontrolüyle; teknik resimler.
    - Aşağıdan yukarı kütle (braket hacmi × efektif yoğunluk; vida, horn ve idler satırları).

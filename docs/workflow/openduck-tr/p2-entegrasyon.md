@@ -1,0 +1,263 @@
+# P2 entegrasyonu: bacaklar (P2a) + gövde (P2b) + boyun/kafa (P2c)
+
+Tarih: 2026-10-24. Girdi: `p2-interface.md` (§12 kararları), P2a/P2b/P2c raporları ve değişiklik talepleri, orkestratör
+kararları. Bu belge birleştirmeyi, kararları, entegrasyon düzeltmelerini, tam `check.py` sonuçlarını, boy/kütle/COM'u
+ve sonraki adımlara devredilen açık konuları verir. `acik-konular.md` başka bir iz tarafından tutulur; bu adımın
+açık konuları §8'dedir.
+
+## 1. Birleştirilenler
+
+Dal `main` (755e2ea) üzerinden, `--no-ff`, sırayla:
+
+| Adım | Dal | Commit'ler | Birleştirme | Çakışma |
+|---|---|---|---|---|
+| P2b gövde + elektronik | `worktree-wf_760bffe2-b4a-2` | 5b6695c | ca39a67 | yok |
+| P2c boyun + kafa | `worktree-wf_760bffe2-b4a-3` | a118ffb, a4bfd92, 53ca0ef | 5f754fa | yok (`configs/tr35_b2.json` otomatik) |
+| P2a bacaklar | `worktree-wf_760bffe2-b4a-1` | 33a140c, 29ea4bf, b2f3aad, a41e25c, 8d0a87f | 67e2d22 | `joint_limits_deg`: bacak satırları P2a'dan, kafa satırları P2c'den |
+
+Her modül kendi dosyalarına ve `params.legs` / `params.trunk` / `params.head` bölümlerine yazdığı için başka çakışma
+çıkmadı. Entegrasyon değişiklikleri ba3b0a1'de (kod, konfig, testler), bu belge ve spec sonraki commit'tedir.
+
+## 2. Değişiklik talepleri ve kararlar
+
+| Talep | Kaynak | Karar | Uygulama |
+|---|---|---|---|
+| ICR-1: K_T kutusu [19.9, 26.2, 21.0, 26.65, 34.4, 39.7] (boyun idler yuvası bağı) | P2b | KABUL | Kutu `params.iface.envelopes.trunk.add` sonuna eklendi. VHB pedi (`neck_seat_vhb`) kaldırıldı; yerine baskılı PETG bağ var (§3.1). |
+| ICR-2: K_T kutusu [-95, -92, -24, 24, -3, 31] (batarya kapağı) | P2b | KABUL | Kutu eklendi; 2 mm PETG `battery_door` modellendi (§3.2). |
+| Boyun zarfı: tampon gövdesi kutusu [45.332, 51.5, -9.5, 9.5, 84, 98] | P2c | KABUL | `params.iface.envelopes.neck`'e eklendi. |
+| Jaw zarfının değiştirilmesi (6 parça: SG90 horn plakası, göbek silindiri, iki kol, sağ pim, çene çubuğu) | P2c | KABUL, talep edildiği gibi | `params.iface.envelopes.jaw` değişti. |
+| Yeni temas: çene ↔ boyun ve çene ↔ trunk | P2c | KABUL, MJCF öz-çarpışma çifti olarak | Spec §3.2.2 listesine "çene ↔ boyun/trunk" eklendi (v3.2). head_pitch ve mouth komşu eklem değildir; A1 bunu saymaz ve `check.contact_pairs` değişmedi. P3 dışa aktarımı ve P5b RL çift listesi için kayıt §8'de. Firmware/politika kilidi (head_pitch > 50 iken mouth <= 25) reddedildi. |
+| Genişletilmiş kafa sınırları: neck -110..40, head_pitch -25..72, head_roll -20..16, mouth 0..32 | P2c | KABUL (entegre tam `check.py` temiz, §4) | Gerekli aralıklar sınırların içinde. P5b kafa sabitlerini MJCF'den yeniden türetir. |
+| `cad/export.py`: `meta['collision_geoms']` uzantısı (`neck_bumper` geomu) | P2c | KORUNDU | xl330_27 bayt-eşit kaldı (altın 6/6). Dışa aktarım P3'ündür; bu uzantıyı içine alır. |
+| KCD1 ana anahtar yalnız DC 12 V | P2b | P3 BOM karar verir | Stokta 16.8 V'luk anahtar yoksa ayırıcı XT30'dur. |
+| `params.harness.crossings.hip_pitch.in`: z -10 → -13.5 | P2a | KABUL | Gerekli: donmuş noktayla hip_roll ±20'de tüp K_T'ye girer ve P2b'nin `trunk_base`'ine değer (P2a deneme entegrasyonunda 2 sayılan tek eklem çarpışması). Spec'le tutarlı: kablo demeti spec 3.1'de bir CAD parametresidir; spec değişmez. Uygulandı; tek eklem taraması 0. |
+| Bacak sınırlarının genişletilmesi (hip_yaw -10..21, knee -84..77, ankle -65..64) | P2a | Kabul (`p2-interface.md` §1 izin verir) | Birleştirme çakışmasında alındı. |
+| Kafa içi kablo güzergâhı (P2-0 giriş/çıkış yer tutucuları yerine sahibin güzergâhı) | P2c | Kabul (link içi güzergâh sahibindir) | Değişiklik yok. |
+| İsteğe bağlı: rotor bölgesi kol kutusu y ±7 → ±8.6 (hip_yaw +23 için) | P2a (öneri, talep değil) | Uygulanmadı | Gerek yok; hip_yaw 21 gerekli 10'u karşılar. |
+
+P2a'nın yeni talebi (hip_pitch giriş noktası) bir sayım istisnası, temas çifti ya da duruş/HOME değişikliği değildir.
+Bu yüzden "orkestratör kararı gerekli" işareti almadı. Entegrasyonda ortaya çıkan iki yorum sorusu §8'de işaretlidir.
+
+## 3. Entegrasyon düzeltmeleri
+
+İlk entegre tam `check.py` (§4) sayılan her bölümde 0 verdi: P2a'nın talebi uygulandıktan sonra modüller arası
+çarpışma kalmadı. Aşağıdaki değişiklikler kabul edilen taleplerin uygulanması ve parça kalitesi hatalarıdır. Hepsi
+sahibi olan modülde, en küçük değişiklikle yapıldı.
+
+### 3.1 ICR-1: idler yuvası bağı (`cad/trunk.py` `_seat_tie`, `params.trunk.struct.seat_tie`)
+
+`neck_pitch_idler_seat` artık tek PETG baskıdır (0.75 g). Parçalar:
+
+- Yuva diski.
+- Yuva plakası düzleminde -x'e uzanan kol (y 21.4..25.4, z 34.6..39.7). Kol, yeni kutu ile donmuş yuva kutusunun
+  içindedir. F623ZZ cebi ve M3 deliği kol eklendikten sonra yeniden kesilir.
+- DS gövdesinin -x yanında çekirdeğe inen gövde (x 19.9..23.0; DS'ye 0.33 mm).
+- Sol ön ES3054 tab'ının üstüne oturan 2 mm ayak.
+
+Ayağı, ES3054'ün kendi ön tab vidası sıkar. Vida M3 x 6 → M3 x 8 olur; kafes plakasındaki somun aynı kalır. Bu
+yüzden yeni somun yuvası gerekmedi: kutuda M2 somun bile sığmıyordu. Montaj sırası: önce U-link pimi takılır, yuva
+pimle hizalanır, sonra vida sıkılır (delik boşluklu). Kabuk çekirdek yan duvarının ön ucunda gövde için bir çentik
+açıldı (`shell_cuts.left` [19.7, 21.1, 18.9, 21.1, 34.4, 43.8]).
+
+Açıklıklar: DS 0.33 mm, kabuk 0.19 mm, boyun zarfı 1.35 mm. ES3054 tab'ı ve vida başı yüz temasındadır.
+
+### 3.2 ICR-2: batarya kapağı (`cad/trunk.py` `_door`, `params.trunk.struct.door`)
+
+`battery_door`: 2 mm PETG plaka, x -94.2..-92.2, y -24..22, z -3..30.6, 3.16 g.
+
+- Kaput arka duvarına ve batarya ucuna 0.2 mm boşluk bırakır, böylece darbe batarya ucuna değil çerçeveye gider.
+- +y kenarı XT30 ağzının kenarındadır; XT30 ağzı açık kalır.
+- Üst kenar buck penceresinin altındadır; hava girişi açık kalır.
+- Batarya ağzına, batarya yanı ile ağız kenarı arasına giren 4 konum dili vardır (y ±20.3..21.8, z 2..8 ve 20..26):
+  sürtünmeli geçme.
+
+Kabul edilen kutu, ağız kenarının iki yanında yalnız 2 mm şerit bırakır. Arkada ADS1115 kartları duvara 1.2 mm'dir,
+batarya ucu da K_T arka düzlemindedir. Bu yüzden kutuda vida ya da somun için yer yok. Tutma ayrıntısı (kilit
+çıkıntısı / çekme dili) P3 çiziminde verilir (§8). En yakın bacak parçası P2b ölçümünde 24.95 mm uzaktaydı; entegre
+taramada kapak hiçbir şeye değmedi.
+
+### 3.3 Gövde kabukları tek katı (`cad/trunk.py` `_shell`, `chin_y0`)
+
+`torso_shell_left` 2, `torso_shell_right` 3 ayrık katıydı. Bu bir P2b hatasıydı; ayrık parçalar baskıda gevşek plaka
+olur.
+
+- Çekirdek yan duvarı (x -14..21, y ±19.2..21, 1886 mm3) omuza yalnız bir kenarla değiyordu. Omuz duvarın altına
+  uzatıldı (y ±19.2'den başlar).
+- Sağ çene yüzünün y -9.7..0 şeridi (219 mm3), boyun çerçevesi çentiğiyle ayrık kalıyordu. Sol çene yüzü bu şeridi de
+  kapsar (`chin_y0` -9.7); sağ kabukta o şerit yok.
+
+Sol kabuk 15.27 → 15.59 g oldu, sağ kabuk 15.26 g.
+
+### 3.4 Gaga pimi (`cad/head.py` `_jaw`)
+
+`lower_bill`'in sağ pimi sağ koldan 0.01 mm ayrık başlıyordu: `-yh1 + 0.01` yazılmıştı, `-yh1 - 0.01` olmalıydı.
+Sonuç iki katı olarak çıkıyordu. Düzeltildi; parça tek katı.
+
+### 3.5 Diğer
+
+`trunk._kt`, K_T kutularını silindirleri atlayarak adlandırır (yeni adlar `seat_tie`, `door`). Testler:
+
+- `tests/cad/test_trunk_fc.py`: baskı parçaları tek katı, idler yuvası bağı ve kapak.
+- `tests/cad/test_tr35_integration_fc.py`: kabul edilen arayüz değerleri; bütün modüllerde baskı parçaları tek katı
+  ve 256 mm küpe sığar.
+
+Entegre modelde 36 baskı parçasının hepsi tek katıdır.
+
+## 4. Tam `check.py` sonuçları (tr35_b2, bütün modüller, entegre geometri)
+
+Rapor: `/private/tmp/claude-501/-Users-huseyinarslan-Desktop-ads-z-klas-r-2/8217cd75-2c54-4fa4-b47f-57c38ee96c2b/scratchpad/s16/p2-integ/snap1/out/interference.txt`.
+Süre 1077 s: tek eklem 230, rastgele 100, aynı link 3, komşu çift 616, bacak-bacak 89, zarflar 39.
+
+| Bölüm | Sonuç |
+|---|---|
+| 1) Tek eklem (sınırlar, 7 adım, HOME) | 107 poz, **0 çarpışma** |
+| 2) Rastgele 40 birleşik poz (bilgi) | 19 / 40 çarpışmasız |
+| 3) Aynı link (HOME, > 1 mm3; elektronik dahil) | **0** (0 izinli) |
+| 4) Komşu çiftler (5 x 5, gerekli, kapsam `module`) | 300 poz, **0 sayılan**; 26 modellenen temas; 111 modül dışı poz-çift (bilgi) |
+| 5) Bacak-bacak | 32 poz, **0 sayılan**; 4 modellenen temas |
+| 6) Modül zarfları (138 poz) | içerme **0**, giriş **0**, zarf-zarf **0** (kabul edilen zarf değişiklikleriyle) |
+| Kablo demetleri | 34 parça, bütün taramalarda |
+
+Modellenen temasların (`check.contact_pairs`, sayılmaz, MJCF çifti) hiçbiri kablo demeti içermez:
+
+| Bölüm | Çift (sol ve sağ ayrı) | Poz | En çok mm3 |
+|---|---|---|---|
+| 4) ayak ↔ kalça beşiği | hip_cradle_bracket ↔ sole | 2 + 2 | 1813.8 |
+| | hip_cradle_bracket ↔ foot_bracket | 2 + 2 | 768.1 |
+| | hip_pitch_horn ↔ foot_bracket / sole | 1 + 1 / 1 + 1 | 152.9 / 112.1 |
+| | hip_roll_horn ↔ sole | 1 + 1 | 52.1 |
+| 4) ayak ↔ uyluk | hip_pitch_servo ↔ foot_bracket / sole | 1 + 1 / 1 + 1 | 221.4 / 62.2 |
+| | thigh_bracket ↔ foot_bracket / sole | 1 + 1 / 1 + 1 | 219.7 / 78.2 |
+| | hip_pitch_tab_screws ↔ foot_bracket / sole | 1 + 1 / 1 + 1 | 55.9 / 15.8 |
+| 5) iki ayak | left_sole ↔ right_sole | 1 | 2956.9 |
+| | left_foot_bracket ↔ right_foot_bracket | 1 | 1629.1 |
+| | foot_bracket ↔ sole (çapraz) | 1 + 1 | 780.3 |
+
+Modül dışı temaslar (bölüm 4, `pair_scope: module` ile sayılmaz; gövde/kafa ↔ uzuv, spec 3.2.2): 20 pozda 111
+poz-çift. Ayrıntılı tarama: `extscan.py` / `extsum.py`, aynı scratch dizini.
+
+| Poz (sol; sağ ayna) | Temas |
+|---|---|
+| hip_roll +20, hip_pitch +90 | shin/foot/ankle ↔ PCA9685, kabuk, buck (en çok 1498 mm3) + kablo demetleri (yapı ve kablo) |
+| hip_roll +10, hip_pitch +90 | shin_bracket ↔ kabuk 122 mm3 + kablo demetleri |
+| hip_roll +20, hip_pitch +10 / +50 | yalnız kablo: hip_pitch_harness_out ↔ PCA9685#1 224 mm3, kabuk 173; knee_harness_in ↔ PCA 121 |
+| hip_roll +10, hip_pitch +10 / +50 | yalnız kablo: hip_pitch_harness_out ↔ kabuk 22 / 277 mm3 (pitch 10'da ilk temas roll +9) |
+| hip_yaw -10, hip_roll 0 / 10 / 20 | yalnız kablo: hip_pitch_harness_out ↔ belly_duct ön-alt dış kenarı 3.1 / 12 / 22 mm3 |
+| neck +40, head_pitch -20 | head_hood ↔ buck_20a 1300 mm3, buck_hood 322 (kafa ↔ trunk çifti, v3.1) |
+| neck -90, head_pitch +60 | upper_bill ↔ hip_cradle_bracket 3.1 mm3 (iki taraf); 3.2.2 listesinde yok (§8) |
+
+111 poz-çiftin 73'ünde bacak kablo demeti tüpü var. 14 pozda gövdeye yalnız kablo değiyor, bacak yapısı değmiyor.
+
+## 5. Boy, kütle, COM
+
+- **Kafa üstü (stand keyframe)**: CAD 347.7 mm (hedef 350 ± 10). MJCF `head_collision` kutusunun üstü 348.7 mm.
+  Sıfır pozda 338.2 mm. Stand'da boyut 190.6 x 223.4 x 347.7 mm; trunk kökü yerden 152.5 mm.
+- **Baskı parçaları**: 36 parça, hepsi 256 mm küpe sığar ve tek katıdır. En büyükleri: trunk_base 138.0,
+  lower_bill 123.7, head_hood 117.7 mm.
+- **Gerekli aralıklar ⊆ sınırlar**: 10 eklemin hepsi.
+- **Kütle (aşağıdan yukarı, `print.density_eff`)**: 1769.0 g x 1.05 = **1857.5 g** (sınır 1950 g, pay 92.5 g). Hedef
+  1.85 kg (aşağıdan yukarı 1762 g) 7 g aşılıyor.
+
+| Modül | Sahip modül (g) | Link kuralı (g, P2-0 §8) | Bütçe (g) | Kalemler (sahip modül, g) |
+|---|---|---|---|---|
+| Gövde | 653.9 | 657.5 | 733.6 | batarya 200, buck/XL4015/hub kartları 106.0, servolar 105 (2 x ES3054 + boyun DS), PETG 66.7, metal (rulman, vida) 43.6, PLA 42.9, kartlar 40.0, kablo 25.0, küçük elektronik 24.0, TPU 0.7 |
+| Bacaklar | 914.9 | 912.1 | 913.2 | servolar 520, PETG 218.0, metal 68.9, horn 42.0, TPU taban 36.9, kablo 29.2 |
+| Boyun + kafa | 200.2 | 199.4 | 202.0 | PLA 82.6, servolar 49.2, PETG 49.1, horn 7.0, metal 6.0, kablo 5.1, TPU 1.2 |
+| **Toplam** | **1769.0** | **1769.0** | 1848.8 | |
+
+"Link kuralı" P2-0'daki gibidir: trunk link'indeki `hip_yaw_harness_in` tüpleri (2 x 1.39 g) ile
+`neck_pitch_harness_in` (0.79 g) gövdeye sayılır. Bacaklar bu kuralla bütçenin içindedir.
+
+- **HOME COM** (trunk çerçevesi): (-10.8, 0.3, -10.0) mm, yerden 142.6 mm.
+  - HOME'da ayaklar x -26.4..44.3 (merkez 9.0); COM, ayak merkezinin **19.8 mm gerisinde**. Hedef x ∈ [-8, 12]
+    2.8 mm kaçırıldı (P2-0 yer tutucularıyla -10.9, P2b yer tutucularıyla -10.2). |y| 0.3 ≤ 2.
+  - Modül COM'ları: gövde (-26.5, 0.4, 23.7), bacaklar (-4.4, 0.0, -65.5), kafa (11.8, 1.0, 133.2).
+  - MuJoCo keyframe'inde dünya COM'u (-10.8, 0.3, 143.6) mm.
+
+## 6. MJCF (MuJoCo, CPU venv)
+
+`snap1/build/sim/scene.xml` (`tools/build_gui.py`, `OPENDUCK_DOCS=0`; FCStd, STEP, 36 STL, URDF, MJCF hatasız):
+
+- 15 aktüatör, RL sözleşmesi sırasıyla (sol bacak, sağ bacak, neck_pitch, head_pitch, head_yaw, head_roll, mouth).
+  4 sınıf: es3054 (2), ds32xx (9), mg90s (3), sg90 (1). ctrlrange = eklem sınırı.
+- freejoint `root`, tek keyframe `stand`, siteler `imu`, `left_foot_sole`, `right_foot_sole`. Collision geomları:
+  `trunk_collision` (kapakla birlikte x -94.2..46), `head_collision`, `left/right_foot_collision`.
+- `neck_bumper` geomu `neck` gövdesinde: collision sınıfı, contype 0 / conaffinity 1, yarı boyutlar
+  (3.65, 12, 4.5) mm. `neck_collision` yok.
+- Toplam kütle 1.769 kg.
+- Yerçekiminde 2 s, ctrl = stand: gövde eğimi **0.33°** (pitch -0.33, roll 0.00; en çok 0.37). Trunk z 153.5 → 152.1
+  mm, xy kayması 0.7 mm, eklem izleme hatası en çok 0.12°. Temaslar yalnız iki ayak ↔ zemin.
+
+## 7. Testler
+
+| Test | Sonuç |
+|---|---|
+| `pytest tests/cad` | 122 geçti (yeni: `test_tr35_integration_fc.py` 2, `test_trunk_fc.py` +2) |
+| `pytest tests/golden` (check.py ile tam koşu) | 6 / 6, 71 s; xl330_27 bayt-eşit |
+| RL CPU paketi (kilit altında) | 119 geçti / 5 atlandı (taban ile aynı) |
+| RL MJX paketi (kilit altında, `JAX_PLATFORMS=cpu`) | 135 geçti / 2 atlandı (taban ile aynı) |
+
+## 8. Açık konular
+
+### P3 (dışa aktarma, BOM, baskı seti)
+
+- MJCF öz-çarpışma çiftleri:
+  - Spec §3.2.2 v3.2 listesi, yeni **çene ↔ boyun/trunk** dahil. P2c ölçümü: head_pitch ≥ ~55 ve mouth ≥ ~28'de alt
+    gaga neck link'ine değer (60/30'da en çok 124 mm3, mouth 32'de 317 mm3). head_pitch 72'de boyun servosuna (trunk)
+    da değer, 537 mm3'e kadar.
+  - Ayrıca `check.contact_pairs` (iki ayak; ayak ↔ aynı bacağın uyluk/kalça beşiği).
+- Uyluk/incik collision geomları bacak kablo demeti tüplerini (`hip_pitch_harness_out` yayı, `knee_harness_in/out`)
+  kapsamalı. Kapsamazsa §4'teki yalnız-kablo 14 pozu MJCF çiftleri görmez.
+- `export.py`'deki `meta['collision_geoms']` uzantısı P3'ün dışa aktarımına katılır.
+- KCD1 yalnız DC 12 V: BOM'da 16.8 V'luk anahtar yoksa ayırıcı XT30 olur.
+- Batarya kapağı tutma ayrıntısı (§3.2): konum dillerinde kilit çıkıntısı, çekme dili ve Adım 0'da geçme kontrolü.
+  Kutuda vida için yer yok.
+- İdler yuvası bağının montaj sırası (§3.1), baskı notları (`trunk.PRINT_NOTES`, `legs.PRINT_NOTES` /
+  `print_report`). `docs.py`'de `harness` türünün baskı satırı yok.
+- `p2b-hacim.md` tabloları entegrasyondan önceki durumdur. Kapak (+3.16 g), bağ (+0.45 g) ve birleşen kabuklar
+  eklenmeli; `trunk.volume_report(m)` ile yeniden üretilir. Robot satırı artık gerçek modüllerle hesaplanır.
+- Devralınanlar:
+  - P2b tahmin boyutları: alarm, INA226, MP1584, hub, bölücü, kırpıcı, mandal, sigorta, XT30.
+  - PCA9685/DevKitC başlık sökümü.
+  - Küçük kart ve kabuk bağlantıları.
+  - P2c gaga pim yatağının bölünmüş kapağı (2 x M2).
+  - 6800ZZ stoğu.
+
+### G-CAD
+
+- A1 özeti:
+  - sayılan çarpışma her bölümde 0, aynı link 0, zarflar 0/0/0;
+  - gerekli ⊆ sınırlar;
+  - baskı ≤ 256 mm;
+  - kafa üstü 347.7;
+  - kütle 1857.5 ≤ 1950 g;
+  - el hesapları: `p2a-el-hesabi.md`, `p2c-tampon.md`;
+  - altın bayt-eşit.
+- **ORCHESTRATOR DECISION NEEDED (yorum):** Komşu çift ızgarasında gövde ↔ bacak **kablo demeti** temasları
+  `pair_scope: module` ile modül dışı bilgi olarak listelenir ve sayılmaz (§4: 18 pozda 73 poz-çift; 14 pozda yalnız
+  kablo). Spec A1'deki "Kablo demeti temasları her zaman sayılır" cümlesi bunları da kapsıyorsa A1 tutmaz.
+  - En hafif örnekler: hip_yaw -10 + hip_roll 0'da belly_duct 3.1 mm3; hip_pitch 10'da roll +9'dan itibaren kabuk.
+  - Şimdiki çözüm: bilgi olarak bırakıldı; P3 collision geomları kabloyu kapsar (yukarıda).
+  - Sayılırsa: P2a'nın hip_pitch çıkış yayını ve diz tüplerini yeniden yönlendirmesi gerekir; belly_duct'ın ön-alt dış
+    kenarı da kırpılabilir.
+- **ORCHESTRATOR DECISION NEEDED (yeni çift):** neck -90 + head_pitch 60'ta `upper_bill` ↔ `hip_cradle_bracket`
+  (kafa ↔ kalça beşiği) 3.1 mm3, iki taraf. §3.2.2 listesinde kafa ↔ ayak ve kafa ↔ uyluk/incik var, kafa ↔ kalça
+  beşiği yok.
+  - Seçenekler: listeye eklemek (spec değişikliği) ya da P2c'nin üst gaga altını ~1 mm kırpması.
+  - Şimdiki çözüm: bilgi olarak bırakıldı; sayılmıyor.
+- HOME COM ayak merkezinin 19.8 mm gerisinde (hedef 7 ± 10 mm geride). Karar 4 gereği P5 HOME'u yeniden türetir.
+- Kütle hedefi 1.85 kg 7 g aşılıyor (sert sınır tutuyor). Kütle merdiveni isteğe bağlıdır.
+
+### P5b (RL)
+
+- tr35 sabitleri MJCF'den yeniden türetilir:
+  - genişletilmiş sınırlar: bacak hip_yaw -10..21, knee -84..77, ankle -65..64; kafa neck -110..40, head_pitch
+    -25..72, head_roll -20..16, mouth 0..32;
+  - HOME COM;
+  - kafa sabitleri;
+  - `trunk_collision` kutusu (kapak nedeniyle x -94.2'ye uzadı);
+  - `neck_bumper`.
+- RL çift listesine **çene ↔ boyun** ve **çene ↔ trunk** girer. Kilit reddedildiği için politika teması simde öğrenir.
+  Ayrıca v3.1 çiftleri: kafa ↔ trunk; ayak ↔ aynı bacağın uyluk/kalça beşiği.
+- Bacak kablo demetlerinin gövdeye değdiği birleşik pozlar (§4), P3'ün kabloyu kapsayan collision geomlarıyla simde
+  görünür olmalı.
