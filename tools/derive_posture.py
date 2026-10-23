@@ -995,7 +995,9 @@ def check(scene, derived=DEFAULT_OUT):
     if errs:
         return 1, errs
     msgs = []
-    sha = sha256_file(mjcf_path(scene)) if os.path.exists(mjcf_path(scene)) else None
+    if not os.path.exists(scene) or not os.path.exists(mjcf_path(scene)):
+        return 1, ["sahne ya da yanindaki openduck.xml yok: %s" % scene]
+    sha = sha256_file(mjcf_path(scene))
     msha = meshes_sha256(scene)
     rsha = doc["report"].get("meshes_sha256")
     if sha != doc["source"]["mjcf_sha256"] or (rsha is not None and msha != rsha):
@@ -1044,7 +1046,6 @@ def caps_scan(scene, derived=DEFAULT_OUT, step_deg=1.0, pitch=None):
             res[name] = {"limit_deg": round(end, 3), "first_interference": first}
         out["sweeps"][n] = res
     if doc:
-        lg = doc["home"]["legs_deg"]
         poses = [("row_%.4f" % r[0], r[1:], None) for r in doc["crouch_family"]]
         se = doc["seat"]
         poses.append(("seat", (se["pitch_deg"], se["deg"]["hip_pitch"], se["deg"]["knee"], se["deg"]["ankle"]),
@@ -1056,12 +1057,10 @@ def caps_scan(scene, derived=DEFAULT_OUT, step_deg=1.0, pitch=None):
             q[3:7] = [math.cos(t / 2), 0.0, math.sin(t / 2), 0.0]
             for j, v in zip(FAM_J, (hp, kn, an)):
                 q[qa("left_" + j)], q[qa("right_" + j)] = math.radians(v), -math.radians(v)
-            for j in C.HEAD_JOINTS:
-                if head:
-                    q[qa(j)] = math.radians(head[j])
+            for j in (C.HEAD_JOINTS if head else ()):
+                q[qa(j)] = math.radians(head[j])
             r = CC.check_pose(q, ms)
             out["poses"][name] = {"pen_mm3": round(r["pen_mm3"], 3), "pairs": r["pairs"][:3]}
-        del lg
     return out
 
 
