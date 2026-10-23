@@ -1,8 +1,10 @@
-# Spec: OpenDuck-TR (v3, CAD + simülasyon + RL)
+# Spec: OpenDuck-TR (v3.1, CAD + simülasyon + RL)
 
 Girdi: `research/` (parts-research, torque-needs, servo-mechanics, cad-map, power-electronics, rl-map,
 discovery-critic). İnceleme: `review.md` (tur 1: 34 itiraz, tur 2: 20 itiraz; tur 2'deki iki kritik itiraz kullanıcı
 kararıyla çözüldü). Sayıların kaynakları research'tedir; bu belge kararları verir.
+v3.1 (2026-10-23, P2-0 bulguları): öz-çarpışma çiftlerine kafa ↔ trunk ve ayak ↔ aynı bacağın uyluk/kalça beşiği
+eklendi; A1 komşu çift taraması modül içinde sayılır, modellenen temaslar ayrı listelenir (`p2-interface.md` §12).
 
 ## 1. Problem ve hedef
 
@@ -102,7 +104,8 @@ yedeklerle ≤ 27.5k TL (kullanıcı).
    - Eklem adları, eksenler, sıra ve işaret kuralı (pozitif açı = horn'a bakarken CCW) korunur.
 2. **Dışa aktarma** (`cad/export.py`, `cad/docs.py`):
    - Sınıf başına MJCF `position` aktüatörü (`ds32xx`, `es3054`, `mg90s`, `sg90`); ctrlrange = eklem sınırı.
-   - Öz-çarpışma çiftleri: uyluk/incik ↔ trunk/kafa/çene, ayak ↔ kafa, bacak ↔ bacak. Tampon geomu.
+   - Öz-çarpışma çiftleri: uyluk/incik ↔ trunk/kafa/çene, ayak ↔ kafa, bacak ↔ bacak, kafa ↔ trunk,
+     ayak ↔ aynı bacağın uyluk/kalça beşiği. Tampon geomu.
    - BOM: Türkiye mağaza, TL, URL, stok, doğrulama tarihi ve yedek kaynak.
    - Baskı seti 256 mm kontrolüyle; teknik resimler.
    - Aşağıdan yukarı kütle (braket hacmi × efektif yoğunluk; vida, horn ve idler satırları).
@@ -208,7 +211,9 @@ Oran ölçütlerinde "nokta" örnek oranıdır. "W-alt" ve "W-üst" Wilson %95 s
 - **A1 CAD**:
   - `tools/build.sh --check` hatasız.
   - §3.1 gerekli aralıklar ⊆ eklem sınırları. Komşu eklem çiftleri, bacak–bacak ve kablo demetleri birlikte
-    taranır: 0 çarpışma.
+    taranır: 0 çarpışma. Tek eklem taramasında istisna yoktur. Komşu çift ızgarası hareket eden modülün içinde sayılır.
+    Gövde/kafa ↔ uzuv ve `check.contact_pairs` temasları (iki ayak; ayak ↔ aynı bacağın uyluk/kalça beşiği) MJCF
+    öz-çarpışma çifti olarak modellenir ve ayrı listelenir. Kablo demeti temasları her zaman sayılır.
   - Aynı link içi 0 çakışma (elektronik dahil). Baskı parçaları 256 mm küpe sığar.
   - Kafa üstü 350 ± 10 mm. Kütle ≤ 1.95 kg.
   - "Servo miline eğilme/eksenel yük yok" el hesabı.

@@ -160,7 +160,7 @@ link):
   So each P2 step only needs its own parts inside its own envelope (P2b, P2c) or outside the others (P2a) and
   `check.py` clean on its own module; cross-module collisions are then excluded by construction.
 
-### 4.4 Pair-grid scope (decision needed)
+### 4.4 Pair-grid scope (decided: `module`, see sec. 12)
 
 A1 asks for adjacent pairs swept together with 0 collisions. Over the **full required ranges**, two pairs fold whole
 chains into the body:
@@ -173,7 +173,7 @@ With those combinations the trunk would be ~46 mm wide below z 52 (about 80 cm3 
 pair grids count collisions inside the moving module (leg pairs: all leg links incl. the other leg; head pairs: head
 module), and body-vs-limb contacts are listed as information (they are the MJCF self-collision pairs of spec 3.2.2).
 The trunk/head keep-ins (K_T, K_H) are verified against single-joint + leg-leg sweeps. `pair_scope = "all"` gives the
-literal reading. **This needs a user decision** (see open issues in the P2-0 report).
+literal reading. Decided in sec. 12 (orchestrator, spec v3.1): `module` stays.
 
 ## 5. Envelope fit study (`tools/fit_study.py`)
 
@@ -303,24 +303,31 @@ K_T = 625.6 cm3, fixed contents 69.6 cm3 (ES3054 x 2, housings, bearings, neck D
   envelopes). Module filter: `OPENDUCK_CHECK_LINKS=legs|trunk|head|all` (or `link,link`): only pairs with at least
   one part in the selected links, poses of the joints that move them (trunk: all). Stub run times on this Mac (with
   other FreeCAD jobs running): full 177 s (single 35, random 16, pairs 99, leg-leg 12, envelopes 14), `legs` 106 s.
-  Stub result: single 0, same link 0, envelopes 0/0/0; pair grid and leg-leg keep the kinematic items of sec. 12.
+  Stub result (with `check.contact_pairs`): every counted section 0 (single 0, pairs 0, leg-leg 0, same link 0,
+  envelopes 0/0/0); 14 pose-pairs listed as modelled contacts (sec. 12 items 2-3). Full run 173 s.
 * Fit study: `OPENDUCK_CONFIG=tr35_b2 OPENDUCK_FIT_OUT=<file> freecadcmd -c "import runpy;
   runpy.run_path('tools/fit_study.py', run_name='__main__')"` (~6-7 min, envelopes only).
 * Tests: `pytest tests/cad` (incl. `test_tr35_stub_fc.py`: build, MJCF in MuJoCo, names/order/classes, required within
   limits, head top 350 +- 10, mass budget) and `pytest tests/golden` (xl330_27 byte-identical).
 
-## 12. Open decisions (orchestrator / user)
+## 12. Decisions (orchestrator, 2026-10-23; spec v3.1 §3.2.2 and A1)
 
-1. **Pair-grid scope** (sec. 4.4): literal "all links, full required ranges" leaves no trunk volume. Frozen:
-   `pair_scope = "module"` + trunk/head keep-ins verified on single-joint + leg-leg sweeps.
-2. **Leg-leg, 1 of 32 poses**: both legs pitch -70 / knee -37 (straight forward), toe-in +10, roll-in -20: the two
-   soles overlap ~25 mm across the midline (toe-in swings each forward foot ~19 mm inward). Clearing it needs ~+15 mm
-   stance per side (roll axes y 26 -> ~41, width 223 -> ~253 mm). Options: accept it as the leg<->leg MJCF
-   self-collision pair (spec 3.2.2) or widen. Frozen: y = 26.
-3. **(knee +65, ankle -45) pair**: the foot flips over the ankle into the hip front (foot plate vs hip_pitch servo and
-   horns, ~300 mm3 in the stub). Kinematic (any foot plate under the ankle does this), not fixable by brackets.
-   Options: a combined knee/ankle limit in getup, or a same-leg foot <-> hip/thigh self-collision pair in MJCF.
+1. **Pair-grid scope**: `pair_scope = "module"` stays. Body-vs-limb contacts at combined extremes are MJCF
+   self-collision pairs (spec 3.2.2 already lists thigh/shin <-> trunk/head/jaw; v3.1 adds head <-> trunk). The trunk and
+   head keep-ins are verified on the single-joint + leg-leg sweeps. Literal "all" would leave no trunk volume.
+2. **Leg-leg feet pose** (both legs pitch -70 / knee -37, toe-in +10, roll-in -20; soles overlap ~25 mm): accepted as a
+   modelled contact (leg <-> leg pair, spec 3.2.2). The stance is not widened (it would cost ~30 mm width and hip_roll
+   torque for one combined 4-joint extreme).
+3. **(knee +65, ankle -45) fold**: accepted as a modelled contact, a same-leg foot <-> thigh / hip_cradle pair (new in
+   spec v3.1). A combined knee/ankle limit was rejected: the servos cannot enforce it, and the policy needs the real
+   contact in sim anyway (getup kneel). P2a keeps the foot hitting printed/servo surfaces (the cradle around the
+   horns), never a harness.
+   Mechanism: `check.contact_pairs` in `configs/tr35_b2.json` (link pairs without the left_/right_ prefix, `side`
+   same/cross, `sections` pairs/leg_leg). Matches are listed under "modellenen temaslar" and are not counted. Items of
+   `contact_count_kinds` (harness) always count. Single-joint scans have no exceptions. Any NEW contact pair is an
+   interface change request, not a config edit by P2a/b/c. P3 exports every contact pair as an MJCF `<pair>`/contype
+   rule (with the 3.2.2 list).
 4. **HOME COM** 19.9 mm behind the foot centre (27 cm: 7 mm): P2b moves mass forward where possible, then P5 re-tunes
-   HOME.
+   HOME (G-ISIL allows it).
 5. **Estimates to measure in Step 0**: plastic horn shapes (ES3054 single arm, MG90S/SG90 double arm), MG90S/SG90 tower
    heights, 300 W buck mass, servo hub size; 6800ZZ stock in Turkey (P3 BOM).

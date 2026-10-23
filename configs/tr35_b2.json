@@ -66,7 +66,17 @@
     "pair_range": "required",
     "pair_scope": "module",
     "leg_leg": true,
-    "leg_leg_range": "required"
+    "leg_leg_range": "required",
+    "_contact_pairs": "spec 3.2.2 (v3.1 karari, p2-interface.md 'Kararlar'): birlesik uc pozlarda beklenen, MJCF'de oz-carpisma cifti olarak modellenen temaslar; 4) ve 5)'te sayilmaz, ayri listelenir. Tek eklem taramasinda (1) yine sayilir. Kablo demeti temaslari (contact_count_kinds) her zaman sayilir.",
+    "contact_pairs": [
+      {"links": ["foot", "foot"], "side": "cross", "sections": ["leg_leg"],
+       "why": "iki ayak, iki bacak ic uclarda one uzanirken (pitch -70, knee -37, roll/yaw ic): bacak<->bacak cifti"},
+      {"links": ["foot", "thigh"], "side": "same", "sections": ["pairs"],
+       "why": "knee +65 / ankle -45 katlanmasi: ayak kalca onune (ayni bacak ayak<->uyluk cifti)"},
+      {"links": ["foot", "hip_cradle"], "side": "same", "sections": ["pairs"],
+       "why": "knee +65 / ankle -45 katlanmasi: ayak kalca onune (ayni bacak ayak<->kalca besigi cifti)"}
+    ],
+    "contact_count_kinds": ["harness"]
   },
   "targets": {
     "head_top_stand_mm": [340.0, 360.0],

@@ -18,6 +18,8 @@ Konfigde "check" bolumu varsa (TR-35, spec A1; P2-0) ayrica:
 5) Bacak-bacak: iki bacak hip_roll ve hip_yaw ic uclarinda, hip_pitch / knee uclari (leg_leg_range).
 Kablo demetleri (Item kind "harness") butun taramalara dahildir; ayni eklem gecisinin iki tupu
 ("<eklem>_harness_in/out") gecis noktasinda bilerek birlesir ve birbirine karsi sayilmaz. Rapor sonunda sureler.
+Modellenen temaslar (check.contact_pairs, spec 3.2.2): 4) ve 5)'te birlesik uc pozlarda beklenen, MJCF'ye oz-carpisma
+cifti olarak giren link ciftleri sayilmaz, ayri listelenir; kablo demeti (contact_count_kinds) yine sayilir.
 
 Modul suzgeci (P2a/b/c hizli dongu): OPENDUCK_CHECK_LINKS=legs | trunk | head | all | <link>,<link>... Yalniz en az
 bir parcasi secili link'lerde olan ciftler; pozlar secili modulun eklemleri (trunk: hepsi). 27 cm raporu suzgecsiz
@@ -161,6 +163,32 @@ def allowed_pair(ia, ib):
     return ca is not None and ca == harness_crossing(ib)
 
 
+def contact_rules(model, section):
+    """check.contact_pairs (spec 3.2.2): MJCF oz-carpisma cifti olarak modellenen temaslar. Kural: {"links": [a, b]
+    (sol/sag oneksiz), "side": same | cross | any, "sections": [pairs | leg_leg], "why": ...}. contact_count_kinds
+    (varsayilan kablo demeti) turundeki parcalar yine sayilir. Doner f(parca_a, parca_b) -> gerekce | None, ya da
+    kural yoksa None."""
+    ext = model.cfg.get("check") or {}
+    rules = [r for r in ext.get("contact_pairs", []) if section in r.get("sections", ())]
+    if not rules:
+        return None
+    count = set(ext.get("contact_count_kinds", ["harness"]))
+    where = {it.name: (ln, it) for ln, l in model.links.items() for it in l.items}
+    side = lambda ln: ln.split("_")[0] if ln.startswith(("left_", "right_")) else ""
+
+    def allow(na, nb):
+        (la, ia), (lb, ib) = where[na], where[nb]
+        if ia.kind in count or ib.kind in count:
+            return None
+        ks = sorted((openduck.joint_key(la), openduck.joint_key(lb)))
+        for r in rules:
+            sd = r.get("side", "any")
+            if ks == sorted(r["links"]) and (sd == "any" or (sd == "same") == (side(la) == side(lb))):
+                return r.get("why", "")
+        return None
+    return allow
+
+
 def selected_links(model, spec=None):
     """OPENDUCK_CHECK_LINKS -> link kumesi (None: hepsi). legs/trunk/head: modul link'leri (model.meta["modules"])."""
     spec = os.environ.get("OPENDUCK_CHECK_LINKS", "") if spec is None else spec
@@ -230,9 +258,10 @@ def same_link_overlaps(model, links=None):
     return hits
 
 
-def _scan(model, poses, links, lines, label_w=26, scope=None, info=None):
+def _scan(model, poses, links, lines, label_w=26, scope=None, info=None, allow=None, modeled=None):
     """Pozlari tara, carpismalari satir satir yaz; carpisma sayisi. scope(poz adi) -> link kumesi verilirse yalniz iki
-    parcasi da o kumede olan carpismalar sayilir, digerleri info sayacina (bilgi amacli) gider."""
+    parcasi da o kumede olan carpismalar sayilir, digerleri info sayacina (bilgi amacli) gider. allow(a, b) gerekce
+    verirse (contact_rules) carpisma sayilmaz, modeled[(a, b)] = [poz sayisi, en buyuk hacim] olur."""
     n = 0
     item_link = {it.name: ln for ln, l in model.links.items() for it in l.items}
     for name, pose in poses:
@@ -243,6 +272,12 @@ def _scan(model, poses, links, lines, label_w=26, scope=None, info=None):
             hits = [h for h in hits if h not in out]
             for vol, a, b in out:
                 info[(a, b)] += 1
+        if allow is not None:
+            ok = [h for h in hits if allow(h[1], h[2]) is not None]
+            hits = [h for h in hits if h not in ok]
+            for vol, a, b in ok:
+                c = modeled.setdefault((a, b), [0, 0.0])
+                c[0], c[1] = c[0] + 1, max(c[1], vol)
         n += len(hits)
         for vol, a, b in sorted(hits, reverse=True):
             lines.append("  %-*s %8.1f mm3  %s <-> %s" % (label_w, name, vol, a, b))
@@ -341,6 +376,17 @@ def iface_report(model, links, joints, lines):
     return n_in, n_x, n_ee
 
 
+def _modeled_lines(model, section, modeled, lines):
+    """Modellenen temaslar bolumu (yalniz kural varsa yazilir); poz-cift sayisi."""
+    if contact_rules(model, section) is None:
+        return 0
+    lines.append("  modellenen temaslar (sayilmaz; MJCF oz-carpisma cifti, check.contact_pairs): %d poz-cift"
+                 % sum(c for c, v in modeled.values()))
+    for (a, b), (c, v) in sorted(modeled.items(), key=lambda kv: (-kv[1][0], -kv[1][1])):
+        lines.append("  %3dx  en cok %8.1f mm3  %s <-> %s" % (c, v, a, b))
+    return sum(c for c, v in modeled.values())
+
+
 def run(n_random=40):
     model = openduck.OpenDuck()
     links = selected_links(model)
@@ -394,8 +440,10 @@ def run(n_random=40):
             jmod = {j["name"]: model.link_module[j["child"]] for j in model.joints}
             mlinks = {md: set(lns) for md, lns in model.meta["modules"].items()}
             scope = lambda pname: mlinks[jmod[pname.split(",")[0].split("=")[0]]]
-        n = _scan(model, pposes, links, lines, 40, scope, info)
+        pmod = {}
+        n = _scan(model, pposes, links, lines, 40, scope, info, contact_rules(model, "pairs"), pmod)
         lines.append("  -> %d poz, %d carpisma" % (len(pposes), n))
+        n_mod = _modeled_lines(model, "pairs", pmod, lines)
         if scope is not None:
             lines.append("  modul disi temaslar (bilgi amacli; MJCF oz-carpisma ciftleri, spec 3.2.2): %d poz-cift"
                          % sum(info.values()))
@@ -409,8 +457,10 @@ def run(n_random=40):
             t0 = time.time()
             legs = set(model.meta.get("modules", {}).get("legs", []))
             lposes = leg_leg_poses(model, lrange) if links is None or links & legs else []
-            n = _scan(model, lposes, links, lines, 40)
+            lmod = {}
+            n = _scan(model, lposes, links, lines, 40, allow=contact_rules(model, "leg_leg"), modeled=lmod)
             lines.append("  -> %d poz, %d carpisma" % (len(lposes), n))
+            n_mod += _modeled_lines(model, "leg_leg", lmod, lines)
             ext_hits += n
             timing["bacak-bacak"] = time.time() - t0
         n_if = (0, 0, 0)
@@ -424,6 +474,7 @@ def run(n_random=40):
         lines += ["", "## Ozet", "  kablo demeti parcasi: %d (taramalara dahil)" % nh,
                   "  carpisma: tek eklem %d, komsu cift + bacak-bacak %d, ayni link %d; zarf: icerme %d, giris %d, "
                   "zarf-zarf %d" % ((design_hits, ext_hits - sum(n_if), len(bad)) + tuple(n_if)),
+                  "  modellenen temas (sayilmaz, MJCF cifti): %d poz-cift" % n_mod,
                   "  sure (s): " + ", ".join("%s %.0f" % kv for kv in timing.items())
                   + ", toplam %.0f" % sum(timing.values())]
     run.timing = timing
