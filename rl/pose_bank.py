@@ -9,18 +9,24 @@ mj_resetData ile bagimsiz baslar -> n'den bagimsiz onek kararliligi: bank(n=64) 
   b = fallen_bank()     # "getup" modeli: rastgele yonelimden dusurulup oturtulmus durumlar
   b = midfall_bank()    # "getup" modeli: HOME'dan 15-35 derece devrik, 0-4 rad/s, oturtmasiz
   b = bank("fallen")    # ada gore
+  b = bank("seated", robot="tr35_b2", scene_path=...)   # ortamin kendi aktuator modeli / sahnesi (None: surec varsayilani)
 
 Donen sozluk (diziler salt okunur): qpos (N,nq), qvel (N,nv), ctrl (N,nu), label (N,) int32
-(LABELS indeksi), labels, kind, variant, seed, build_s, candidates (denenen aday sayisi).
+(LABELS indeksi), labels, kind, variant, seed, robot, scene, build_s, candidates (denenen aday sayisi).
+Onbellek anahtari (tur, n, tohum, robot, sahne); varsayilanlar (None) surec profili ve C.SCENE_PATH (cagri aninda).
+Bankalar bosluk eklemsiz duzende (bosluk eklemli ortam robot_model.expand_state ile genisletir).
+Oturus bankasi pitch = SEAT_PITCH_DEG + U(+-tilt) ile yerlestirilir, MAIN["seat_gz"] ile kabul edilir.
 Sifirlamada (TASK.md): yaw rastgele quat_mul(yaw_q, qpos[3:7]), xy = 0, z = qpos[2], qvel = bank qvel
 (seated/fallen: 0), ctrl = bank ctrl.
 """
 import functools
+import os
 import time
 
 import mujoco
 import numpy as np
 
+from . import actuators as A
 from . import config as C
 from . import task_math as T
 from .robot_model import RobotIndex, build_model
@@ -92,8 +98,8 @@ def floor_contact_geoms(m, d, floor_geom, eps=C.CONTACT_EPS):
 
 
 class _Builder(object):
-    def __init__(self, variant):
-        self.m = m = build_model(variant=variant)
+    def __init__(self, variant, robot=None, scene_path=None):
+        self.m = m = build_model(scene_path, variant=variant, robot=robot)
         self.d = mujoco.MjData(m)
         self.idx = RobotIndex(m)
         self.key = mujoco.mj_name2id(m, mujoco.mjtObj.mjOBJ_KEY, C.DEFAULT_KEYFRAME)
@@ -124,20 +130,27 @@ class _Builder(object):
         return np.asarray(T.projected_gravity(np, self.d.qpos[3:7]))
 
 
-def _finish(kind, variant, seed, qpos, qvel, ctrl, label, t0, tried):
+def _finish(kind, variant, seed, qpos, qvel, ctrl, label, t0, tried, robot, scene):
     out = {"qpos": np.array(qpos), "qvel": np.array(qvel), "ctrl": np.array(ctrl),
            "label": np.array(label, dtype=np.int32)}
     for v in out.values():
         v.setflags(write=False)
     out.update(kind=kind, variant=variant, seed=int(seed), labels=LABELS, build_s=time.time() - t0,
-               candidates=int(tried))
+               candidates=int(tried), robot=robot, scene=scene)
     return out
 
 
+def _guard(kind, tried, n, got):
+    """Kabul edilemeyen poz tanimi (or. yeni geometride oturus) sonsuz donguye girmesin."""
+    if tried > 200 * n + 2000:
+        raise RuntimeError("%s bankasi: %d adayda yalniz %d kabul (n=%d); poz tanimi/kabul esigi bu modelde gecersiz"
+                           % (kind, tried, got, n))
+
+
 @functools.lru_cache(maxsize=None)
-def _fallen(n, seed):
+def _fallen(n, seed, robot=None, scene=None):
     t0 = time.time()
-    b = _Builder("getup")
+    b = _Builder("getup", robot, scene)
     m, d, idx = b.m, b.d, b.idx
     rng = np.random.default_rng([seed, _TAGS["fallen"]])
     lo, hi = m.actuator_ctrlrange[:, 0], m.actuator_ctrlrange[:, 1]
@@ -147,6 +160,7 @@ def _fallen(n, seed):
     tried = 0
     while len(Q) < n:
         tried += 1
+        _guard("fallen", tried, n, len(Q))
         ctrl = idx.init_ctrl.copy()
         ctrl[idx.obs_act_id] += rng.uniform(-nz, nz, len(idx.obs_act_id))
         ctrl = np.clip(ctrl, lo, hi)
@@ -163,13 +177,13 @@ def _fallen(n, seed):
         V.append(np.zeros(m.nv))
         U.append(ctrl)
         L.append(classify(g))
-    return _finish("fallen", "getup", seed, Q, V, U, L, t0, tried)
+    return _finish("fallen", "getup", seed, Q, V, U, L, t0, tried, robot, scene)
 
 
 @functools.lru_cache(maxsize=None)
-def _seated(n, seed):
+def _seated(n, seed, robot=None, scene=None):
     t0 = time.time()
-    b = _Builder("main")
+    b = _Builder("main", robot, scene)
     m, d, idx = b.m, b.d, b.idx
     rng = np.random.default_rng([seed, _TAGS["seated"]])
     lo, hi = m.actuator_ctrlrange[:, 0], m.actuator_ctrlrange[:, 1]
@@ -184,10 +198,13 @@ def _seated(n, seed):
     tried = 0
     while len(Q) < n:
         tried += 1
+        _guard("seated", tried, n, len(Q))
         ctrl = target.copy()
         ctrl[idx.obs_act_id] += sig * rng.standard_normal(len(idx.obs_act_id))
         ctrl = np.clip(ctrl, lo, hi)
         pitch, roll = rng.uniform(-tilt, tilt, 2)
+        if C.SEAT_PITCH_DEG:                            # egik oturus (tr35): pitch = SEAT_PITCH_DEG + U(+-tilt)
+            pitch = pitch + np.deg2rad(C.SEAT_PITCH_DEG)
         quat = T.quat_mul(np, axis_angle_quat((0, 1, 0), pitch), axis_angle_quat((1, 0, 0), roll))
         b.place(quat, ctrl, 0.001)
         if not b.settle():
@@ -200,13 +217,13 @@ def _seated(n, seed):
         V.append(np.zeros(m.nv))
         U.append(ctrl)
         L.append(4)
-    return _finish("seated", "main", seed, Q, V, U, L, t0, tried)
+    return _finish("seated", "main", seed, Q, V, U, L, t0, tried, robot, scene)
 
 
 @functools.lru_cache(maxsize=None)
-def _midfall(n, seed):
+def _midfall(n, seed, robot=None, scene=None):
     t0 = time.time()
-    b = _Builder("getup")
+    b = _Builder("getup", robot, scene)
     m, d, idx = b.m, b.d, b.idx
     rng = np.random.default_rng([seed, _TAGS["midfall"]])
     lo, hi = m.actuator_ctrlrange[:, 0], m.actuator_ctrlrange[:, 1]
@@ -231,30 +248,32 @@ def _midfall(n, seed):
         V.append(qv)
         U.append(idx.init_ctrl.copy())
         L.append(tilt_label(b.gravity()))
-    return _finish("midfall", "getup", seed, Q, V, U, L, t0, tried)
+    return _finish("midfall", "getup", seed, Q, V, U, L, t0, tried, robot, scene)
 
 
 _BUILD = {"seated": _seated, "fallen": _fallen, "midfall": _midfall}
 
 
-def bank(kind, n=None, seed=None):
-    """kind: "seated" | "fallen" | "midfall". n/seed varsayilanlari C.POSE_BANK."""
+def bank(kind, n=None, seed=None, robot=None, scene_path=None):
+    """kind: "seated" | "fallen" | "midfall". n/seed varsayilanlari C.POSE_BANK; robot None -> surec profili
+    (actuators.profile); scene_path None -> C.SCENE_PATH (cagri aninda). Onbellek anahtari bunlarin hepsi."""
     if kind not in _BUILD:
         raise ValueError("bilinmeyen banka %r (%s)" % (kind, ", ".join(_BUILD)))
     n = int(_P[kind + "_n"] if n is None else n)
-    return _BUILD[kind](n, int(_P["seed"] if seed is None else seed))
+    scene = os.path.abspath(scene_path or C.SCENE_PATH)
+    return _BUILD[kind](n, int(_P["seed"] if seed is None else seed), A.profile(robot), scene)
 
 
-def seated_bank(n=None, seed=None):
-    return bank("seated", n, seed)
+def seated_bank(n=None, seed=None, robot=None, scene_path=None):
+    return bank("seated", n, seed, robot, scene_path)
 
 
-def fallen_bank(n=None, seed=None):
-    return bank("fallen", n, seed)
+def fallen_bank(n=None, seed=None, robot=None, scene_path=None):
+    return bank("fallen", n, seed, robot, scene_path)
 
 
-def midfall_bank(n=None, seed=None):
-    return bank("midfall", n, seed)
+def midfall_bank(n=None, seed=None, robot=None, scene_path=None):
+    return bank("midfall", n, seed, robot, scene_path)
 
 
 def clear_cache():
