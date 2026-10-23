@@ -807,4 +807,289 @@ def build_tr35(m, sv):
             m._add(lk, S + name, shape, kind, mass, cbox)
 
 
+# --------------------------------------------------------------------------- el hesabi (spec A1, p2a-el-hesabi.md)
+# Yuk durumlari: (dikey carpan x W, yatay oran (x ve y ayri ayri +-), basinc merkezi): durus = tek ayak W + 0.2 W
+# yatay, basinc merkezi tabanin herhangi bir yerinde (merkez + 4 kose); dusme = tek ayak 2 W + 0.3 x 2 W yatay, merkez.
+# W = targets.mass_max_kg x g (sert sinir 1.95 kg; bacak agirligi dusulmez: tutucu taraf).
+LOAD_CASES = (("durus", 1.0, 0.2, "kose"), ("dusme", 2.0, 0.3, "merkez"))
+G = 9.81
+# Tipik katalog / malzeme degerleri (MPa, N). Rulman: Cr, C0r (6800ZZ ~ SKF 61800-2Z, F623ZZ ~ 623ZZ). PETG baski:
+# katman ici cekme 40, katmanlar arasi 25, ezilme (yatak basinci) 50. Al 6061-T6 akma 240. Celik vida 8.8 akma 640.
+BEARING_RATING = {"6800ZZ": (1720.0, 830.0), "F623ZZ": (480.0, 180.0)}
+MAT = {"petg_layer": 25.0, "petg_inlayer": 40.0, "petg_bear": 50.0, "al_yield": 240.0, "steel_yield": 640.0}
+M3_CORE_D, M25_AS = 2.39, 3.39          # M3 cekirdek capi, M2.5 gerilme alani (mm, mm2)
+
+
+def _v3(v):
+    return (v.x, v.y, v.z) if hasattr(v, "x") else tuple(v)
+
+
+def load_report(m):
+    """Bacak yuk yolu el hesabi (sol bacak, HOME/stand pozu; FreeCAD). Zemin kuvveti tabanin basinc merkezine
+    uygulanir, her eklemde eksenel kuvvet, eksen torku, eksene dik moment; DS eklemlerinde U-link'in iki mesnedi:
+    A (horn gobegi / spline) ve B (F623ZZ idler) radyal tepkileri; hip_yaw doner tablasinin iki 6800ZZ tepkisi;
+    vida, kol, idler mili, mil ve baski parcasi gerilmeleri. Doner {"W", "cases", "ds", "turntable", "checks"};
+    checks: [(ad, deger, sinir, emniyet katsayisi)]."""
+    import FreeCAD as App
+    Vv = App.Vector
+    p, L = m.p, m.p["legs"]
+    W = m.cfg["targets"]["mass_max_kg"] * G
+    pose = m.pose("stand")
+    pls = m.link_placements(pose)
+    J = {j["name"]: j for j in m.joints}
+    worldpt = lambda ln, q: pls[ln].multiply(App.Placement(Vv(*q) - m.links[ln].origin, App.Rotation())).Base
+    # taban basinc merkezleri (dunya, stand pozu): merkez + 4 kose (egik taban plakasinin alt yuzu)
+    FT, an = L["foot"], p["j_ankle"]
+    z_sole = an[2] - p["sole_below_ankle"]
+    fx0, fx1 = an[0] + p["foot_x"][0], an[0] + p["foot_x"][1]
+    fy0, fy1 = FT["yc"] - p["foot_w"] / 2.0, FT["yc"] + p["foot_w"] / 2.0
+    c = Vv(0.5 * (fx0 + fx1), FT["yc"], z_sole)
+    rot = App.Rotation(Vv(1, 0, 0), p["sole_cant_deg"])
+    pts = {"merkez": [c]}
+    pts["kose"] = [c] + [c + rot.multVec(Vv(x - c.x, y - c.y, 0)) for x in (fx0, fx1) for y in (fy0, fy1)]
+    cop = {k: [worldpt("left_foot", _v3(q)) for q in v] for k, v in pts.items()}
+    loads = {}
+    for name, fz, fh, where in LOAD_CASES:
+        loads[name] = [(P, Vv(sx * fh * fz * W, sy * fh * fz * W, fz * W)) for P in cop[where]
+                       for sx in (-1, 1) for sy in (-1, 1)]
+    F = {key: _Frame(m, key, L["horn_toward"].get(key)) for key in DS_KEYS}
+    t = m.servo_type("hip_roll")
+    st = servos.datums(t, p["idler"]["bearing"])["idler"]
+    hn = t["horn"]
+    yA = -(hn["h"][1] - hn["h"][0]) / 2.0                    # spline kavrama merkezi (horn gobegi ortasi)
+    yB = st["axis"]                                          # idler rulman merkezi
+    e_spl = yA - servos.datums(t)["boss_top"]                # spline kuvveti -> servo ic yatagi (boss ustu) kolu
+    e_pin = st["axis"] - sum(st["leg"]) / 2.0                # idler rulman merkezi -> B kolu orta duzlemi
+    stall = t["electrical"]["stall_torque"]
+    legb = _legb_sections(m, F, L)
+    ds = {}
+    for key in DS_KEYS:
+        j = J["left_" + key]
+        O = worldpt(j["parent"], j["origin"])
+        a = pls[j["parent"]].Rotation.multVec(Vv(*j["axis"]))
+        h = pls["left_" + LEG_BODY_LINK[key]].Rotation.multVec(Vv(*m.p["servo_dir"][key][0]))
+        rec = {}
+        for name, _, _, _ in LOAD_CASES:
+            r = {"Fax": 0.0, "T": 0.0, "Mp": 0.0, "RA": 0.0, "RB": 0.0, "M_cant": 0.0}
+            for P, Fv in loads[name]:
+                Mv = (P - O).cross(Fv)
+                Fax = Fv.dot(a)
+                Frad = Fv - a * Fax
+                Mp = Mv - a * Mv.dot(a)
+                rhs = h.cross(Mp) * -1.0                     # = yA RA + yB RB (R eksene dik)
+                RB = (rhs - Frad * yA) * (1.0 / (yB - yA))
+                RA = Frad - RB
+                Mc = (Mv - (h * yA).cross(Frad))             # tek mesnet (idler'siz) spline'daki moment
+                Mc = Mc - a * Mc.dot(a)
+                for k_, v_ in (("Fax", abs(Fax)), ("T", abs(Mv.dot(a)) / 1000.0), ("Mp", Mp.Length / 1000.0),
+                               ("RA", RA.Length), ("RB", RB.Length), ("M_cant", Mc.Length / 1000.0)):
+                    r[k_] = max(r[k_], v_)
+            r["M_shaft"] = r["RA"] * e_spl / 1000.0          # spline tasmasi (ic yatak - kavrama) momenti
+            rec[name] = r
+        ds[key] = rec
+    # hip_yaw doner tablasi
+    tt = servos.turntable_stack(p["turntable"])
+    H, C = L["hip"], L["coupler"]
+    yx, yy = p["j_hip_yaw"][0], p["j_hip_yaw"][1]
+    zl, zu = sum(tt["lower"]) / 2.0, sum(tt["upper"]) / 2.0
+    s = zu - zl
+    d_sh = tt["bearing_rec"]["d"]
+    ztop = tt["z_mate"] - p["turntable"]["gap"]
+    Lb = ztop - H["shaft_bot"]                               # mil - gobek kavrama boyu
+    ax = Vv(0, 0, 1)
+    tts = {}
+    for name, _, _, _ in LOAD_CASES:
+        r = {"Fax": 0.0, "Mz": 0.0, "M_l": 0.0, "Rl": 0.0, "Ru": 0.0, "M_boss": 0.0, "M_pin": 0.0, "Fr": 0.0}
+        for P, Fv in loads[name]:
+            Ol = Vv(yx, yy, zl)
+            Mv = (P - Ol).cross(Fv)
+            Fax = Fv.dot(ax)
+            Frad = Fv - ax * Fax
+            Mp = Mv - ax * Mv.dot(ax)
+            Fu = Vv(-Mp.y, Mp.x, 0) * (1.0 / s)              # (0,0,s) x Fu = -Mp: ust rulman tepkisi
+            Fl = Frad * -1.0 - Fu
+            mb = (P - Vv(yx, yy, ztop)).cross(Fv)
+            mpn = (P - Vv(yx, yy, H["pin_z"])).cross(Fv)
+            for k_, v_ in (("Fax", abs(Fax)), ("Mz", abs(Mv.dot(ax)) / 1000.0), ("M_l", Mp.Length / 1000.0),
+                           ("Rl", Fl.Length), ("Ru", Fu.Length), ("Fr", Frad.Length),
+                           ("M_boss", (mb - ax * mb.dot(ax)).Length / 1000.0),
+                           ("M_pin", (mpn - ax * mpn.dot(ax)).Length / 1000.0)):
+                r[k_] = max(r[k_], v_)
+        tts[name] = r
+    # kontroller (dusme durumu, emniyet katsayisi = sinir / deger)
+    D = "dusme"
+    chk = []
+    add = lambda n, v, lim: chk.append((n, v, lim, lim / v if v > 1e-9 else float("inf")))
+    Cr6800, C06800 = BEARING_RATING[p["turntable"]["bearing"]]
+    Cr623, C0623 = BEARING_RATING[p["idler"]["bearing"]]
+    T_yaw = max(tts[D]["Mz"], m.servo_type("hip_yaw")["electrical"]["stall_torque"])
+    add("6800ZZ statik yuk (N)", max(tts[D]["Rl"], tts[D]["Ru"]) + 0.5 * tts[D]["Fax"], C06800)
+    add("mil egilme, alt rulman (MPa)", tts[D]["M_l"] * 1000.0 / (math.pi * d_sh ** 3 / 32.0), MAT["al_yield"])
+    w_net = math.pi * d_sh ** 3 / 32.0 - H["pin_hole_d"] * d_sh ** 2 / 6.0
+    add("mil egilme, capraz delik net kesit (MPa)", tts[D]["M_pin"] * 1000.0 / w_net, MAT["al_yield"])
+    add("kalca gobegi yatak basinci (MPa)", 6.0 * tts[D]["M_boss"] * 1000.0 / (d_sh * Lb * Lb)
+        + tts[D]["Fr"] / (d_sh * Lb), MAT["petg_bear"])
+    add("capraz vida kesme (MPa)", T_yaw * 1000.0 / d_sh / (math.pi * M3_CORE_D ** 2 / 4.0), 0.6 * MAT["steel_yield"])
+    ra = max(ds[k][D]["RA"] for k in DS_KEYS)
+    rb = max(ds[k][D]["RB"] for k in DS_KEYS)
+    T_ds = max(max(ds[k][D]["T"] for k in DS_KEYS), stall)
+    fax = max(ds[k][D]["Fax"] for k in DS_KEYS)
+    add("F623ZZ statik yuk (N)", rb + 0.5 * fax, C0623)
+    sig_pin = rb * e_pin / (math.pi * M3_CORE_D ** 3 / 32.0)
+    add("idler M3 mili egilme (MPa)", sig_pin, MAT["steel_yield"])
+    f_tab = T_ds * 1000.0 / t["holes"]["pitch_l"] / 2.0 + (ra + fax) / 4.0
+    add("kulak vidasi PETG yatak basinci (MPa)", f_tab / (3.0 * L["shelf_t"]), MAT["petg_bear"])
+    r1, r2 = hn["hole_r"]
+    f_m25 = T_ds * 1000.0 * r2 / (r1 * r1 + r2 * r2)
+    add("kol M2.5 vida kesme, butun tork vidada (MPa)", f_m25 / M25_AS, 0.6 * MAT["steel_yield"])
+    add("kol M2.5 PETG yatak basinci (MPa)", f_m25 / (2.5 * min(L["plate_a"].values())), MAT["petg_bear"])
+    l_arm = r2 + hn["arm_tip_r"] - hn["hub_d"] / 2.0
+    f_pk = T_ds * 1000.0 / (hn["hub_d"] / 2.0 + l_arm / 2.0)
+    add("kol cebi yan duvar basinci (MPa)", 2.0 * f_pk / (l_arm * hn["arm_t"]), MAT["petg_bear"])
+    add("B kolu PETG yatak basinci, M3 (MPa)", rb / (3.0 * st["leg"][1] - 3.0 * st["leg"][0]), MAT["petg_bear"])
+    add("idler yuvasi PETG yatak basinci (MPa)", rb / (st["bearing_rec"]["D"] * (st["seat"][1] - st["seat"][0] - 1.0)),
+        MAT["petg_bear"])
+    for key in DS_KEYS:          # duzlem ici (R_B) + duzlem disi (eksenel, idler yonunde) egilme, en kotu kesit
+        sig = max(6.0 * ds[key][D]["RB"] * lb / (tt_ * bw * bw) + 6.0 * ds[key][D]["Fax"] * lb / (bw * tt_ * tt_)
+                  for lb, bw, tt_ in legb[key])
+        add("%s U-link B kolu kesit egilme (MPa)" % key, sig, MAT["petg_layer"])
+    lp, dp, di, lv = legb["_knee_post"]      # diz B kolu direk (boru): egilme R_B x boy + burulma R_B x kol (v. Mises)
+    wb = math.pi * (dp ** 4 - di ** 4) / (32.0 * dp)
+    sb = ds["knee"][D]["RB"] * lp / wb
+    tb = ds["knee"][D]["RB"] * lv / (2.0 * wb)
+    add("diz B kolu direk egilme + burulma (MPa)", math.sqrt(sb * sb + 3.0 * tb * tb), MAT["petg_layer"])
+    es_r = m.servo_type("hip_yaw")["horn"]["arm_r"]
+    return {"W": W, "cases": LOAD_CASES, "ds": ds, "turntable": tts, "checks": chk,
+            "geo": {"yA": yA, "yB": yB, "span_AB": yA - yB, "e_spline": e_spl, "e_pin": e_pin, "tt_spacing": s,
+                    "boss_len": Lb, "legb": legb, "T_ds": T_ds, "T_yaw": T_yaw,
+                    "es_drive_N": m.servo_type("hip_yaw")["electrical"]["stall_torque"] * 1000.0 / es_r,
+                    "cop": {k: [tuple(round(x, 1) for x in _v3(q)) for q in v] for k, v in cop.items()}}}
+
+
+def _legb_sections(m, F, L):
+    """U-link B kolu (idler tarafi) kritik kesitleri: {eklem: [(kol boyu mm, kesit genisligi b, kalinlik t), ...]}
+    (R_B ve eksenel kuvvet idler ekseninde; egilme kolun rijit birlesimine kadar) + diz B kolu direk boyu (mm, d)."""
+    r, q, k, a = F["hip_roll"], F["hip_pitch"], F["knee"], F["ankle"]
+    K, S, FT = L["hip_cradle"], L["shin"], L["foot"]
+    st = k.d["idler"]
+    lt = st["leg"][1] - st["leg"][0]
+    pa = S["post"]
+    pc = a.xz(pa[0], 0, pa[1])
+    an = m.p["j_ankle"]
+    z_pl1 = an[2] - m.p["sole_below_ankle"] + m.p["sole_t"] + FT["plate_t"]
+    uy = K["u_y"][1] - K["u_y"][0]
+    y_post0 = k.w(0, L["plate_a"]["knee"], 0)[1] + S["spine_dy"]   # direk koku: omurga
+    yb0 = min(k.w(0, st["leg"][0], 0)[1], k.w(0, st["leg"][1], 0)[1])
+    return {"hip_roll": [(K["boss_r"] + K["u_thick"], uy, lt), (K["u_depth"], uy, lt + K["u_thick"])],
+            "hip_pitch": [(abs(q.o[0] - (r.o[0] - K["legbp_w"])), 2.0 * K["boss_r"], lt)],
+            "knee": [(math.dist((k.o[0], k.o[2]), pc) - pa[2], 2.0 * pa[2], lt + S["legb_rib"][0])],
+            "ankle": [(abs(a.o[2] - z_pl1), FT["legb_x"][1] - FT["legb_x"][0], lt)],
+            "_knee_post": (abs(yb0 - y_post0), 2.0 * pa[2], 2.0 * S["post_bore"], math.dist((k.o[0], k.o[2]), pc))}
+
+
+def load_markdown(rep):
+    """load_report -> markdown tablolari (p2a-el-hesabi.md)."""
+    out = ["| Eklem | Durum | Eksenel F (N) | Eksen torku (N.m) | Dik moment Mp (N.m) | R_A spline (N) | "
+           "R_B idler (N) | Spline tasma momenti (N.m) | Idler'siz spline momenti (N.m) |",
+           "|---|---|---|---|---|---|---|---|---|"]
+    for key, rec in rep["ds"].items():
+        for name, r in rec.items():
+            out.append("| %s | %s | %.1f | %.2f | %.2f | %.1f | %.1f | %.3f | %.2f |" % (
+                key, name, r["Fax"], r["T"], r["Mp"], r["RA"], r["RB"], r["M_shaft"], r["M_cant"]))
+    out += ["", "| Doner tabla | Eksenel F (N) | Yaw torku (N.m) | Mp alt rulman (N.m) | R alt (N) | R ust (N) | "
+            "M gobek ustu (N.m) | M capraz delik (N.m) |", "|---|---|---|---|---|---|---|---|"]
+    for name, r in rep["turntable"].items():
+        out.append("| %s | %.1f | %.2f | %.2f | %.1f | %.1f | %.2f | %.2f |" % (
+            name, r["Fax"], r["Mz"], r["M_l"], r["Rl"], r["Ru"], r["M_boss"], r["M_pin"]))
+    out += ["", "| Kontrol (dusme, 2 W) | Deger | Sinir | Emniyet |", "|---|---|---|---|"]
+    for n, v, lim, sf in rep["checks"]:
+        out.append("| %s | %.1f | %.0f | %.1f |" % (n, v, lim, sf))
+    return "\n".join(out)
+
+
+def print_report(m, overhang_deg=45.0, tol=0.3):
+    """Bacak baski parcalari (sol taraf; sag = ayna): kutu olculeri (256 mm kupe sigma), tek kati mi, eksen yonlu 6
+    baski yonu (+ ayakta egik taban yonu) icinden, tabla temas alani >= 100 mm2 olanlarda tabla - sarkma alani en
+    buyuk olani ve o yondeki sarkma
+    alani (normali yukari yone gore > overhang_deg asagi bakan, tablada olmayan ucgenler; delik tavanlari ve kisa
+    kopruler dahil: destek ihtiyacinin ust siniri). Doner [{"name", "kind", "dims", "solids", "best": (yon, tabla mm2,
+    sarkma mm2), "all": {...}}]."""
+    import openduck
+    dirs = {"+x": (1, 0, 0), "-x": (-1, 0, 0), "+y": (0, 1, 0), "-y": (0, -1, 0), "+z": (0, 0, 1), "-z": (0, 0, -1)}
+    # yon adi = baski sirasinda yukari bakan govde ekseni (tablada olan yuz bunun tersine bakar)
+    cth = math.cos(math.radians(90.0 - overhang_deg))
+    out = []
+    for ln, l in m.links.items():
+        if m.link_module.get(ln) != "legs" or not ln.startswith("left_"):
+            continue
+        for it in l.items:
+            if it.kind not in openduck.PRINT_KINDS:
+                continue
+            tris = []
+            for f in it.shape.Faces:
+                vs, ts = f.tessellate(tol)
+                if not ts:
+                    continue
+                u0, u1, v0, v1 = f.ParameterRange
+                nf = f.normalAt(0.5 * (u0 + u1), 0.5 * (v0 + v1))
+                flip = None
+                for i, j, k in ts:
+                    a, b, c = vs[i], vs[j], vs[k]
+                    n = (b - a).cross(c - a)
+                    ar = n.Length / 2.0
+                    if ar < 1e-9:
+                        continue
+                    n = n * (1.0 / n.Length)
+                    if flip is None:
+                        flip = n.dot(nf) < 0 if f.Surface.__class__.__name__ == "Plane" else False
+                    if flip:
+                        n = n * -1.0
+                    tris.append((a, b, c, n, ar))
+            res = {}
+            dd = dict(dirs)
+            if ln.endswith("_foot"):          # egik ayak plakasi / taban: plaka alt yuzu tablada
+                ca = math.radians(m.p["sole_cant_deg"])
+                dd["taban"] = (0.0, -math.sin(ca), math.cos(ca))
+            for dn, dv in dd.items():
+                d = App_V(dv)
+                zmin = min(min(a.dot(d), b.dot(d), c.dot(d)) for a, b, c, _, _ in tris)
+                bed = over = 0.0
+                for a, b, c, n, ar in tris:
+                    nd = n.dot(d)
+                    if nd < -0.999 and max(a.dot(d), b.dot(d), c.dot(d)) < zmin + 0.05:
+                        bed += ar
+                    elif nd < -cth:
+                        over += ar
+                res[dn] = (round(bed, 1), round(over, 1))
+            ok = [k for k, v in res.items() if v[0] >= 100.0] or list(res)       # kararli tabla yuzu
+            best = max(ok, key=lambda k: res[k][0] - res[k][1])
+            bb = it.shape.BoundBox
+            out.append({"name": it.part, "kind": it.kind, "dims": (bb.XLength, bb.YLength, bb.ZLength),
+                        "solids": len(it.shape.Solids), "best": (best,) + res[best], "all": res,
+                        "volume": it.shape.Volume, "mass_g": it.mass_kg(m.p) * 1000.0})
+    return out
+
+
+def App_V(v):
+    import FreeCAD as App
+    return App.Vector(*v)
+
+
+# Baski yonu / destek notlari (sol parca; sag parca ayna). Yon: print_report'un tabla yonu ("-z" = parcanin -z yuzu
+# tablada). p2a-el-hesabi.md tablosuna yazilir.
+PRINT_NOTES = {
+    "hip_bracket": "PETG; outer (+y) side on the bed; supports under the roll-servo top plate and the yaw boss; "
+                   "100 % infill around the yaw bore (boss bearing pressure is the weakest drop-case item)",
+    "hip_yaw_coupler": "PETG (0.5 g); fork end (-x) or tine tops on the bed, supports under the ring",
+    "hip_cradle_bracket": "PETG; U-bridge underside on the bed; supports under the roll legs' upper halves and the "
+                          "pitch U front plate",
+    "thigh_bracket": "PETG; idler-seat face (+y) on the bed; supports under the ear-plane shelves and posts",
+    "shin_bracket": "PETG; knee leg A outer face (-y) on the bed; supports under the ankle cradle frame, the knee "
+                    "post web and the B leg",
+    "foot_bracket": "PETG; plate underside on the bed (5 deg cant: print the plate flat), no supports except the "
+                    "horn pocket roof",
+    "sole": "TPU 95A; flat on the bed, no supports",
+}
+
+
 GENERATORS = {"xl330_27": build_xl330, "tr35_b2": build_tr35}
