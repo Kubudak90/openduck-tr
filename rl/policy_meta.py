@@ -16,10 +16,15 @@ surec varsayilanlari; xl330 ciktisi bugunkuyle ayni). tr35_b2 modeli (idx.robot 
 alanlar (firmware'in tek dogruluk kaynagi, OpenDuck-TR spec 3.2.3-3.2.4, rl-map D3):
   robot, actuators (actuators.actuator_table sutunlari aktuator sirasiyla + classes, rails, i_cc, boards),
   sensors (sensors.POT, sensors.IMU, gozlem eklemlerinin pot tablosu), delays (alt adim gecikme araliklari),
-  derived_source (config.DERIVED_SOURCE), kappa (config.KAPPA), network (verilirse: actor_hidden, critic_hidden,
-  activation, obs_normalization), getup: getup_head ("free" | "fixed"; fixed'te head_tuck_deg), main:
-  posture_ref.seat_pitch_deg. xl330'da network/getup_head yok sayilir. Cekirdek adlari getattr ile okunur.
+  derived_source (config.DERIVED_SOURCE), derived_sha256 (yuklenen turetilmis JSON'un sha256'i; tr35 surecinde),
+  kappa (config.KAPPA), network (verilirse: actor_hidden, critic_hidden, activation, obs_normalization), getup:
+  getup_head ("free" | "fixed"; fixed'te head_tuck_deg = config.HEAD_TUCK_DEG), main: posture_ref.seat_pitch_deg
+  (config.SEAT_PITCH_DEG). xl330'da network/getup_head yok sayilir. Geometri sabitleri (default_*_q = HOME, posture_ref,
+  supervisor, getup_success) zaten config'ten, yani tr35'te rl/derived/tr35_b2.json'dan gelir.
 """
+import hashlib
+import os
+
 from . import config as C
 from . import tasks as TK
 
@@ -50,13 +55,22 @@ def _j(x):
     return x
 
 
+def _derived_sha256():
+    """Bu surecin yukledigi turetilmis dosyanin sha256'i (tr35_b2 sureci); yoksa None."""
+    p = C.DERIVED_PATH
+    if C.DERIVED is None or not p or not os.path.isfile(p):
+        return None
+    with open(p, "rb") as f:
+        return hashlib.sha256(f.read()).hexdigest()
+
+
 def _tr35_fields(meta, idx, t, network, getup_head):
     from . import actuators as ACT
     from . import sensors as SENS
     tab = idx.act
     act = {k: _j(tab[k]) for k in ACT_COLUMNS}
     act.update(classes=_j(ACT.CLASSES), rails=_j(ACT.RAILS), i_cc=float(ACT.I_CC),
-               boards=_j(getattr(ACT, "BOARDS", BOARDS)),
+               boards=_j(BOARDS),
                units="tau_s N.m; omega0 rad/s; pband, deadband, pwm_res, ctrl_lo/hi rad; kp N.m/rad; damping N.m.s/rad; "
                      "armature kg.m2; frictionloss N.m; i_stall, i_idle A; board PCA9685 karti")
     pot = dict(_j(idx.pot), joints=list(C.OBS_JOINTS))
@@ -65,15 +79,16 @@ def _tr35_fields(meta, idx, t, network, getup_head):
     meta["sensors"] = {"pot": _j(SENS.POT), "imu": _j(SENS.IMU), "pot_table": pot}
     meta["delays"] = {"delay_substeps": _j(ACT.DR["delay_substeps"]), "delay_boards": [0, 1],
                       "substep_dt": C.SIM_DT, "n_substeps": C.N_SUBSTEPS}
-    meta["derived_source"] = _j(getattr(C, "DERIVED_SOURCE", None))
-    meta["kappa"] = _j(getattr(C, "KAPPA", None))
+    meta["derived_source"] = _j(C.DERIVED_SOURCE)
+    meta["derived_sha256"] = _derived_sha256()
+    meta["kappa"] = _j(C.KAPPA)
     if network is not None:
         meta["network"] = {k: _j(network.get(k)) for k in NETWORK_KEYS}
     if t.name == "getup":
-        mode = getup_head or getattr(C, "GETUP_HEAD_DEFAULT", "free")
+        mode = getup_head or C.GETUP_HEAD_DEFAULT
         meta["getup_head"] = mode
         if mode == "fixed":
-            meta["head_tuck_deg"] = _j(getattr(C, "HEAD_TUCK_DEG", None))
+            meta["head_tuck_deg"] = _j(C.HEAD_TUCK_DEG)
     return meta
 
 
@@ -146,7 +161,7 @@ def build_meta(steps, backend, idx=None, task="walk", network=None, scene_path=N
             },
         })
         if tr35:      # oturus govde pitch'i (+ = burun asagi, 0 = duz oturus)
-            meta["posture_ref"]["seat_pitch_deg"] = float(getattr(C, "SEAT_PITCH_DEG", 0.0))
+            meta["posture_ref"]["seat_pitch_deg"] = float(C.SEAT_PITCH_DEG)
     else:
         meta.update({"head_control": "policy", "command_names": []})
     return _tr35_fields(meta, idx, t, network, getup_head) if tr35 else meta

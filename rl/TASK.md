@@ -434,9 +434,18 @@ Design: `docs/workflow/openduck-tr/spec.md` (v3.1, 3.2.3-3.2.7). Two levels sele
 
 In a `tr35_b2` process `rl/config.py` loads `DERIVED_PATH` at import (`C.load_derived(path)` → dict, `ValueError` with
 the field on a bad file); a missing or invalid file raises `RuntimeError` naming the regenerate command
-(`tools/derive_posture.py`). Until the real TR-35 MJCF exists (P2/P3), every tr35 process needs `OPENDUCK_SCENE` (the
-P2-0 stub, built by `tools/golden.py build <dir> --config tr35_b2 --no-check`) and, before the derive package is merged,
-`OPENDUCK_DERIVED` (tests: `rl/tests/tr35_scene.bootstrap_derived`, a TEST-ONLY file computed from the MJCF).
+(`tools/derive_posture.py derive --scene build/tr35_b2/sim/scene.xml --out rl/derived/tr35_b2.json`). The committed
+`rl/derived/tr35_b2.json` is generated from the P2-0 stub (`source.stub = true`); until the real TR-35 MJCF exists
+(P2/P3), every tr35 process needs `OPENDUCK_SCENE` (the P2-0 stub, built by `tools/golden.py build <dir> --config
+tr35_b2 --no-check`). `OPENDUCK_DERIVED` is only needed for another file (`rl/tests/tr35_scene.bootstrap_derived` is a
+TEST-ONLY fallback used when the committed file is missing).
+
+Regeneration after G-CAD (one command writes every geometry-dependent tr35 constant; `check` exits 0 valid and fresh,
+3 valid but the MJCF or mesh sha256 changed, 1 invalid):
+
+    python tools/derive_posture.py derive --scene build/tr35_b2/sim/scene.xml --out rl/derived/tr35_b2.json
+    python tools/derive_posture.py check  --scene build/tr35_b2/sim/scene.xml --derived rl/derived/tr35_b2.json
+    python tools/derive_posture.py caps-scan --scene build/tr35_b2/sim/scene.xml      # optional A8 voxel scan (P5b)
 
 ## Derived file (schema 1; written by `tools/derive_posture.py`, read by `rl/config.py`)
 
@@ -449,7 +458,9 @@ getup_arrival_z [2]}, `crouch_family` [[h, pitch, hip_pitch, knee, ankle], ...],
 down), seat_gz, feasible}, `head` {home_deg, sit_deg, tuck_deg}, `feet` {home_lateral, FEET_MIN_DISTANCE}, `caps_deg`
 {KNEE_LIMIT_DEG, NECK_PITCH_MAX_DEG, HIP_YAW_INWARD_MAX_DEG}, `extra_collision` {body: ["box", centre, half sizes,
 null]} (body frame), `self_collision_pairs` [[geomA, geomB], ...], `report` (free-form, never read).
-`load_derived` checks schema/profile, every key and type, `H_HOME > H_MIN_WALK >= H_MIN_STAND >= H_DEEP > Z_SIT`,
+`load_derived` checks schema/profile, every key and type, `H_HOME > H_MIN_WALK >= H_MIN_STAND >= H_DEEP` and
+`SEAT_Z < Z_SIT` (the same order as `derive_posture.validate`; `Z_SIT < H_DEEP` is only a derive warning: on the stub
+the seat is 0.5 mm higher than the deep crouch and `z_ref` interpolates linearly either way),
 `crouch_family` ≥ 3 rows with h strictly decreasing, first h ≥ H_HOME, last h ≤ H_DEEP, and the flat-foot invariant
 `pitch + hp − kn + an` = HOME's value within 1e-6 deg.
 
@@ -515,12 +526,21 @@ P5b re-measures on the final MJCF and on GPU.
   inserts play-joint zeros).
 - MJCF `<pair>`/`<exclude>` entries are deleted; the RL list `C.SELF_COLLISION_PAIRS` is authoritative (until P5b).
 - `main` and `getup` get `C.EXTRA_COLLISION` boxes: main pair-only (contype 0, conaffinity 0), getup floor-only
-  (contype 0, conaffinity 1). Then spec pairs for every `SELF_COLLISION_PAIRS` entry whose two geoms exist (main and
-  getup; walk none).
+  (contype 0, conaffinity 1). Then spec pairs for the `SELF_COLLISION_PAIRS` entries whose two geoms exist: getup the
+  full list (30 pairs on the stub), main only `robot_model.main_pairs` (thigh/shin ↔ trunk, foot ↔ same-leg
+  thigh/hip_cradle: 8 pairs), walk none. Cost (P5a, stub, real derived file, CPU-JAX 256 envs, shared machine): main
+  +77-82 % over no pairs (8 pairs), getup +104-123 % (30 pairs; the 8-pair subset would be +17-28 %). P5b re-measures
+  on the final MJCF and on GPU (8192 envs) and decides getup full list vs subset (+ head ↔ trunk) or condim 1.
+  CPU/MJX step parity does not hold while a box-box self pair is in contact (MJX makes 4 contact points per pair,
+  MuJoCo C 1-2); the tr35 lockstep test (`test_tr35_lockstep_cpu_mjx`) therefore runs with `SELF_COLLISION_PAIRS = ()`
+  until P5b (capsule EXTRA geoms, smaller boxes, or a separately reported paired difference).
 - A text marker `openduck_variant:<variant>`; `model_variant()` reads it (xl330 detection unchanged).
 - `PB.bank(kind, n=None, seed=None, robot=None, scene_path=None)`: None = process default; the cache key includes
   robot and scene; envs pass their own. The seated bank places the trunk at `SEAT_PITCH_DEG + U(±tilt)` and accepts
-  with `MAIN["seat_gz"]`.
+  with `MAIN["seat_gz"]`. On the P2-0 stub the derived seat (pitch −50°, COM margin 6.9 mm) holds when placed
+  exactly (settles at −49.2°, z 0.0833 m) but the ±5° / σ 0.05 rad bank placements tip forward onto the trunk
+  (pitch +3..+12°, z 0.023-0.031 m) and are still accepted; `test_tr35_small_banks` asserts the bank pitch / z window
+  only for a non-stub derived file (P5b).
 
 ## Control step, tr35 servo model (both backends, `robot="tr35_b2"`)
 
@@ -563,3 +583,41 @@ store and ignore it); `"fixed"` without `HEAD_TUCK_DEG` (xl330) raises `ValueErr
   `policy.onnx` and `policy_meta.json`; getup fixed head via the trainer flag if present, else a direct env check.
 - `tools/mjx_solver_bench.py --scene <scene.xml> --out <json> [--mode time|acc|all] [--tasks] [--iters] [--fric]
   [--pairs off,derived,spec,main-subset] [--n]`: MJX control-step cost and one-step accuracy (spec A3).
+- `tools/derive_posture.py derive|check|caps-scan` (see "Paths"): the only producer of `rl/derived/tr35_b2.json`.
+
+## Policy meta, C export, eval, play, trainers, launcher (tr35)
+
+- `rl/policy_meta.build_meta(steps, backend, idx=None, task, network=None, scene_path=None, robot=None,
+  getup_head=None)`: the xl330 meta is unchanged. When `idx.robot == "tr35_b2"` it adds `robot`, `actuators`
+  (`actuators.actuator_table` columns in actuator order: names, cls, tau_s, omega0, pband, kp, damping, armature,
+  frictionloss, deadband, pwm_res, i_stall, i_idle, board, on_leg, ctrl_lo, ctrl_hi; plus classes, rails, i_cc, boards
+  {"0": 300 Hz PCA 0x40, "1": 50 Hz PCA 0x41}, units), `sensors` (POT, IMU, pot_table of the obs joints), `delays`,
+  `derived_source` (`C.DERIVED_SOURCE`), `derived_sha256` (sha256 of the loaded derived JSON, tr35 process),
+  `kappa` (`C.KAPPA`), `network` (when passed), getup: `getup_head` (+ `head_tuck_deg` = `C.HEAD_TUCK_DEG` when
+  "fixed"), main: `posture_ref.seat_pitch_deg` (`C.SEAT_PITCH_DEG`). All geometry values in the meta (default_*_q =
+  HOME, posture_ref, supervisor, getup_success) come from config, i.e. from the derived file in a tr35 process.
+- `rl/export_c.py` (`python -m rl.export_c --onnx X.onnx [--meta M.json] --out DIR [--check N>=1000]`): C99 float32
+  policy with the normalisation folded into layer 1; writes `policy_weights.h`, `policy.h`
+  (`void openduck_policy(const float *obs, float *action)`), `policy.c`, `obs_layout.h`, `export_c.json`. `--check`
+  compiles with `cc -O2 -std=c99 -ffp-contract=off` and compares with onnxruntime (exit 1 above 1e-5). For a tr35
+  meta `obs_layout.h` also carries the robot constants: `OPENDUCK_NU`, `OPENDUCK_ACT_NAMES/TAU_S/OMEGA0/KP/DEADBAND/
+  PWM_RES/CTRL_LO/CTRL_HI/BOARD[nu]`, `OPENDUCK_BOARD<k>_PWM_HZ/_PCA`, `OPENDUCK_DERIVED_MJCF_SHA256`,
+  `OPENDUCK_DERIVED_STUB`, `OPENDUCK_DERIVED_SHA256`, `OPENDUCK_KAPPA`, getup fixed `OPENDUCK_HEAD_TUCK_RAD[4]`, main
+  `OPENDUCK_SEAT_PITCH_DEG`; `export_c.json` repeats derived_source, derived_sha256 and kappa.
+- Trainers (`rl.train`, `rl.train_mjx`): `--getup-head free|fixed` (absent → not in config.json; passed to the env
+  only for getup and when not "free"); in a tr35 process every ONNX export also writes `<run>/c/` (export_c with a
+  1000-observation check when a compiler exists). xl330 runs write the same files as before.
+- `rl/eval_tasks.py`: tr35 mode (process profile tr35_b2, a meta robot tr35_b2, or `--criteria tr35`) runs spec 6
+  A4-A8 with `--scene`, `--robot`, `--no-backlash`, `--getup-head`, `--t-knee` (default tau_s(ds32xx)/3 until
+  G-BENCH), `--n-scale`, `--a7-onnx`, `--no-collision`; JSON version 3, `criteria_mode` "tr35_b2", every section with
+  status / criteria / pass, `pass_all`. Torque criteria use NOMINAL tau_s; each `torque` summary also reports the
+  training penalties `penalties` {torque_ratio, limit_torque, rail_demand (unweighted step means,
+  `task_math.tr35_penalties`, episode tau_s), rail_soft_a = `C.RAIL_SOFT_A`, torque_sat_steps_frac}; the rail
+  criterion threshold is `C.RAIL_SOFT_A`; A6 modes add the env's getup `episode_metrics` (getup_success,
+  head_impacts, head_impact_v2, torque_sat_steps and its per-step fraction). The xl330 sections are unchanged.
+- `rl/play.py`: in a tr35 process the demo programmes come from `C.COMMAND_RANGES` fractions and `C.H_*`
+  (`tr35_programs`), `TIP_W = 10/√S`, per-joint saturation `|tau_net| / nominal tau_s` (`peak_tau_joints`); `--scene`,
+  `--getup-head` (default: the getup meta's `getup_head`).
+- `tools/runpod/launch.py launch --robot tr35_b2 [--kappa K]`: adds `OPENDUCK_ROBOT` (and `OPENDUCK_KAPPA`) to the pod
+  env and the tr35 files (`build/tr35_b2/sim/openduck.xml`, `build/tr35_b2/sim/scene.xml`, `rl/derived/tr35_b2.json`)
+  to the package; use `--source git` (the inline body is over the RunPod limit).

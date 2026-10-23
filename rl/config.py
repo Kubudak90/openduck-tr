@@ -374,7 +374,8 @@ _xl330 = copy.deepcopy({k: v for k, v in globals().items() if k.isupper()})
 
 # --- turetilmis dosya (sema 1; tools/derive_posture.py yazar) ------------------------------------
 _schema = 1
-_regen = ("python tools/derive_posture.py (MJCF'den yeniden uretir; --help) ya da OPENDUCK_DERIVED=<json>")
+_regen = ("python tools/derive_posture.py derive --scene build/tr35_b2/sim/scene.xml --out rl/derived/tr35_b2.json "
+          "(MJCF'den yeniden uretir) ya da OPENDUCK_DERIVED=<json>")
 _leg5 = ("hip_yaw", "hip_roll", "hip_pitch", "knee", "ankle")
 _heights = ("H_HOME", "H_MIN_WALK", "H_MIN_STAND", "H_DEEP", "Z_SIT", "SEAT_Z", "SEAT_Z_TOL",
             "TERMINATION_MIN_HEIGHT", "standup_z", "getup_success_z")
@@ -440,9 +441,11 @@ def load_derived(path):
     for k in ("getup_pose_z", "getup_arrival_z"):
         nums(hz[k], 2, "heights." + k)
         need(0 < hz[k][0] < hz[k][1], "heights.%s: 0 < z0 < z1 olmali", k)
-    need(hz["H_HOME"] > hz["H_MIN_WALK"] >= hz["H_MIN_STAND"] >= hz["H_DEEP"] > hz["Z_SIT"],
-         "H_HOME > H_MIN_WALK >= H_MIN_STAND >= H_DEEP > Z_SIT olmali (%s)",
-         [hz[k] for k in ("H_HOME", "H_MIN_WALK", "H_MIN_STAND", "H_DEEP", "Z_SIT")])
+    # derive_posture.validate ile ayni sira: Z_SIT < H_DEEP yalniz uyari (stub'da oturus derin comelmeden 0.5 mm
+    # yuksek; z_ref dogrusal ara deger oldugu icin calisir), SEAT_Z < Z_SIT zorunlu
+    need(hz["H_HOME"] > hz["H_MIN_WALK"] >= hz["H_MIN_STAND"] >= hz["H_DEEP"] and hz["SEAT_Z"] < hz["Z_SIT"],
+         "H_HOME > H_MIN_WALK >= H_MIN_STAND >= H_DEEP ve SEAT_Z < Z_SIT olmali (%s)",
+         [hz[k] for k in ("H_HOME", "H_MIN_WALK", "H_MIN_STAND", "H_DEEP", "Z_SIT", "SEAT_Z")])
     fam = d["crouch_family"]
     need(isinstance(fam, list) and len(fam) >= 3, "crouch_family en az 3 satir olmali")
     for i, r in enumerate(fam):

@@ -213,3 +213,46 @@ def test_actor_size_report_all_tasks():
     assert EC.size_report([53, 256, 128, 64, 10])["macs"] == 55168
     big = EC.size_report([49, 512, 256, 128, 10], "swish")
     assert big["macs"] == 190208 and not big["esp32s3"]["pass"]
+
+
+@needs_cc
+def test_robot_block_tr35_meta_compiles():
+    """tr35 meta'si (policy_meta; xl330 surecinde robot="tr35_b2", P4 anlami): obs_layout.h robot sabitleri (aktuator
+    sirasi tau_s / pwm_res / ctrl araligi / kart, turetilmis dosya kimligi, kappa, bas tuck, oturus pitch'i) meta ile
+    ayni ve derlenir; xl330 meta'sinda blok yok (P5a entegrasyonu)."""
+    from rl import policy_meta as PM
+    x = EC.obs_layout_header(PM.build_meta(1, "mjx_brax", task="getup"), {"obs_dim": 48, "act_dim": 14}, "0" * 64)
+    assert "OPENDUCK_ACT_" not in x and "OPENDUCK_NU" not in x
+    meta = PM.build_meta(1, "mjx_brax", task="getup", robot="tr35_b2")
+    meta.update(derived_source={"mjcf_sha256": "ab" * 32, "stub": True, "scene": "s", "config_sha256": None},
+                derived_sha256="cd" * 32, kappa=0.5, getup_head="fixed",
+                head_tuck_deg={"neck_pitch": 23.0, "head_pitch": 55.5, "head_yaw": 0.0, "head_roll": 0.0})
+    meta.setdefault("posture_ref", {})["seat_pitch_deg"] = -50.0
+    a = meta["actuators"]
+    with tempfile.TemporaryDirectory() as d:
+        p = brax_onnx(os.path.join(d, "g.onnx"), 48, 14, hidden=(16, 8), seed=3)
+        out = os.path.join(d, "c")
+        rep = EC.export(p, out, meta=meta)
+        assert rep["robot"] == "tr35_b2" and rep["kappa"] == 0.5 and rep["derived_sha256"] == "cd" * 32
+        with open(os.path.join(out, "obs_layout.h")) as f:
+            hdr = f.read()
+        assert '#define OPENDUCK_DERIVED_MJCF_SHA256 "%s"' % ("ab" * 32) in hdr and "#define OPENDUCK_DERIVED_STUB 1" in hdr
+        assert "#define OPENDUCK_NU 15" in hdr and "#define OPENDUCK_BOARD0_PWM_HZ 300" in hdr
+        prog = os.path.join(d, "t.c")
+        with open(prog, "w") as f:
+            f.write('#include <stdio.h>\n#include "obs_layout.h"\nint main(void) {\n int i;\n'
+                    ' for (i = 0; i < OPENDUCK_NU; ++i) printf("%s %.9g %.9g %.9g %.9g %d\\n", OPENDUCK_ACT_NAMES[i],'
+                    ' OPENDUCK_ACT_TAU_S[i], OPENDUCK_ACT_PWM_RES[i], OPENDUCK_ACT_CTRL_LO[i], OPENDUCK_ACT_CTRL_HI[i],'
+                    ' OPENDUCK_ACT_BOARD[i]);\n'
+                    ' printf("%.9g %.9g %.9g\\n", OPENDUCK_HEAD_TUCK_RAD[1], OPENDUCK_SEAT_PITCH_DEG, OPENDUCK_KAPPA);\n'
+                    ' return 0;\n}\n')
+        exe = os.path.join(d, "t")
+        r = subprocess.run([CC, "-std=c99", "-I", out, "-o", exe, prog], capture_output=True, text=True)
+        assert r.returncode == 0, r.stderr
+        rows = [ln.split() for ln in subprocess.run([exe], capture_output=True, text=True).stdout.splitlines()]
+    assert [x[0] for x in rows[:15]] == a["names"]
+    for i, x in enumerate(rows[:15]):
+        v = [float(t) for t in x[1:5]]
+        ref = [a["tau_s"][i], a["pwm_res"][i], a["ctrl_lo"][i], a["ctrl_hi"][i]]
+        assert np.allclose(v, ref, rtol=1e-6, atol=1e-9) and int(x[5]) == a["board"][i], (i, x)
+    assert np.allclose([float(t) for t in rows[15]], [np.deg2rad(55.5), -50.0, 0.5], rtol=1e-6)

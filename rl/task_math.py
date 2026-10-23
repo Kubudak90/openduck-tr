@@ -66,10 +66,19 @@ def _name(task):
     return task if isinstance(task, str) else task.name
 
 
+def _ratio_term(xp, s):
+    return xp.sum(xp.square(s["tau_ratio"]), axis=-1)
+
+
+def _limit_rail(xp, s):
+    return {"limit_torque": xp.sum(xp.square(s["limit_torque"] / s["tau_s"]), axis=-1),
+            "rail_demand": xp.maximum(s["rail_demand"] - C.RAIL_SOFT_A, 0.0)}
+
+
 def _effort_terms(xp, s):
     """Tork cezasi terimi: xl330 {"torques": sum tau^2}; tr35 {"torque_ratio": sum (tau_net/tau_s)^2}."""
     if _TR35:
-        return {"torque_ratio": xp.sum(xp.square(s["tau_ratio"]), axis=-1)}
+        return {"torque_ratio": _ratio_term(xp, s)}
     return {"torques": xp.sum(xp.square(s["torque"]), axis=-1)}
 
 
@@ -78,8 +87,15 @@ def _limit_rail_terms(xp, s):
     max(talep - RAIL_SOFT_A, 0) (A). xl330: bos."""
     if not _TR35:
         return {}
-    return {"limit_torque": xp.sum(xp.square(s["limit_torque"] / s["tau_s"]), axis=-1),
-            "rail_demand": xp.maximum(s["rail_demand"] - C.RAIL_SOFT_A, 0.0)}
+    return _limit_rail(xp, s)
+
+
+def tr35_penalties(xp, s):
+    """tr35 tork cezalari, agirliksiz ve odul sozlugundeki formullerle (profilden bagimsiz; tr35 aktuator durumu
+    ister): {"torque_ratio", "limit_torque", "rail_demand"} (N,). rl/eval_tasks.py TorqueAcc raporu."""
+    out = {"torque_ratio": _ratio_term(xp, s)}
+    out.update(_limit_rail(xp, s))
+    return out
 
 
 # --- yardimcilar -----------------------------------------------------------------

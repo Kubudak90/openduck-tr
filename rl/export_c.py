@@ -18,7 +18,10 @@ Cikti (--out klasoru):
                     bellek: yeniden girisli degil)
   policy.c          C99: dense (acc = sum w*x, sonra + b), ELU expm1f ile, swish x / (1 + expf(-x))
   obs_layout.h      meta'dan #define'lar: OBS_DIM, ACT_DIM, OBS_<AD>_OFFSET/_SIZE, ACTION_CLIP, CTRL_DT, ... ve
-                    OPENDUCK_ACTION_SCALE / OPENDUCK_DEFAULT_* dizileri
+                    OPENDUCK_ACTION_SCALE / OPENDUCK_DEFAULT_* dizileri; tr35 meta'sinda (actuators alani) ayrica robot
+                    sabitleri: OPENDUCK_NU, OPENDUCK_ACT_* (aktuator sirasi: ad, tau_s, omega0, kp, deadband, pwm_res,
+                    ctrl_lo/hi, board), OPENDUCK_BOARD<k>_PWM_HZ/_PCA, OPENDUCK_DERIVED_* (turetilmis dosya kimligi),
+                    OPENDUCK_KAPPA, getup fixed'te OPENDUCK_HEAD_TUCK_RAD[4], main'de OPENDUCK_SEAT_PITCH_DEG
   export_c.json     onnx sha256, katmanlar, parametre / bayt / MAC, ESP32-S3 tahmini, dosya sha256'lari, --check sonucu
                     (zaman damgasi yok: ayni ONNX -> ayni dosyalar)
 --check N (N >= 1000, spec A7a): test programi `cc -O2 -std=c99 -ffp-contract=off ... -lm` ile derlenir; N gozlemde
@@ -309,7 +312,50 @@ def obs_layout_header(meta, graph, sha):
             L.append("static const float %s[%d] = {%s};\n" % (name, len(meta[k]), ", ".join(_cf(x) for x in meta[k])))
     if meta.get("action_mode"):
         L.append("#define OPENDUCK_ACTION_MODE \"%s\"\n" % meta["action_mode"])
+    if meta.get("actuators"):
+        L.append(robot_block(meta))
     L.append("\n#endif\n")
+    return "".join(L)
+
+
+ROBOT_ACT_COLUMNS = ("tau_s", "omega0", "kp", "deadband", "pwm_res", "ctrl_lo", "ctrl_hi")
+
+
+def robot_block(meta):
+    """tr35 meta'si (rl/policy_meta.py: actuators = actuators.actuator_table, derived_source, derived_sha256, kappa,
+    head_tuck_deg, posture_ref.seat_pitch_deg) -> obs_layout.h robot sabitleri (aktuator sirasi; birimler meta
+    actuators.units: rad, N.m)."""
+    a = meta["actuators"]
+    n = len(a["names"])
+    L = ["\n/* robot sabitleri (policy_meta: %s; aktuator sirasi) */\n" % meta.get("robot"),
+         "#define OPENDUCK_NU %d\n" % n]
+    src = meta.get("derived_source") or {}
+    if src:
+        L.append("#define OPENDUCK_DERIVED_MJCF_SHA256 \"%s\"\n#define OPENDUCK_DERIVED_STUB %d\n"
+                 % (src.get("mjcf_sha256"), int(bool(src.get("stub")))))
+    if meta.get("derived_sha256"):
+        L.append("#define OPENDUCK_DERIVED_SHA256 \"%s\"\n" % meta["derived_sha256"])
+    if meta.get("kappa") is not None:
+        L.append("#define OPENDUCK_KAPPA %s\n" % _cf(meta["kappa"]))
+    names = ", ".join('"%s"' % x for x in a["names"])
+    L.append("static const char *const OPENDUCK_ACT_NAMES[%d] = {%s};\n" % (n, names))
+    for k in ROBOT_ACT_COLUMNS:
+        if len(a[k]) != n:
+            raise ValueError("meta actuators.%s %d deger, %d aktuator" % (k, len(a[k]), n))
+        L.append("static const float OPENDUCK_ACT_%s[%d] = {%s};\n" % (_cname(k), n, ", ".join(_cf(x) for x in a[k])))
+    L.append("static const unsigned char OPENDUCK_ACT_BOARD[%d] = {%s};\n"
+             % (n, ", ".join(str(int(b)) for b in a["board"])))
+    for k, b in sorted((a.get("boards") or {}).items()):
+        L.append("#define OPENDUCK_BOARD%s_PWM_HZ %d\n#define OPENDUCK_BOARD%s_PCA %s\n"
+                 % (k, int(b["pwm_hz"]), k, b["pca"]))
+    tuck = meta.get("head_tuck_deg")
+    if tuck:
+        hj = [j for j in meta["obs_joints"] if j in tuck]
+        L.append("static const float OPENDUCK_HEAD_TUCK_RAD[%d] = {%s};  /* %s */\n"
+                 % (len(hj), ", ".join(_cf(np.deg2rad(tuck[j])) for j in hj), ", ".join(hj)))
+    pr = meta.get("posture_ref") or {}
+    if "seat_pitch_deg" in pr:
+        L.append("#define OPENDUCK_SEAT_PITCH_DEG %s\n" % _cf(pr["seat_pitch_deg"]))
     return "".join(L)
 
 
@@ -458,6 +504,9 @@ def export(onnx_path, out_dir, meta=None, check_n=0, seed=0, atol=ATOL, cc=None)
            "layers": [{"in": int(L["W"].shape[1]), "out": int(L["W"].shape[0]), "activation": L["act"],
                        "alpha": L["alpha"]} for L in graph["layers"]],
            "hidden": sizes[1:-1]}
+    if (meta or {}).get("robot"):
+        rep.update(derived_source=meta.get("derived_source"), derived_sha256=meta.get("derived_sha256"),
+                   kappa=meta.get("kappa"))
     rep.update(size_report(sizes, acts[0] if len(acts) == 1 else (acts[0] if acts else "relu")))
     rep["files"] = {name: hashlib.sha256(src[name].encode()).hexdigest() for name in FILES}
     rep["check"] = check(out_dir, onnx_path, graph, check_n, seed, atol, cc) if check_n else None

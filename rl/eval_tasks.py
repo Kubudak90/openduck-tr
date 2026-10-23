@@ -106,7 +106,7 @@ TR35 = "tr35_b2"
 CRIT_TR35 = {
     "A4_fall_w_upper": 0.03, "A4_vx_frac": 0.80, "A4_wz_tol": 0.20, "A4_track_ratio": 0.90,
     "ds_ratio_p99": 0.85, "es_mg_rms_stall_frac": 1.0 / 3.0, "es_mg_ratio_p99": 1.0, "hip_yaw_rms_nm": 0.11,
-    "limit_p99_tau_frac": 0.10, "rail_p99_a": 16.0, "rail_hi_a": 15.0, "rail_hi_frac": 0.02,
+    "limit_p99_tau_frac": 0.10, "rail_p99_a": 16.0, "rail_hi_a": C.RAIL_SOFT_A, "rail_hi_frac": 0.02,
     "A5_height_rmse": 0.013, "A5_point": 0.95, "A5_w_lower": 0.90, "A5_trans_fall_w_upper": 0.05,
     "A6_base": {"front": 0.80, "side": 0.70, "back": 0.50}, "A6_w_lower_margin": 0.08,
     "A6_head_ratio_p95": 1.0, "A6_head_sat_frac": 0.05, "A6_handover_point": 0.80,
@@ -224,7 +224,9 @@ def all_pass(criteria):
 class TorqueAcc(object):
     """tr35 tork / ray / limit toplayicisi (spec 6 A4-A6). NOMINAL tau_s (idx.act, actuator_table), gozlem eklemleri
     sirasi. add(s, live): task_state() satirlarindan canli olanlar: |tau_net| / tau_s, tau_net^2 toplami, limit_torque,
-    rail_demand."""
+    rail_demand. s'de tau_ratio / tau_s (bolum tau_s'i) varsa ayrica egitim cezalari task_math.tr35_penalties
+    (agirliksiz adim ortalamasi: torque_ratio, limit_torque, rail_demand) ve ortamin torque_sat_steps metrigi (max
+    |tau_ratio| > GETUP torque_sat_frac olan adim orani) raporlanir (summary()["penalties"]; olcut degil)."""
 
     def __init__(self, idx):
         if getattr(idx, "act", None) is None:
@@ -236,6 +238,7 @@ class TorqueAcc(object):
         self.ratio, self.limit, self.rail = [], [], []
         self.sq = np.zeros(len(oa))
         self.n = 0
+        self.pen, self.pen_n, self.sat_steps = {}, 0, 0
 
     def add(self, s, live):
         live = np.asarray(live, bool)
@@ -247,6 +250,13 @@ class TorqueAcc(object):
         self.rail.append(np.asarray(s["rail_demand"], dtype=np.float64)[live].astype(np.float32))
         self.sq += np.sum(tn * tn, axis=0)
         self.n += int(live.sum())
+        if "tau_ratio" in s and "tau_s" in s:
+            row = lambda v: np.asarray(v, dtype=np.float64)[live]
+            p = T.tr35_penalties(np, {k: row(s[k]) for k in ("tau_ratio", "tau_s", "limit_torque", "rail_demand")})
+            for k, v in p.items():
+                self.pen[k] = self.pen.get(k, 0.0) + float(np.sum(v))
+            self.pen_n += int(live.sum())
+            self.sat_steps += int(np.sum(np.max(np.abs(row(s["tau_ratio"])), axis=-1) > C.GETUP["torque_sat_frac"]))
 
     def summary(self):
         if not self.n:
@@ -262,10 +272,28 @@ class TorqueAcc(object):
                             "limit_p99_nm": pc(L[:, j], 99), "limit_max_nm": _num(L[:, j].max())}
         head = [self.joints.index(n) for n in C.HEAD_JOINTS]
         sat = C.GETUP["torque_sat_frac"]
-        return {"steps": self.n, "basis": "nominal tau_s", "joints": joints,
-                "rail": {"p99_a": pc(rail, 99), "max_a": _num(rail.max()), "mean_a": _num(rail.mean()),
-                         "frac_gt_hi": _num(np.mean(rail > CRIT_TR35["rail_hi_a"])), "hi_a": CRIT_TR35["rail_hi_a"]},
-                "head_sat_frac": _num(np.mean(np.any(R[:, head] > sat, axis=1))), "head_sat_threshold": sat}
+        out = {"steps": self.n, "basis": "nominal tau_s", "joints": joints,
+               "rail": {"p99_a": pc(rail, 99), "max_a": _num(rail.max()), "mean_a": _num(rail.mean()),
+                        "frac_gt_hi": _num(np.mean(rail > CRIT_TR35["rail_hi_a"])), "hi_a": CRIT_TR35["rail_hi_a"]},
+               "head_sat_frac": _num(np.mean(np.any(R[:, head] > sat, axis=1))), "head_sat_threshold": sat}
+        if self.pen_n:
+            out["penalties"] = dict({k: _num(v / self.pen_n) for k, v in sorted(self.pen.items())},
+                                    basis="bolum tau_s (odul terimleri, agirliksiz adim ortalamasi)",
+                                    rail_soft_a=C.RAIL_SOFT_A, torque_sat_steps_frac=_num(self.sat_steps / self.pen_n))
+        return out
+
+
+def _ep_metrics(em):
+    """A6 ortam bolum metrikleri: getup_success / head_impacts / head_impact_v2 / torque_sat_steps ortalamasi ve
+    torque_sat_steps / ep_len (adim orani; tr35'te max |tau_ratio| > torque_sat_frac). Bitmeyen bolum yok sayilir."""
+    if not em:
+        return {}
+    ok = ~np.isnan(em["ep_len"])
+    out = {k: _num(np.mean(v[ok])) if ok.any() else None for k, v in em.items() if k != "ep_len"}
+    out["torque_sat_steps_frac"] = (_num(np.sum(em["torque_sat_steps"][ok]) / np.sum(em["ep_len"][ok]))
+                                    if ok.any() and "torque_sat_steps" in em else None)
+    out["episodes"] = int(ok.sum())
+    return out
 
 
 def _worst(summ, key, names, div=None):
@@ -894,8 +922,9 @@ class Evaluator(object):
             out.append(np.resize(ids, k).astype(np.int64))
         return np.concatenate(out)
 
-    def _getup_from(self, policy, bank, ids, name, acc):
-        """Banka girdilerinden (VecEnv.set_state) TR_A6_S getup bolumu: (basari (N,), tepe kuvvet, t_basari)."""
+    def _getup_from(self, policy, bank, ids, name, acc, metrics=None):
+        """Banka girdilerinden (VecEnv.set_state) TR_A6_S getup bolumu: (basari (N,), tepe kuvvet, t_basari). metrics
+        (dict) verilirse ortamin bolum metrikleri (TaskSpec.episode_metrics, ep_len) ortam basina doldurulur."""
         from .robot_model import expand_state
         N = len(ids)
         n_steps = int(round(TR_A6_S / DT))
@@ -922,6 +951,12 @@ class Evaluator(object):
                     succ = np.zeros(N)
                     succ[ep["env"]] = ep["getup_success"]
                     succ[~alive] = 0.0
+                    if metrics is not None:
+                        for k in ["ep_len"] + list(TK.get_task("getup").episode_metrics):
+                            v = np.full(N, np.nan)
+                            v[ep["env"]] = ep[k]
+                            v[~alive] = np.nan
+                            metrics[k] = v
                     break
                 alive &= ~done
                 m = alive & (s["ev_succeeded"] > 0.5) & np.isnan(t_succ)
@@ -1028,14 +1063,16 @@ class Evaluator(object):
         modes, cr, peaks = {}, {}, []
         for mode, labs in A6_MODES:
             ids = self.stratified(bank["label"], mode, N)
-            succ, peak, t_succ = self._getup_from(getup, bank, ids, "A6_" + mode, acc)
+            em = {}
+            succ, peak, t_succ = self._getup_from(getup, bank, ids, "A6_" + mode, acc, em)
             base = CRIT_TR35["A6_base"][mode]
             rr = rate_rule(int(np.sum(succ > 0.5)), len(ids), base, base - CRIT_TR35["A6_w_lower_margin"])
             lab = bank["label"][ids]
             modes[mode] = {"episodes": int(len(ids)), "labels": {l: int(np.sum(lab == PB.LABELS.index(l))) for l in labs},
                            "unique_bank_entries": int(len(np.unique(ids))), "rate": rr,
                            "t_to_success": _stats(t_succ[~np.isnan(t_succ)].tolist()),
-                           "head_force_peak_n": _stats(peak.tolist()), "criteria": rr["criteria"]}
+                           "head_force_peak_n": _stats(peak.tolist()), "criteria": rr["criteria"],
+                           "episode_metrics": _ep_metrics(em)}
             cr[mode] = rr["criteria"]
             peaks.append(peak)
         summ = acc.summary()
@@ -1128,12 +1165,12 @@ def _evaluate_tr35(base, pol, paths, seed, flags, bank_n, collision, log, robot,
                    scene_path=scene_path, getup_head=getup_head, t_knee=t_knee, n_scale=n_scale, **flags)
     out = {"version": 3, "criteria_mode": TR35, "spec": "docs/workflow/openduck-tr/spec.md v3.1 bolum 6 (A4-A8)",
            "robot": robot, "process_profile": C.ROBOT_PROFILE, "scene": scene_path or C.SCENE_PATH,
-           "backlash": backlash, "getup_head": getup_head or getattr(C, "GETUP_HEAD_DEFAULT", "free"), "seed": seed,
+           "backlash": backlash, "getup_head": getup_head or C.GETUP_HEAD_DEFAULT, "seed": seed,
            "n_scale": n_scale, "N": {"A4": ev.n_a4, "A5": ev.n_a5, "A6_per_mode": ev.n_a6, "handover": ev.n_ho},
            "dr": dict(flags), "t_knee_nm": ev.t_knee,
            "t_knee_source": "--t-knee" if t_knee is not None else "tau_s(ds32xx) / 3 (G-BENCH'e kadar yer tutucu)",
            "torque_basis": "nominal tau_s (rl/actuators.actuator_table)",
-           "derived_source": getattr(C, "DERIVED_SOURCE", None), "kappa": getattr(C, "KAPPA", None),
+           "derived_source": C.DERIVED_SOURCE, "kappa": C.KAPPA,
            "criteria": CRIT_TR35, "policies": base["policies"], "errors": base["errors"]}
     log("tr35 kabul (spec 6 A4-A8): robot %s, sahne %s, bosluk %s, N %s" % (robot, out["scene"], backlash, out["N"]))
 

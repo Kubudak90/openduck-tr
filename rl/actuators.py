@@ -163,7 +163,7 @@ def apply_to_spec(spec, robot, backlash=False):
         if backlash and p["rail"] == "leg":
             play.append(j)
     if play:
-        m0 = spec.compile()
+        m0 = spec.copy().compile()      # kopya: ozgun spec derlenmez (sonraki doku silme vb. bozulmasin)
         jid = lambda n: mujoco.mj_name2id(m0, mujoco.mjtObj.mjOBJ_JOINT, n)
         q_ins = sorted(int(m0.jnt_qposadr[jid(j.name)]) + 1 for j in play)
         v_ins = sorted(int(m0.jnt_dofadr[jid(j.name)]) + 1 for j in play)

@@ -1,8 +1,9 @@
 # -*- coding: utf-8 -*-
 """
 tr35_b2 gorev profili testleri (OpenDuck-TR P5a, cekirdek): config.load_derived / tr35_constants formulleri (xl330
-surecinden), tr35_b2 SURECI (alt surec; P2-0 stub + test-yalniz bootstrap turetilmis dosyasi) icinde sabitler, model
-varyantlari, kucuk poz bankalari, robot korumasi, getup_head="fixed" (CPU ve MJX) ve kisa CPU == MJX adim adim esitligi.
+surecinden), tr35_b2 SURECI (alt surec; P2-0 stub + derive paketinin rl/derived/tr35_b2.json'u; dosya yoksa test-yalniz
+bootstrap) icinde sabitler, model varyantlari, kucuk poz bankalari, robot korumasi, getup_head="fixed" (CPU ve MJX) ve
+kisa CPU == MJX adim adim esitligi.
 
   python3 -m pytest rl/tests/test_tr35_core.py
 
@@ -29,8 +30,11 @@ TR = "tr35_b2"
 
 
 def _boot():
+    """(sahne, turetilmis dosya): rl/derived/tr35_b2.json (derive paketi, varsayilan yol; P5a entegrasyonu); yoksa
+    test-yalniz bootstrap (birlesme oncesi)."""
     scene = tr35_scene()
-    return scene, bootstrap_for(scene)
+    p = C.DERIVED_PATHS[TR]
+    return scene, (p if os.path.isfile(p) else bootstrap_for(scene))
 
 
 def _run(code, env, timeout=1200):
@@ -69,7 +73,7 @@ def test_xl330_new_names_and_snapshot():
 
 
 def test_tr35_constants_formulas():
-    """tr35_constants(bootstrap): Froude/kappa formulleri, odul anahtar listeleri, bas, rampalar, getup, devir, DR,
+    """tr35_constants(turetilmis dosya): Froude/kappa formulleri, odul anahtar listeleri, bas, rampalar, getup, devir, DR,
     geometri = JSON; saf (iki cagri esit, xl330 degismez); kappa ve OPENDUCK_KAPPA."""
     _, path = _boot()
     d = C.load_derived(path)
@@ -148,9 +152,11 @@ def test_tr35_constants_formulas():
     assert k["SEAT_PITCH_DEG"] == d["seat"]["pitch_deg"] and k["HEAD_TUCK_DEG"] == d["head"]["tuck_deg"]
     assert k["HEAD_SIT_DEG"] == d["head"]["sit_deg"] and k["HEAD_HOME_DEG"] == d["head"]["home_deg"]
     assert k["FEET_MIN_DISTANCE"] == d["feet"]["FEET_MIN_DISTANCE"]
-    assert all(k[n] == d["caps_deg"][n] for n in d["caps_deg"]) and k["HOME_OVERRIDE"] is None
+    assert all(k[n] == d["caps_deg"][n] for n in d["caps_deg"])
+    assert k["HOME_OVERRIDE"] == (d["home"] if d["home"]["source"] == "family" else None)
     assert k["EXTRA_COLLISION"] == {b: (g[0], tuple(g[1]), tuple(g[2]), g[3]) for b, g in d["extra_collision"].items()}
-    assert k["SELF_COLLISION_PAIRS"] == () and k["HEAD_GEOMS"] == ("head_collision", "jaw_collision", "neck_bumper")
+    assert k["SELF_COLLISION_PAIRS"] == tuple(map(tuple, d["self_collision_pairs"]))
+    assert k["HEAD_GEOMS"] == ("head_collision", "jaw_collision", "neck_bumper")
     # kappa
     k6 = C.tr35_constants(d, kappa=0.6)
     assert close(k6["GAIT_FREQ"], 2.21 * 0.6) and close(k6["COMMAND_RANGES"]["vx"][1], 0.30 * sq * 0.6)
@@ -179,7 +185,8 @@ def test_load_derived_validation():
     """load_derived: sema, profil, anahtarlar, tipler ve iliskiler; bozuk dosya ValueError (alan adiyla)."""
     _, path = _boot()
     d = C.load_derived(path)
-    assert d["schema"] == 1 and d["profile"] == TR and d["source"]["stub"] is True and d["tool"] == "bootstrap"
+    assert d["schema"] == 1 and d["profile"] == TR and d["source"]["stub"] is True
+    assert d["tool"] in ("tools/derive_posture.py", "bootstrap")
     with open(path) as f:
         txt = f.read()
     assert txt.endswith("\n") and txt == json.dumps(json.loads(txt), indent=1, sort_keys=True) + "\n"   # deterministik
@@ -190,7 +197,7 @@ def test_load_derived_validation():
         "profile": lambda x: x.update(profile="xl330_27"),
         "eksik": lambda x: x.pop("seat"),
         "H_HOME": lambda x: x["heights"].update(H_MIN_WALK=x["heights"]["H_HOME"] + 0.01),
-        "Z_SIT": lambda x: x["heights"].update(Z_SIT=x["heights"]["H_DEEP"]),
+        "Z_SIT": lambda x: x["heights"].update(Z_SIT=x["heights"]["SEAT_Z"]),
         "azalan": lambda x: x["crouch_family"].__setitem__(1, [x["crouch_family"][0][0]] + x["crouch_family"][1][1:]),
         "duz taban": lambda x: x["crouch_family"][2].__setitem__(4, x["crouch_family"][2][4] + 1.0),
         "ilk h": lambda x: x["crouch_family"][0].__setitem__(0, x["heights"]["H_HOME"] - 1e-4),
@@ -348,6 +355,15 @@ for v in RM.VARIANTS:
                "hy": cr("left_hip_yaw"), "hy_r": cr("right_hip_yaw"),
                "head_geoms": [mujoco.mj_id2name(m, mujoco.mjtObj.mjOBJ_GEOM, g) for g in RM.RobotIndex(m).head_geoms]}
 out["models"] = mdl
+# beklenen cift sayisi: iki geomu da modelde olan ciftler (main: main_pairs alt kumesi, walk: yok)
+want = {}
+for v in RM.VARIANTS:
+    m = RM.build_model(variant=v)
+    have = set(mujoco.mj_id2name(m, mujoco.mjtObj.mjOBJ_GEOM, g) for g in range(m.ngeom))
+    pr = RM.main_pairs(C.SELF_COLLISION_PAIRS) if v == "main" else C.SELF_COLLISION_PAIRS
+    want[v] = 0 if v == "walk" else sum(int(a in have and b in have) for a, b in pr)
+out["npair_want"] = want
+out["npair_cfg"] = [len(C.SELF_COLLISION_PAIRS), len(RM.main_pairs(C.SELF_COLLISION_PAIRS))]
 # oz-carpisma ciftleri: geomlari olanlar eklenir (main + getup), walk yok
 C.SELF_COLLISION_PAIRS = (("trunk_collision", "left_thigh_collision"), ("head_collision", "trunk_collision"),
                           ("trunk_collision", "neck_bumper"))
@@ -385,7 +401,10 @@ def test_tr35_process_constants_models_guard():
     assert o["guard"][:3] == ["ValueError", "ok", "ok"] and o["guard"][3:] in ([], ["ValueError"])
     md = o["models"]
     assert {v: md[v]["variant"] for v in md} == {"walk": "walk", "main": "main", "getup": "getup"}
-    assert all(md[v]["profile"] == TR and md[v]["npair"] == 0 for v in md)
+    assert all(md[v]["profile"] == TR and md[v]["npair"] == o["npair_want"][v] for v in md), (o["npair_want"], md)
+    pairs = C.load_derived(path)["self_collision_pairs"]
+    assert o["npair_cfg"][0] == len(pairs) and o["npair_want"]["getup"] == len(pairs)     # stub'da hepsinin geomu var
+    assert o["npair_want"]["main"] == o["npair_cfg"][1] and (not pairs or o["npair_cfg"][1] == 8)
     assert md["walk"]["extra"] == [None] * len(md["walk"]["extra"])
     assert md["main"]["extra"] == [[0, 0]] * len(md["main"]["extra"]) and md["getup"]["extra"] == [[0, 1]] * len(md["getup"]["extra"])
     caps = C.load_derived(path)["caps_deg"]
@@ -456,6 +475,20 @@ sb = PB.seated_bank(32)
 g = T.projected_gravity(np, sb["qpos"][:, 3:7])
 out["seated"] = [float(np.degrees(np.arcsin(g[:, 0])).min()), float(np.degrees(np.arcsin(g[:, 0])).max()),
                  float(g[:, 2].max()), float(sb["qpos"][:, 2].min()), float(sb["qpos"][:, 2].max()), sb["candidates"]]
+# turetilmis oturus pozunun kendisi (gurultusuz, egimsiz; seated bankasiyla ayni hedef ve yerlestirme): isaret kurali
+# (SEAT_PITCH_DEG + = burun asagi) ve SEAT_Z derive ile ayni mi
+sbd = PB._Builder("main")
+ref = T.posture_ref(np, np.array(C.H_HOME), np.array(1.0), sbd.idx.default_obs_q)
+tg = sbd.idx.init_ctrl.copy()
+tg[sbd.idx.obs_act_id[:10]] = ref["q_ref"]
+tg[sbd.idx.head_act_id] = sbd.idx.default_obs_q[10:14] + ref["head_offset"]
+tg = np.clip(tg, sbd.m.actuator_ctrlrange[:, 0], sbd.m.actuator_ctrlrange[:, 1])
+sbd.place(PB.axis_angle_quat((0, 1, 0), np.deg2rad(C.SEAT_PITCH_DEG)), tg, 0.001)
+sbd.settle()
+ge = sbd.gravity()
+te = PB.floor_contact_geoms(sbd.m, sbd.d, sbd.idx.floor_geom)
+out["seat_exact"] = [float(np.degrees(np.arcsin(ge[0]))), float(sbd.d.qpos[2]),
+                     bool(int(sbd.idx.trunk_geom) in te and set(int(x) for x in sbd.idx.foot_geom) <= te)]
 # getup modelinde HOME'da EXTRA kutulari zemine degmez
 d0 = mujoco.MjData(m)
 d0.qpos[:] = idx.init_qpos
@@ -479,10 +512,18 @@ def test_tr35_small_banks():
     d = C.load_derived(path)
     p0, p1, gzmax, z0, z1, cand = o["seated"]
     tilt = C.POSE_BANK["seated_tilt_deg"]
-    assert d["seat"]["pitch_deg"] - 2 * tilt < p0 <= p1 < d["seat"]["pitch_deg"] + 2 * tilt, o["seated"]
-    assert gzmax < d["seat"]["seat_gz"] and cand < 10 * 32
     sz, tol = d["heights"]["SEAT_Z"], d["heights"]["SEAT_Z_TOL"]
-    assert sz - 2 * tol < z0 <= z1 < sz + 2 * tol, (o["seated"], sz)
+    pe, ze, touch = o["seat_exact"]
+    print("tr35 oturus: turetilmis pitch %.1f z %.4f | tam poz oturtmasi pitch %.1f z %.4f | banka pitch %.1f..%.1f "
+          "z %.4f..%.4f (%d aday)" % (d["seat"]["pitch_deg"], sz, pe, ze, p0, p1, z0, z1, cand))
+    # turetilmis pozun kendisi: ayni isaret kurali ve SEAT_Z (cekirdek <-> derive arayuzu)
+    assert touch and abs(pe - d["seat"]["pitch_deg"]) < 2.0 and abs(ze - sz) <= tol, o["seat_exact"]
+    assert gzmax < d["seat"]["seat_gz"] and cand < 10 * 32
+    if not d["source"]["stub"]:
+        # P2-0 stub'da oturus marjinal (COM payi 6.9 mm): +-5 derece / 0.05 rad gurultulu yerlestirmeler one devrilip
+        # govde ustune yatiyor (P5a notlari); pencere yalniz son MJCF'de (P5b) zorunlu
+        assert d["seat"]["pitch_deg"] - 2 * tilt < p0 <= p1 < d["seat"]["pitch_deg"] + 2 * tilt, o["seated"]
+        assert sz - 2 * tol < z0 <= z1 < sz + 2 * tol, (o["seated"], sz)
     assert o["home_extra_touch"] == []
 
 
@@ -642,7 +683,11 @@ from rl import tasks as TK, task_math as T
 from rl.env_cpu import VecEnv
 from rl.env_mjx import OpenDuckEnv
 from rl.tests import test_env_mjx as TM
-out = {}
+# MJX kutu-kutu temasi cift basina 4 nokta uretir, MuJoCo C 1-2 (stub bankalarinda uyluk/incik <-> govde ciftleri
+# oturusta 12/32, dusmuste 17/32 durumda temasta): oz-carpisma ciftleriyle adim adim esitlik olmaz (P5a notlari, P5b).
+# Bu test ciftsiz modelde geri kalan her seyi dogrular (turetilmis dosya, HOME, bankalar, tr35 odulleri, sensorler).
+out = {"pairs_cfg": len(C.SELF_COLLISION_PAIRS)}
+C.SELF_COLLISION_PAIRS = ()
 n, steps = 4, 15
 kw = dict(randomize=True, noise=True, head_random=False, push=False)
 for task, rp in (("main", {"home": 0.5, "seated": 0.5}), ("getup", {"fallen": 0.5, "midfall": 0.25, "stand": 0.25})):
@@ -710,12 +755,14 @@ print(json.dumps(out))
 
 def test_tr35_lockstep_cpu_mjx():
     """tr35_b2 surecinde kisa CPU == MJX adim adim (main, getup; n = 4, 15 adim; DR + gurultu, tr35 odulleri dahil):
-    odul, her odul terimi, kritik, aktor gozlemi (pot dilimleri LSB toleransli)."""
+    odul, her odul terimi, kritik, aktor gozlemi (pot dilimleri LSB toleransli). Oz-carpisma ciftleri kapali (kutu-kutu
+    temas manifoldu MJX'te farkli; _LOCKSTEP notu)."""
     if not _has("jax"):
         import pytest
         pytest.skip("jax yok (MJX takimi)")
     scene, path = _boot()
     o = _run(_LOCKSTEP, tr35_env(scene, path, OPENDUCK_BANK_N=32, JAX_PLATFORMS="cpu"), timeout=2400)
+    assert o["pairs_cfg"] == len(C.load_derived(path)["self_collision_pairs"])
     for task in ("main", "getup"):
         r = o[task]
         assert len(r["kinds"]) >= 2 and r["keys"][-2:] == ["limit_torque", "rail_demand"]

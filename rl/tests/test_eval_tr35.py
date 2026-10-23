@@ -159,6 +159,29 @@ def test_torque_acc_and_criteria():
     assert E.torque_criteria({"steps": 0}, 0.96)["knee_rms_nm"]["status"] == "n/a"
     with pytest.raises(ValueError):
         E.TorqueAcc(types.SimpleNamespace(act=None, robot="xl330_27"))
+    assert "penalties" not in s                         # tau_ratio / tau_s verilmedi
+
+
+def test_torque_acc_penalties():
+    """TorqueAcc tr35 egitim cezalari (P5a entegrasyonu): task_math.tr35_penalties adim ortalamalari (bolum tau_s'i)
+    ve torque_sat_steps orani (max |tau_ratio| > GETUP torque_sat_frac); ray esigi = C.RAIL_SOFT_A."""
+    from rl import task_math as T
+    acc = E.TorqueAcc(_fake_idx())
+    rng = np.random.default_rng(4)
+    n = 400
+    ts = np.tile(acc.tau * rng.uniform(0.8, 1.2, 14), (n, 1))
+    tr = rng.uniform(-1.1, 1.1, (n, 14))
+    s = {"tau_net": tr * ts, "tau_ratio": tr, "tau_s": ts, "limit_torque": np.abs(rng.normal(0, 0.05, (n, 14))),
+         "rail_demand": rng.uniform(0.0, 20.0, n)}
+    live = rng.random(n) > 0.2
+    acc.add(s, live)
+    p = acc.summary()["penalties"]
+    ref = T.tr35_penalties(np, {k: v[live] for k, v in s.items() if k != "tau_net"})
+    for k in ("torque_ratio", "limit_torque", "rail_demand"):
+        assert abs(p[k] - ref[k].mean()) < 1e-9 * max(1.0, abs(p[k])), k
+    sat = np.mean(np.abs(tr[live]).max(-1) > C.GETUP["torque_sat_frac"])
+    assert abs(p["torque_sat_steps_frac"] - sat) < 1e-12 and p["rail_soft_a"] == C.RAIL_SOFT_A
+    assert E.CRIT_TR35["rail_hi_a"] == C.RAIL_SOFT_A == 15.0
 
 
 def test_stratified_counts_exact():
@@ -280,6 +303,14 @@ def test_eval_tr35_zero_policy_smoke():
     assert all(m["episodes"] == 2 and m["rate"]["n"] == 2 for m in a6["modes"].values())
     assert {"head_ratio_p95", "head_sat_frac", "limit_main_p99_tau_frac", "rail_p99_a"} <= set(a6["criteria"])
     assert a6["head_force_peak_median_n"] is not None
+    # P5a entegrasyonu: cekirdegin tr35 cezalari (TorqueAcc) ve getup bolum metrikleri (ortam)
+    for sec in (a4["walk"], a4["main"], a5, a6):
+        pen = sec["torque"]["penalties"]
+        assert all(pen[k] is not None and pen[k] >= 0 for k in ("torque_ratio", "limit_torque", "rail_demand"))
+    for m in a6["modes"].values():
+        em = m["episode_metrics"]
+        assert em["episodes"] == 2 and em["torque_sat_steps_frac"] is not None and "head_impacts" in em
+    assert r["derived_source"]["mjcf_sha256"] and r["kappa"] == 0.5
     ho = a6["handover"]
     assert ho["episodes"] == 1 and ho["successes"] + sum(ho["failures"].values()) == 1 and "point" in ho["criteria"]
     a7 = r["A7"]["files"]["extra_0"]
@@ -440,6 +471,17 @@ def test_trainers_write_c_for_tr35():
         with open(os.path.join(mj, "policy_meta.json")) as f:
             m = json.load(f)
         assert m["robot"] == "tr35_b2" and m["network"]["activation"] == "swish" and "actuators" in m
+        # P5a entegrasyonu: meta ve C basligi turetilmis dosyayi (rl/derived/tr35_b2.json) ve aktuator tablosunu okur
+        import hashlib
+        with open(C.DERIVED_PATHS["tr35_b2"], "rb") as f:
+            raw = f.read()
+        dsrc = json.loads(raw)["source"]
+        assert m["derived_source"] == dsrc and m["derived_sha256"] == hashlib.sha256(raw).hexdigest()
+        assert m["kappa"] == 0.5 and rep["derived_sha256"] == m["derived_sha256"]
+        with open(os.path.join(mj, "c", "obs_layout.h")) as f:
+            hdr = f.read()
+        assert '#define OPENDUCK_DERIVED_MJCF_SHA256 "%s"' % dsrc["mjcf_sha256"] in hdr
+        assert "OPENDUCK_ACT_TAU_S[15]" in hdr and "OPENDUCK_ACT_PWM_RES[15]" in hdr and "#define OPENDUCK_KAPPA 0.5f" in hdr
         if torch_ok:
             cp = os.path.join(d, "cpu")
             assert os.path.exists(os.path.join(cp, "c", "export_c.json")), sorted(os.listdir(cp))
