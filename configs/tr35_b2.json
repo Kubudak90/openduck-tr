@@ -1,0 +1,70 @@
+{
+  "_note": "OpenDuck-TR ~35 cm, B2-ESP32 (spec v3 3.1). Geometri uretecleri: legs P2a, trunk P2b, head P2c; o zamana kadar OpenDuck(config='tr35_b2') NotImplementedError verir. params MUTLAK degerlerdir (mm, kg/mm3); verilmeyen yerlesim anahtarlari (openduck.LAYOUT_KEYS) 27 cm degeri x scale.",
+  "name": "tr35_b2",
+  "description": "OpenDuck-TR ~35 cm (s = 1.282), B2-ESP32: 9 x DS32xx, 2 x ES3054, 3 x MG90S, 1 x SG90",
+  "robot": "OpenDuck-TR (35 cm, B2-ESP32)",
+  "scale": 1.282,
+  "generators": {"trunk": "tr35_b2", "legs": "tr35_b2", "head": "tr35_b2"},
+  "servo_map": {
+    "hip_yaw": "ES3054",
+    "hip_roll": "DS32XX",
+    "hip_pitch": "DS32XX",
+    "knee": "DS32XX",
+    "ankle": "DS32XX",
+    "neck_pitch": "DS32XX",
+    "head_pitch": "MG90S",
+    "head_yaw": "MG90S",
+    "head_roll": "MG90S",
+    "mouth": "SG90"
+  },
+  "_horn_offset_deg": "spline dis kaydirmasi (sol taraf; 25T = 14.4 derece/dis): hip_pitch horn'u bir dis ofsetli (spec 3.1) -> servo merkezi +14.4, hareket -75.6..+104.4",
+  "horn_offset_deg": {"hip_pitch": 14.4},
+  "_neutral_deg": "servo orta darbesinde eklem acisi, geometriden: boyun notru -25 (spec 3.1; govde trunk'ta sabit, horn -y) -> hareket -115..+65",
+  "neutral_deg": {"neck_pitch": -25.0},
+  "_joint_limits_deg": "spec 3.1'de sabitlenen sinirlar (sol); digerleri TR-35 CAD taramasindan turetilir (P2, spec 3.2.3)",
+  "joint_limits_deg": {"hip_pitch": [-70.0, 90.0], "head_yaw": [-80.0, 80.0]},
+  "_required_deg": "spec 3.1 birlesik gerekli eklem araliklari (walk + main + getup; sol bacak isareti), A1: gerekli araliklar eklem sinirlarinin icinde",
+  "required_deg": {
+    "hip_yaw": [-10.0, 10.0],
+    "hip_roll": [-20.0, 20.0],
+    "hip_pitch": [-70.0, 90.0],
+    "knee": [-37.0, 65.0],
+    "ankle": [-45.0, 57.0],
+    "neck_pitch": [-90.0, 40.0],
+    "head_pitch": [-20.0, 60.0],
+    "head_yaw": [-34.0, 34.0],
+    "head_roll": [-10.0, 10.0],
+    "mouth": [0.0, 30.0]
+  },
+  "targets": {
+    "head_top_stand_mm": [340.0, 360.0],
+    "mass_max_kg": 1.95,
+    "mass_target_kg": 1.85,
+    "mass_factor": 1.05,
+    "bed_mm": [256.0, 256.0, 256.0],
+    "pla_heat_gap_mm": 5.0
+  },
+  "params": {
+    "_wall": "kabuk et kalinligi: sabit (olceklenmez; kutle merdiveni 1). plate_t: DS besik/U-link kol kalinligi",
+    "wall": 1.8,
+    "plate_t": 4.0,
+    "_print": "baski ayarlari ve efektif yogunluk (kg/mm3) parca turu basina; asagidan yukari kutle (P3) ve kutle merdiveni 5 bunlari kullanir",
+    "print": {
+      "line_w": 0.45,
+      "layer_h": 0.2,
+      "density_solid": {"PLA": 1.24e-6, "PETG": 1.27e-6, "TPU 95A": 1.21e-6},
+      "bracket": {"material": "PETG", "perimeters": 4, "top_bottom": 5, "infill": 0.40, "density_eff": 1.0e-6},
+      "shell": {"material": "PLA", "perimeters": 4, "top_bottom": 4, "infill": 0.15, "density_eff": 1.2e-6},
+      "trim": {"material": "PLA", "perimeters": 4, "top_bottom": 4, "infill": 0.15, "density_eff": 1.2e-6},
+      "face": {"material": "PLA", "perimeters": 4, "top_bottom": 4, "infill": 0.15, "density_eff": 1.2e-6},
+      "sole": {"material": "TPU 95A", "perimeters": 3, "top_bottom": 4, "infill": 0.30, "density_eff": 0.85e-6},
+      "pad": {"material": "TPU 95A", "perimeters": 3, "top_bottom": 4, "infill": 0.30, "density_eff": 0.85e-6}
+    },
+    "_fit": "olceklenmeyen baglanti olculeri (spec 3.1: M3 somun yuvasi; isil ek yok)",
+    "fit": {"screw": "M3", "clear_d": 3.4, "tap_d": 2.5, "nut_af": 5.7, "nut_t": 2.6, "clearance": 0.2},
+    "_idler": "DS eklemleri: eksenle hizali arka idler F623ZZ, M3 mil (spec 3.1)",
+    "idler": {"bearing": "F623ZZ", "d": 3.0, "D": 10.0, "B": 4.0, "flange_d": 11.5, "flange_t": 1.0, "seat_d": 10.1},
+    "_turntable": "hip_yaw iki rulmanli doner tabla, >= 20 mm aralik; 608ZZ ya da 6800ZZ (stok planda)",
+    "turntable": {"bearings": ["6800ZZ", "608ZZ"], "spacing_min": 20.0}
+  }
+}

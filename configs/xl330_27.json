@@ -1,0 +1,34 @@
+{
+  "_note": "27 cm XL330 OpenDuck: refactor oncesi modelin bayt-esit regresyon referansi (spec 3.2.1, tests/golden/xl330_27). Parametreler openduck.PARAMS varsayilanlari.",
+  "name": "xl330_27",
+  "description": "OpenDuck ~27 cm, 15 x DYNAMIXEL XL330-M288-T (Microduck benzeri)",
+  "robot": "OpenDuck (Microduck benzeri)",
+  "scale": 1.0,
+  "generators": {"trunk": "xl330_27", "legs": "xl330_27", "head": "xl330_27"},
+  "servo_map": {
+    "hip_yaw": "XL330",
+    "hip_roll": "XL330",
+    "hip_pitch": "XL330",
+    "knee": "XL330",
+    "ankle": "XL330",
+    "neck_pitch": "XL330",
+    "head_pitch": "XL330",
+    "head_yaw": "XL330",
+    "head_roll": "XL330",
+    "mouth": "XL330"
+  },
+  "horn_offset_deg": {},
+  "neutral_deg": {},
+  "params": {},
+  "bom_buy": [
+    [15, "ROBOTIS DYNAMIXEL XL330-M288-T", "bacaklar 2x5, boyun+kafa 4, gaga 1 (ID 10-14, 20-24, 30-34)"],
+    [1, "Radxa Zero 3W (RK3566) veya Raspberry Pi Zero 2 W", "kafada, dik"],
+    [1, "Robot HAT (Pollen elec_RPI_Robot_HAT, Apache-2.0) veya esdegeri", "Dynamixel TTL, ses, 5 V"],
+    [1, "IMX219 kamera + M12 lens", "goz"],
+    [1, "VL53L5CX 8x8 ToF", "'lidar'"],
+    [1, "LSM6DSV16X IMU karti", "govde"],
+    [1, "NP-F550 2S Li-ion (7.4 V, 2600 mAh) + yuva konnektoru", "servolara dogrudan"],
+    [1, "Hoparlor 25x35 mm, MEMS mikrofon", ""],
+    [1, "M2 vida seti, isil ek somun, kablolar", "bacak horn baglantilari 2x20 + boyun catali 4 vida; ayak bilegi U braketi 2x4 havsa basli vida + 8 isil ek; batarya yuvasi 3 vida + 3 isil ek"]
+  ]
+}
