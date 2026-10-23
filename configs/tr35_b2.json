@@ -23,11 +23,11 @@
   "neutral_deg": {"neck_pitch": -25.0},
   "_joint_limits_deg": "spec 3.1 sinirlari (hip_pitch -70..90, head_yaw +-80); digerleri P2-0'da gerekli araliga esit (A1: gerekli <= sinir). P2a/P2c CAD taramasiyla genisletebilir (servo hareketi icinde, check.py 0 carpisma)",
   "joint_limits_deg": {
-    "hip_yaw": [-10.0, 10.0],
+    "hip_yaw": [-10.0, 21.0],
     "hip_roll": [-20.0, 20.0],
     "hip_pitch": [-70.0, 90.0],
-    "knee": [-37.0, 65.0],
-    "ankle": [-45.0, 57.0],
+    "knee": [-84.0, 77.0],
+    "ankle": [-65.0, 64.0],
     "neck_pitch": [-90.0, 40.0],
     "head_pitch": [-20.0, 60.0],
     "head_yaw": [-80.0, 80.0],
@@ -198,7 +198,8 @@
                  "out": [[-47.0, 45.5, -68.5], [-49.64, 62.5, -74.32], [-20.19, 62.5, -109.40]], "gland": "ankle"},
         "joins": [["hip_yaw", "hip_roll", "mid"], ["hip_roll", "hip_pitch", "a"], ["hip_pitch", "knee", "mid"]]
       },
-      "mass_g": {"fasteners": {"hip": 1.5, "hip_cradle": 2.5, "thigh": 0.5, "shin": 1.5, "foot": 2.0}}
+      "mass_g": {"fasteners": {"hip": 1.5, "hip_cradle": 2.5, "thigh": 0.5, "shin": 1.5, "foot": 2.0}},
+      "_limits": "P2a bacak sinirlari (joint_limits_deg, sol bacak): tek eklem taramasi (digerleri HOME, 1 derece adim, kablo demetleri dahil, P2-0 govde/kafa yer tutuculari) ile servo hareketinin kesisimi; sinir = en dar olan: (a) ilk sayilan carpisma ya da modul zarfi girisi - 3 derece (RL range = sinir +- 3), (b) bacak kablo demeti baska modul zarfina (K_T) girmeden onceki son nokta (check.py kablolari zarf kontrolunden muaf tutar; entegrasyon guvencesi), (c) ES3054 kolu donmus rotor bolgesinde (kol kutusu y +-7: en cok 21 derece); gerekli araliktan dar olamaz. Ilk carpisma (1 derece): hip_yaw -16 (yaw kablosu <-> kalca braketi) / +27 (ES3054 horn K_T), K_T kablo girisi -11 (hip_pitch_harness_out) -> -10..21. hip_roll -24 (hip_pitch_harness_out <-> roll servosu) / +23 (hip_pitch_harness_in <-> kalca braketi, pca9685), K_T kablo +21 -> -20..20 (gerekli; ust pay yalniz kablo). hip_pitch spec -70..90 (servo hareketi -75.6..104.4 boyunca carpisma yok). knee -88 (uyluk <-> incik) / +81 (ayak <-> kalca besigi) -> -84..77. ankle -69 / +68 (incik <-> ayak) -> -65..64"
     },
     "trunk": {
       "_note": "P2b bolumu (P2-0 yer tutucu): electronics = cad/electronics.py parcasi -> [x, y, z_alt, rot_z, eksen sirasi] (kutu alt orta noktasi; 'xzy' kenar ustu, 'zyx' dik); P2-0 yerlesimi yalniz hacim fizibilitesidir, P2b yeniden planlar. mass_blocks: [merkez, yari olcu, g] sasi+kafes+kabuk+vida+kablo butcesi",
