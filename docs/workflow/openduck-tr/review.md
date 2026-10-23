@@ -37,6 +37,27 @@ Format zorunluydu: `[SEV] itiraz + somut senaryo + öneri`. Ham itirazlar: `rese
 | SC-9 XL330 regresyon referansı | major | **Kabul** | Refactor'un ilk aşaması: `configs/xl330_27.json` eski micro MJCF'yi bayt-eşit (float biçimi dahil) üretir; sonra TR-35'e geçilir. A3 parity toleransı: aynı durumdan tek adım atol 1e-4, 50 adımlık eşli koşu (mevcut parity testi). |
 | SC-12 ADS1115 zamanlaması | minor | **Kabul** | İki ADS1115 (0x48 boyun + 3 kafa; 0x49 2 NTC + 2 boş), 860 SPS mux (kanal başı ~215 Hz); yol başına gecikme modeli. |
 
-## Tur 2
+## Tur 2 (son): spec v2 üzerine 2 inceleyici (taze göz + çözüm denetçisi), 20 itiraz
 
-(revize spec v2 üzerine tek inceleyici; sonuç aşağıya eklenecek)
+Ham itirazlar: `research/review-r2-objections.md`. Tur 2'de 2 kritik itiraz kaldı. İş akışı kuralı gereği
+otomatik devam edilmedi, uyuşmazlık kullanıcıya özetlendi ve kullanıcı karar verdi (2026-10-23).
+
+| İtiraz | SEV | Karar | Spec v3'e etkisi |
+|---|---|---|---|
+| R2-1 / F3 BOM tavanı tutmuyor | critical | **Kullanıcı kararı** | Tavan ~27.5k TL: zorunlu ≤ 24.5k, yedeklerle ≤ 27.5k. Şarj cihazı BOM'da. Yedek seti adet adet yazıldı. Adım 0 alımları robota/yedeğe gider ve tavana dahildir. TVS, anahtar ve döner tabla rulmanı için stok doğrulaması ve alternatif yazıldı. |
+| F1 / R2-4 diz ısıl ölçütü her durumda düşüyor | critical | **Kullanıcı kararı** | Dize DS3235 de aday (aynı gövde). Isınma testi 2–3 yük seviyesinde; eşik iki yönde kalibre. G-ISIL kapısı (boru hattı politikalarından ölçülen diz RMS × tezgâh τs × CAD kütlesi) kabul eğitiminden önce. Diz servosu yalnız T_diz ≥ tahmini RMS ise seçilebilir. DS3230 Red çıkış listesinden çıkarıldı (Türkiye stoğu yok). |
+| F2 kütle sınırı aşımı tanımsız | major | **Kabul** | Gramlı kütle merdiveni. Kütle = CAD aşağıdan yukarı × 1.05. Merdivenden sonra > 1.95 kg ise RL'den önce spec'e dönülür. |
+| F4 / R2-7 Wilson yönü, N | major | **Kabul** | Her oran ölçütünde N ve kural yazıldı (nokta + Wilson sınırı). Dönüş için sabit wz komutları ve kararlı durum penceresi tanımlandı. |
+| F5 getup kapısı sayısız | major | **Kabul** | Kapı: tam bütçenin %30'u, G-BENCH parametreleriyle. Mod başına eşik ≥ 0.6 × A6 tabanı ve pozitif öğrenme eğimi. (i) ile (ii)'den iyisi tam eğitime gider. Düşen mod için spec'e dönülür. |
+| F6 / R2-2 limit metriği ↔ boşluk eklemi | major | **Kabul** | Limit metriği ve cezası yalnız aktüatörlü ana eklemlerin LIMIT_JOINT satırlarından; boşluk eklemleri hariç. Pot servo çıkış milini okur. Boşluk ara gövdesine armature ve solref verildi. Boşluk DR'ı §4'te. |
+| R2-3 +3° kuralı varyant sınırlayıcılarıyla eziliyor | major | **Kabul** | +3° kuralı `robot_model.build_spec`'te bütün sınırlayıcılardan sonra uygulanan değişmez (testli). KNEE/NECK/HIP_YAW sınırları TR-35 için CAD'den yeniden türetilir. A3: varyant sınırları ⊇ gerekli aralıklar. |
+| F7 öz-çarpışma yok | major | **Kabul** | main/getup'a seçilmiş öz-çarpışma çiftleri (uyluk/incik ↔ trunk/kafa/çene, ayak ↔ kafa). MJX maliyeti A3'te ölçülür. Getup kapısında A8 de raporlanır. |
+| F8 ray akımı modeli besleme akımı değil | major | **Kabul** | I_supply ≈ I_stall·\|τ_act\|·\|τ_net\|/τs² + boşta. Tezgâhta INA226 + uygun şöntle uydurulur. Metrik ölçekleme öncesi talep akımı. |
+| R2-5 tezgâh akım ölçümü | major | **Kabul** | Tezgâhta 2–10 mΩ şönt ya da laboratuvar kaynağı. sysID'de iki yöntem arasındaki fark ≤ %10. |
+| R2-6 HEAD_RANDOM, kafa limit eşiği, tampon geomu | major | **Kabul** | HEAD_RANDOM MG90S'e göre yeniden türetildi (aralık + eğim sınırı). Kafa eklemlerinde limit eşiği ≤ MG90S stall. Tampon MJCF'de boyun gövdesine bağlı çarpışma geomu. |
+| F9 A7 iki dallı değil | minor | **Kabul** | A7 iki dal: küçük aktör float32, ya da büyük/damıtılmış öğrenci int8 (A4–A6 farkı ≤ 2 puan). Damıtmaya izin var. |
+| F10 / R2-10 gerekli aralık tablosu eksik; 3.7 s | minor | **Kabul** | 15 eklemin hepsi için görev başına sayısal tablo; boyun −90…+40 (nötr −25°). Kalkış penceresi 3.4 s (= 3.0·√s). hip_yaw iç sınırı CAD'den; < 10° çıkarsa wz komut aralığı daralır. Bacak–bacak çifti taramada. |
+| R2-8 ADS1115 bölücü/VDD, boyun işareti | minor | **Kabul** | ADS VDD 3.3 V, ADC1 ile aynı bölücü (100k/47k + 100 nF, τ 3.2 ms), PGA ±4.096 V. Boyun horn yönü sabit; işaret testi A9'da. |
+| R2-9 Adım 0 eksik satırlar | minor | **Kabul** | Satırlar eklendi: ray aşımı, 3.3 V darbe, ortak-mod hata, ES3054 300 Hz. ES3054/MG90S/SG90 6.0 V'ta ölçülür; SG90 alınacaklarda. |
+
+İnceleme aşaması kapandı. Tur 2'deki kritik itirazlar kullanıcı kararıyla çözüldü, kalan bütün itirazlar spec v3'e işlendi.
