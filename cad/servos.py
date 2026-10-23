@@ -563,6 +563,142 @@ def horn_bolt_holes(t, horn, lo, hi, r=1.0):
     return holes
 
 
+# ---------------------------------------------------------------------------
+# P2a: DS besik (stator) / U-link (rotor) yardimcilari, kanonik cerceve (FreeCAD). Baglanti elemanlari mutlak M3
+# olculeridir (params.fit: bosluk 3.4, kilavuz 2.5, somun yuvasi 5.7 AF x 2.6), olceklenmez.
+# ---------------------------------------------------------------------------
+M3_HEAD = {"d": 5.5, "h": 3.0}            # DIN 912 M3 imbus bas
+M3_NUT = {"af": 5.5, "t": 2.4}            # DIN 934 M3 somun
+STEEL_G_MM3 = 7.85e-3                     # g/mm3 (vida/somun kutlesi)
+AL_G_MM3 = 2.70e-3                        # g/mm3 (hip_yaw mili, Al 6061)
+
+
+def hex_prism_y(af, x, z, y0, y1):
+    """XZ duzleminde merkezi (x, z), anahtar agzi af olan altigen (koseleri +-X'te, Z'de af/2), Y'de y0..y1."""
+    from geom import prism_xz
+    R = af / math.sqrt(3.0)
+    pts = [(x + R * math.cos(math.radians(60.0 * k)), z + R * math.sin(math.radians(60.0 * k))) for k in range(6)]
+    return prism_xz(pts, y0, y1)
+
+
+DS_FAR_EXT = 1.4      # uzak kulak rafinin kulak ucundan tasmasi (altigen somun yuvasi + 1 mm et)
+
+
+def ds_stator(t, fit, sh_t=6.0, far_ext=DS_FAR_EXT, near_off=0.75, bearing=None, insert="Y", far="nut"):
+    """DS besiginin standart parcalari, kanonik cerceve: kulak raflari (yakin uc: 2 x M3 kilavuz deligi, vida Ø4.5
+    acik yarigin dis kenarina near_off kaydirilir; uzak uc: far="nut" 2 x M3 bosluk deligi + kulagin ucundan far_ext
+    tasan altigen somun yuvasi, far="tap" kilavuz), arka idler yuva halkasi (F623ZZ cebi + M3 bosluk) ve kesiciler
+    (govde + kulak zarfi fit.clearance kadar buyuk; kablo rakoru montaj yonunde acik: insert="Y" servo horn tarafindan
+    -Y yonunde girer, centik yakin raftan gecer; insert="X+" servo +X yanindan kayar, rakor cikisi raf duzleminden
+    disari acik). Doner {"near", "far", "seat": kati, "cuts": [kati], "screws": kati (4 x M3 [+ 2 somun]),
+    "screw_g": g}."""
+    from geom import box, ycyl
+    b, tb, ho, c, idl = t["body"], t["tabs"], t["holes"], t["cable"], t["idler"]
+    d = datums(t, bearing)
+    st = d["idler"]
+    cl = fit["clearance"]
+    w2, near, far = b["w"] / 2.0, t["shaft"]["near"], b["l"] - t["shaft"]["near"]
+    yt0, yt1 = d["tab"]
+    tz0, tz1 = d["tab_z"]
+    zc = d["body_center_z"]
+    zn, zf = zc - ho["pitch_l"] / 2.0, zc + ho["pitch_l"] / 2.0
+    nearsh = box(-w2, w2, yt0 - sh_t, yt0, tz0, -near - cl)
+    seat = ycyl(st["seat_r"], 0, 0, st["seat"][0], st["seat"][1])
+    br = st["bearing_rec"]
+    yr = d["rear_face"]
+    if far == "tap":                 # kilavuzlu uzak raf somun yuvasi istemez: kulak ucunda biter
+        far_ext = 0.0
+    farsh = box(-w2, w2, yt0 - sh_t, yt0, far + cl, tz1 + far_ext)
+    fr = (br["flange_d"] or br["D"]) / 2.0 + 0.3
+    cuts = [box(-w2 - cl, w2 + cl, yr - idl["seat_gap"] + 0.01, d["boss_top"] + 1.0, -near - cl, far + cl),
+            box(-w2 - cl, w2 + cl, yt0, yt1 + 4.0, tz0 - cl, tz1 + cl),
+            ycyl(br["D"] / 2.0 + 0.05, 0, 0, st["seat"][0] - 1.0, st["bearing"][1]),
+            ycyl(br["d"] / 2.0 + 1.5, 0, 0, st["seat"][0] - 1.0, st["seat"][1] + 1.0),
+            ycyl(fr, 0, 0, st["leg"][1], st["seat"][0] + 0.01)]          # rulman flansi + kosu boslugu
+    gy = yr + c["h"]
+    gw = c["gland_w"] / 2.0 + 0.3
+    gh = c["gland_h"] / 2.0 + 0.3
+    if insert == "Y":
+        cuts.append(box(-gw, gw, gy - gh, yt1 + 4.0, -near - c["gland_out"] - 0.5, -near + 0.01))
+    else:              # yandan (+X) kayar: rakor yolu + kablo cikisi (raf ustune kadar)
+        cuts.append(box(-gw, w2 + cl + 30.0, gy - gh, gy + gh, tz0 - 1.0, -near + 0.01))
+    xs = (-ho["pitch_w"] / 2.0, ho["pitch_w"] / 2.0)
+    xn = [x + math.copysign(near_off, x) for x in xs]
+    cuts += [ycyl(fit["tap_d"] / 2.0, x, zn, yt0 - sh_t - 1.0, yt0 + 0.01) for x in xn]
+    if far == "nut":
+        cuts += [ycyl(fit["clear_d"] / 2.0, x, zf, yt0 - sh_t - 1.0, yt0 + 0.01) for x in xs]
+        cuts += [hex_prism_y(fit["nut_af"], x, zf, yt0 - sh_t - 1.0, yt0 - sh_t + fit["nut_t"]) for x in xs]
+    else:
+        cuts += [ycyl(fit["tap_d"] / 2.0, x, zf, yt0 - sh_t - 1.0, yt0 + 0.01) for x in xs]
+    # vidalar: M3 imbus (bas kulagin ustunde); kilavuzlu delikte govde cekirdek capiyla (2.4), somunlu delikte 2.9
+    hr, hh = M3_HEAD["d"] / 2.0, M3_HEAD["h"]
+    parts = []
+    for x in xn:
+        parts += [ycyl(hr, x, zn, yt1, yt1 + hh), ycyl(1.2, x, zn, yt0 - 5.0, yt1 + 0.01)]
+    for x in xs:
+        parts.append(ycyl(hr, x, zf, yt1, yt1 + hh))
+        if far == "nut":
+            parts += [ycyl(1.45, x, zf, yt0 - sh_t + 0.1, yt1 + 0.01),
+                      hex_prism_y(M3_NUT["af"], x, zf, yt0 - sh_t + 0.1, yt0 - sh_t + 0.1 + M3_NUT["t"])
+                      .cut(ycyl(1.5, x, zf, yt0 - sh_t, yt0))]
+        else:
+            parts.append(ycyl(1.2, x, zf, yt0 - 5.0, yt1 + 0.01))
+    screws = parts[0].fuse(parts[1:]).removeSplitter()
+    return {"near": nearsh, "far": farsh, "seat": seat, "cuts": cuts, "screws": screws,
+            "screw_g": screws.Volume * STEEL_G_MM3}
+
+
+def ds_rotor_cuts(t, fit, leg_a_t, bearing=None):
+    """DS U-link (rotor) kesicileri, kanonik cerceve: horn cebi (aluminyum kol + gobek, bosluklu; kol linke gomulu,
+    gobegin altinda cikis gobegi/spline payi), merkez M3 vida erisim deligi, 2 x M2.5 kilavuz deligi (kol deliklerinde),
+    B kolu M3 bosluk deligi + rulmana bakan altigen somun yuvasi."""
+    from geom import ycyl
+    hn, cl = t["horn"], fit["clearance"]
+    d = datums(t, bearing)
+    st = d["idler"]
+    y0 = d["rear_face"] + hn["h"][0]
+    cuts = [horn_pocket(t, cl, hn["arm_t"], 0.0),
+            ycyl(hn["hub_d"] / 2.0 + cl, 0, 0, y0 - cl, 0.01),
+            ycyl(t["boss"]["d"] / 2.0 + 0.6, 0, 0, d["case_top"] - 0.5, y0),
+            ycyl(hn["screw_d"] / 2.0 + 1.4, 0, 0, -1.0, leg_a_t + 1.0)]
+    cuts += [ycyl(1.05, x, z, -hn["arm_t"], leg_a_t + 1.0) for x, z in horn_bolt_xz(t)]
+    l1, l0 = st["leg"]
+    cuts += [ycyl(fit["clear_d"] / 2.0, 0, 0, st["head"][0] - 1.0, l0 + 1.0),
+             hex_prism_y(fit["nut_af"], 0.0, 0.0, l0 - fit["nut_t"], l0 + 0.01)]
+    return cuts
+
+
+def ds_idler_screw(t, bearing=None):
+    """DS arka idler mili, kanonik cerceve: M3 imbus (bas U-link B kolunun disinda, govde B kolundaki somundan gecip
+    rulman ic bileziginde mil olur; ucu rulmanin servo tarafi yuzunun 0.2 mm icinde) + somun (B kolunun yuvasinda).
+    Tek kati ve kutle (g)."""
+    from geom import ycyl
+    st = idler_stack(t, bearing)
+    l1, l0 = st["leg"]
+    h0, h1 = st["head"]
+    screw = ycyl(M3_HEAD["d"] / 2.0, 0, 0, h0, h1).fuse(ycyl(1.45, 0, 0, h1 - 0.01, st["bearing"][1] - 0.2))
+    nut = hex_prism_y(M3_NUT["af"], 0.0, 0.0, l0 - 0.2 - M3_NUT["t"], l0 - 0.2).cut(ycyl(1.5, 0, 0, l1, l0))
+    # pirinc ara halka (OD 5, yalniz ic bilezige basar): somun -> ic bilezik eksenel yuk yolu (servo yonunde)
+    sp = ycyl(IDLER_SPACER_R, 0, 0, l0 - 0.21, st["bearing"][0] - 0.05).cut(ycyl(1.6, 0, 0, l1, l0 + 2.0))
+    s = screw.fuse(nut).fuse(sp)
+    return s, s.Volume * STEEL_G_MM3
+
+
+IDLER_SPACER_R = 2.5      # F623ZZ ic bilezik dis capi ~5.2: ara halka kalkanlara degmez
+THRUST_GAP = 0.2          # U-link baski halkasi ile servo ust yuzu arasi
+
+
+def ds_thrust_sleeve(t, fit, wall=2.5):
+    """U-link A kolunun servo ust yuzune bakan baski kovani (kanonik): horn gobegi cevresinde r (gobek + bosluk +
+    0.5) .. (+ wall), Y servo ust yuzu + THRUST_GAP .. 0. Eksenel yuk (servoya dogru) kovandan servo gövdesine gider,
+    mile degil; ters yonu arka idler (somun -> ara halka -> ic bilezik -> yuva dudagi) tasir."""
+    from geom import ycyl
+    d = datums(t)
+    r0 = t["horn"]["hub_d"] / 2.0 + fit["clearance"] + 0.5
+    y0 = d["case_top"] + THRUST_GAP
+    return ycyl(r0 + wall, 0, 0, y0, 0.0).cut(ycyl(r0, 0, 0, y0 - 1.0, 1.0))
+
+
 def horn_bolt_cutters(t, length, cb=None, r=1.0):
     """Horn'a oturan braket icin kanonik cercevede bolt_n x r civata deligi (horn'daki delik dairesiyle ayni).
     length: horn dis yuzunden itibaren delik boyu; cb = (yaricap, bas, son) istege bagli havsa (horn dis
