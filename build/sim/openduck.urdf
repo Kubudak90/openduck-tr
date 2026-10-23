@@ -1,0 +1,313 @@
+<?xml version="1.0"?>
+<!-- OpenDuck - cad/openduck.py tarafindan uretildi; elle duzenlemeyin. -->
+<robot name="openduck">
+  <mujoco><compiler meshdir="meshes" strippath="true" discardvisual="false" balanceinertia="true"/></mujoco>
+  <material name="shell"><color rgba="0.93 0.9 0.84 1"/></material>
+  <material name="trim"><color rgba="1 0.5 0.16 1"/></material>
+  <material name="bracket"><color rgba="0.62 0.64 0.67 1"/></material>
+  <material name="sole"><color rgba="0.22 0.26 0.32 1"/></material>
+  <material name="pad"><color rgba="0.3 0.34 0.42 1"/></material>
+  <material name="face"><color rgba="0.8 0.79 0.76 1"/></material>
+  <material name="lens"><color rgba="0.03 0.03 0.04 1"/></material>
+  <material name="glass"><color rgba="0.35 0.55 0.85 1"/></material>
+  <material name="led"><color rgba="0.95 0.1 0.1 1"/></material>
+  <material name="servo"><color rgba="0.12 0.12 0.13 1"/></material>
+  <material name="horn"><color rgba="0.35 0.35 0.37 1"/></material>
+  <material name="pcb"><color rgba="0.1 0.45 0.2 1"/></material>
+  <material name="pcb2"><color rgba="0.1 0.25 0.65 1"/></material>
+  <material name="chip"><color rgba="0.08 0.08 0.08 1"/></material>
+  <material name="battery"><color rgba="0.18 0.18 0.2 1"/></material>
+  <material name="metal"><color rgba="0.7 0.7 0.72 1"/></material>
+  <link name="trunk">
+    <inertial>
+      <origin xyz="-0.018645 2.897e-05 0.0055943" rpy="0 0 0"/>
+      <mass value="0.166955"/>
+      <inertia ixx="0.000114651" ixy="-2.95876e-07" ixz="-2.85834e-05" iyy="0.000143859" iyz="-1.3905e-07" izz="0.00011579"/>
+    </inertial>
+    <visual><origin xyz="0 0 0" rpy="0 0 0"/><geometry><mesh filename="meshes/chassis.stl" scale="0.001 0.001 0.001"/></geometry><material name="bracket"/></visual>
+    <visual><origin xyz="0 0 0" rpy="0 0 0"/><geometry><mesh filename="meshes/battery_tray.stl" scale="0.001 0.001 0.001"/></geometry><material name="bracket"/></visual>
+    <visual><origin xyz="0 0 0" rpy="0 0 0"/><geometry><mesh filename="meshes/torso_shell_left.stl" scale="0.001 0.001 0.001"/></geometry><material name="shell"/></visual>
+    <visual><origin xyz="0 0 0" rpy="0 0 0"/><geometry><mesh filename="meshes/torso_shell_right.stl" scale="0.001 0.001 0.001"/></geometry><material name="shell"/></visual>
+    <visual><origin xyz="0 0 0" rpy="0 0 0"/><geometry><mesh filename="meshes/battery_np_f550.stl" scale="0.001 0.001 0.001"/></geometry><material name="battery"/></visual>
+    <visual><origin xyz="0 0 0" rpy="0 0 0"/><geometry><mesh filename="meshes/imu_board.stl" scale="0.001 0.001 0.001"/></geometry><material name="pcb"/></visual>
+    <visual><origin xyz="0 0 0" rpy="0 0 0"/><geometry><mesh filename="meshes/imu_chip.stl" scale="0.001 0.001 0.001"/></geometry><material name="chip"/></visual>
+    <visual><origin xyz="0 0 0" rpy="0 0 0"/><geometry><mesh filename="meshes/power_board.stl" scale="0.001 0.001 0.001"/></geometry><material name="pcb2"/></visual>
+    <visual><origin xyz="0 0 0" rpy="0 0 0"/><geometry><mesh filename="meshes/left_hip_yaw_servo.stl" scale="0.001 0.001 0.001"/></geometry><material name="servo"/></visual>
+    <visual><origin xyz="0 0 0" rpy="0 0 0"/><geometry><mesh filename="meshes/right_hip_yaw_servo.stl" scale="0.001 0.001 0.001"/></geometry><material name="servo"/></visual>
+    <visual><origin xyz="0 0 0" rpy="0 0 0"/><geometry><mesh filename="meshes/neck_pitch_horn.stl" scale="0.001 0.001 0.001"/></geometry><material name="horn"/></visual>
+    <collision><origin xyz="-0.0064 0 0" rpy="0 0 0"/><geometry><box size="0.0838 0.0660478 0.084"/></geometry></collision>
+  </link>
+  <link name="left_hip">
+    <inertial>
+      <origin xyz="-0.00279806 -1.48903e-18 -0.0163371" rpy="0 0 0"/>
+      <mass value="0.0227722"/>
+      <inertia ixx="3.74176e-06" ixy="-3.56685e-22" ixz="1.65215e-07" iyy="4.43302e-06" iyz="3.10453e-22" izz="2.38302e-06"/>
+    </inertial>
+    <visual><origin xyz="0 0 0" rpy="0 0 0"/><geometry><mesh filename="meshes/left_hip_yaw_horn.stl" scale="0.001 0.001 0.001"/></geometry><material name="horn"/></visual>
+    <visual><origin xyz="0 0 0" rpy="0 0 0"/><geometry><mesh filename="meshes/left_hip_bracket.stl" scale="0.001 0.001 0.001"/></geometry><material name="bracket"/></visual>
+    <visual><origin xyz="0 0 0" rpy="0 0 0"/><geometry><mesh filename="meshes/left_hip_roll_servo.stl" scale="0.001 0.001 0.001"/></geometry><material name="servo"/></visual>
+    <collision><origin xyz="-0.0025 0 -0.016" rpy="0 0 0"/><geometry><box size="0.03 0.024 0.042"/></geometry></collision>
+  </link>
+  <link name="left_hip_cradle">
+    <inertial>
+      <origin xyz="-0.00607303 0.0117532 0" rpy="0 0 0"/>
+      <mass value="0.00374922"/>
+      <inertia ixx="5.01625e-07" ixy="1.69768e-07" ixz="-2.63638e-22" iyy="3.17344e-07" iyz="-2.75941e-25" izz="6.26675e-07"/>
+    </inertial>
+    <visual><origin xyz="0 0 0" rpy="0 0 0"/><geometry><mesh filename="meshes/left_hip_roll_horn.stl" scale="0.001 0.001 0.001"/></geometry><material name="horn"/></visual>
+    <visual><origin xyz="0 0 0" rpy="0 0 0"/><geometry><mesh filename="meshes/left_hip_cradle_bracket.stl" scale="0.001 0.001 0.001"/></geometry><material name="bracket"/></visual>
+    <collision><origin xyz="-0.0135 0.007 0" rpy="0 0 0"/><geometry><box size="0.029 0.032 0.019"/></geometry></collision>
+  </link>
+  <link name="left_thigh">
+    <inertial>
+      <origin xyz="-0.0212277 0.0156598 -0.00727146" rpy="0 0 0"/>
+      <mass value="0.0479801"/>
+      <inertia ixx="1.04653e-05" ixy="-1.72448e-08" ixz="-4.42709e-06" iyy="1.99659e-05" iyz="4.72226e-07" izz="1.76929e-05"/>
+    </inertial>
+    <visual><origin xyz="0 0 0" rpy="0 0 0"/><geometry><mesh filename="meshes/left_hip_pitch_servo.stl" scale="0.001 0.001 0.001"/></geometry><material name="servo"/></visual>
+    <visual><origin xyz="0 0 0" rpy="0 0 0"/><geometry><mesh filename="meshes/left_knee_servo.stl" scale="0.001 0.001 0.001"/></geometry><material name="servo"/></visual>
+    <visual><origin xyz="0 0 0" rpy="0 0 0"/><geometry><mesh filename="meshes/left_thigh_inner_plate.stl" scale="0.001 0.001 0.001"/></geometry><material name="bracket"/></visual>
+    <visual><origin xyz="0 0 0" rpy="0 0 0"/><geometry><mesh filename="meshes/left_thigh_wing.stl" scale="0.001 0.001 0.001"/></geometry><material name="shell"/></visual>
+    <collision><origin xyz="-0.01815 0.01425 -0.01075" rpy="0 0 0"/><geometry><box size="0.0622887 0.0305 0.0484887"/></geometry></collision>
+  </link>
+  <link name="left_shin">
+    <inertial>
+      <origin xyz="0.00041315 0.0092883 -0.0293144" rpy="0 0 0"/>
+      <mass value="0.0240238"/>
+      <inertia ixx="5.50973e-06" ixy="-1.98447e-08" ixz="-1.70153e-09" iyy="5.18405e-06" iyz="4.65738e-07" izz="2.41535e-06"/>
+    </inertial>
+    <visual><origin xyz="0 0 0" rpy="0 0 0"/><geometry><mesh filename="meshes/left_knee_horn.stl" scale="0.001 0.001 0.001"/></geometry><material name="horn"/></visual>
+    <visual><origin xyz="0 0 0" rpy="0 0 0"/><geometry><mesh filename="meshes/left_shin_bracket.stl" scale="0.001 0.001 0.001"/></geometry><material name="bracket"/></visual>
+    <visual><origin xyz="0 0 0" rpy="0 0 0"/><geometry><mesh filename="meshes/left_shin_pad.stl" scale="0.001 0.001 0.001"/></geometry><material name="shell"/></visual>
+    <visual><origin xyz="0 0 0" rpy="0 0 0"/><geometry><mesh filename="meshes/left_ankle_servo.stl" scale="0.001 0.001 0.001"/></geometry><material name="servo"/></visual>
+    <collision><origin xyz="0.0005 0.01 -0.02075" rpy="0 0 0"/><geometry><box size="0.025 0.026 0.0615"/></geometry></collision>
+  </link>
+  <link name="left_foot">
+    <inertial>
+      <origin xyz="0.00646457 -0.0152417 -0.0173471" rpy="0 0 0"/>
+      <mass value="0.0319587"/>
+      <inertia ixx="5.91313e-06" ixy="-3.58924e-08" ixz="3.39524e-07" iyy="8.31593e-06" iyz="-3.05828e-07" izz="1.14324e-05"/>
+    </inertial>
+    <visual><origin xyz="0 0 0" rpy="0 0 0"/><geometry><mesh filename="meshes/left_ankle_horn.stl" scale="0.001 0.001 0.001"/></geometry><material name="horn"/></visual>
+    <visual><origin xyz="0 0 0" rpy="0 0 0"/><geometry><mesh filename="meshes/left_ankle_bracket.stl" scale="0.001 0.001 0.001"/></geometry><material name="bracket"/></visual>
+    <visual><origin xyz="0 0 0" rpy="0 0 0"/><geometry><mesh filename="meshes/left_foot_body.stl" scale="0.001 0.001 0.001"/></geometry><material name="trim"/></visual>
+    <visual><origin xyz="0 0 0" rpy="0 0 0"/><geometry><mesh filename="meshes/left_sole.stl" scale="0.001 0.001 0.001"/></geometry><material name="sole"/></visual>
+    <collision><origin xyz="0.007 -0.0147679 -0.0225095" rpy="0.0872665 0 0"/><geometry><box size="0.054 0.0405 0.005"/></geometry></collision>
+  </link>
+  <link name="right_hip">
+    <inertial>
+      <origin xyz="-0.00279806 1.48903e-18 -0.0163371" rpy="0 0 0"/>
+      <mass value="0.0227722"/>
+      <inertia ixx="3.74176e-06" ixy="3.56715e-22" ixz="1.65215e-07" iyy="4.43302e-06" iyz="-3.10325e-22" izz="2.38302e-06"/>
+    </inertial>
+    <visual><origin xyz="0 0 0" rpy="0 0 0"/><geometry><mesh filename="meshes/right_hip_yaw_horn.stl" scale="0.001 0.001 0.001"/></geometry><material name="horn"/></visual>
+    <visual><origin xyz="0 0 0" rpy="0 0 0"/><geometry><mesh filename="meshes/right_hip_bracket.stl" scale="0.001 0.001 0.001"/></geometry><material name="bracket"/></visual>
+    <visual><origin xyz="0 0 0" rpy="0 0 0"/><geometry><mesh filename="meshes/right_hip_roll_servo.stl" scale="0.001 0.001 0.001"/></geometry><material name="servo"/></visual>
+    <collision><origin xyz="-0.0025 0 -0.016" rpy="0 0 0"/><geometry><box size="0.03 0.024 0.042"/></geometry></collision>
+  </link>
+  <link name="right_hip_cradle">
+    <inertial>
+      <origin xyz="-0.00607303 -0.0117532 3.07892e-18" rpy="0 0 0"/>
+      <mass value="0.00374922"/>
+      <inertia ixx="5.01625e-07" ixy="-1.69768e-07" ixz="-3.87045e-22" iyy="3.17344e-07" iyz="2.77268e-22" izz="6.26675e-07"/>
+    </inertial>
+    <visual><origin xyz="0 0 0" rpy="0 0 0"/><geometry><mesh filename="meshes/right_hip_roll_horn.stl" scale="0.001 0.001 0.001"/></geometry><material name="horn"/></visual>
+    <visual><origin xyz="0 0 0" rpy="0 0 0"/><geometry><mesh filename="meshes/right_hip_cradle_bracket.stl" scale="0.001 0.001 0.001"/></geometry><material name="bracket"/></visual>
+    <collision><origin xyz="-0.0135 -0.007 0" rpy="0 0 0"/><geometry><box size="0.029 0.032 0.019"/></geometry></collision>
+  </link>
+  <link name="right_thigh">
+    <inertial>
+      <origin xyz="-0.0212277 -0.0156598 -0.00727146" rpy="0 0 0"/>
+      <mass value="0.0479801"/>
+      <inertia ixx="1.04653e-05" ixy="1.72448e-08" ixz="-4.42709e-06" iyy="1.99659e-05" iyz="-4.72226e-07" izz="1.76929e-05"/>
+    </inertial>
+    <visual><origin xyz="0 0 0" rpy="0 0 0"/><geometry><mesh filename="meshes/right_hip_pitch_servo.stl" scale="0.001 0.001 0.001"/></geometry><material name="servo"/></visual>
+    <visual><origin xyz="0 0 0" rpy="0 0 0"/><geometry><mesh filename="meshes/right_knee_servo.stl" scale="0.001 0.001 0.001"/></geometry><material name="servo"/></visual>
+    <visual><origin xyz="0 0 0" rpy="0 0 0"/><geometry><mesh filename="meshes/right_thigh_inner_plate.stl" scale="0.001 0.001 0.001"/></geometry><material name="bracket"/></visual>
+    <visual><origin xyz="0 0 0" rpy="0 0 0"/><geometry><mesh filename="meshes/right_thigh_wing.stl" scale="0.001 0.001 0.001"/></geometry><material name="shell"/></visual>
+    <collision><origin xyz="-0.01815 -0.01425 -0.01075" rpy="0 0 0"/><geometry><box size="0.0622887 0.0305 0.0484887"/></geometry></collision>
+  </link>
+  <link name="right_shin">
+    <inertial>
+      <origin xyz="0.00041315 -0.0092883 -0.0293144" rpy="0 0 0"/>
+      <mass value="0.0240238"/>
+      <inertia ixx="5.50973e-06" ixy="1.98447e-08" ixz="-1.70153e-09" iyy="5.18405e-06" iyz="-4.65738e-07" izz="2.41535e-06"/>
+    </inertial>
+    <visual><origin xyz="0 0 0" rpy="0 0 0"/><geometry><mesh filename="meshes/right_knee_horn.stl" scale="0.001 0.001 0.001"/></geometry><material name="horn"/></visual>
+    <visual><origin xyz="0 0 0" rpy="0 0 0"/><geometry><mesh filename="meshes/right_shin_bracket.stl" scale="0.001 0.001 0.001"/></geometry><material name="bracket"/></visual>
+    <visual><origin xyz="0 0 0" rpy="0 0 0"/><geometry><mesh filename="meshes/right_shin_pad.stl" scale="0.001 0.001 0.001"/></geometry><material name="shell"/></visual>
+    <visual><origin xyz="0 0 0" rpy="0 0 0"/><geometry><mesh filename="meshes/right_ankle_servo.stl" scale="0.001 0.001 0.001"/></geometry><material name="servo"/></visual>
+    <collision><origin xyz="0.0005 -0.01 -0.02075" rpy="0 0 0"/><geometry><box size="0.025 0.026 0.0615"/></geometry></collision>
+  </link>
+  <link name="right_foot">
+    <inertial>
+      <origin xyz="0.00646457 0.0152417 -0.0173471" rpy="0 0 0"/>
+      <mass value="0.0319587"/>
+      <inertia ixx="5.91313e-06" ixy="3.58924e-08" ixz="3.39524e-07" iyy="8.31593e-06" iyz="3.05828e-07" izz="1.14324e-05"/>
+    </inertial>
+    <visual><origin xyz="0 0 0" rpy="0 0 0"/><geometry><mesh filename="meshes/right_ankle_horn.stl" scale="0.001 0.001 0.001"/></geometry><material name="horn"/></visual>
+    <visual><origin xyz="0 0 0" rpy="0 0 0"/><geometry><mesh filename="meshes/right_ankle_bracket.stl" scale="0.001 0.001 0.001"/></geometry><material name="bracket"/></visual>
+    <visual><origin xyz="0 0 0" rpy="0 0 0"/><geometry><mesh filename="meshes/right_foot_body.stl" scale="0.001 0.001 0.001"/></geometry><material name="trim"/></visual>
+    <visual><origin xyz="0 0 0" rpy="0 0 0"/><geometry><mesh filename="meshes/right_sole.stl" scale="0.001 0.001 0.001"/></geometry><material name="sole"/></visual>
+    <collision><origin xyz="0.007 0.0147679 -0.0225095" rpy="-0.0872665 0 0"/><geometry><box size="0.054 0.0405 0.005"/></geometry></collision>
+  </link>
+  <link name="neck">
+    <inertial>
+      <origin xyz="0 -0.0159588 0.0249932" rpy="0 0 0"/>
+      <mass value="0.0366588"/>
+      <inertia ixx="1.61851e-05" ixy="-1.97867e-23" ixz="2.95337e-22" iyy="1.54565e-05" iyz="-1.02464e-11" izz="3.40797e-06"/>
+    </inertial>
+    <visual><origin xyz="0 0 0" rpy="0 0 0"/><geometry><mesh filename="meshes/neck_pitch_servo.stl" scale="0.001 0.001 0.001"/></geometry><material name="servo"/></visual>
+    <visual><origin xyz="0 0 0" rpy="0 0 0"/><geometry><mesh filename="meshes/head_pitch_servo.stl" scale="0.001 0.001 0.001"/></geometry><material name="servo"/></visual>
+    <visual><origin xyz="0 0 0" rpy="0 0 0"/><geometry><mesh filename="meshes/neck_splice.stl" scale="0.001 0.001 0.001"/></geometry><material name="bracket"/></visual>
+    <collision><origin xyz="0 -0.016 0.025" rpy="0 0 0"/><geometry><box size="0.024 0.026 0.069"/></geometry></collision>
+  </link>
+  <link name="head_tilt">
+    <inertial>
+      <origin xyz="0 -0.0135035 0.0100361" rpy="0 0 0"/>
+      <mass value="0.00570887"/>
+      <inertia ixx="1.36955e-06" ixy="2.40643e-22" ixz="-2.0528e-21" iyy="6.0437e-07" iyz="5.70956e-08" izz="1.09156e-06"/>
+    </inertial>
+    <visual><origin xyz="0 0 0" rpy="0 0 0"/><geometry><mesh filename="meshes/head_pitch_horn.stl" scale="0.001 0.001 0.001"/></geometry><material name="horn"/></visual>
+    <visual><origin xyz="0 0 0" rpy="0 0 0"/><geometry><mesh filename="meshes/head_tilt_bracket.stl" scale="0.001 0.001 0.001"/></geometry><material name="bracket"/></visual>
+    <visual><origin xyz="0 0 0" rpy="0 0 0"/><geometry><mesh filename="meshes/head_yaw_horn.stl" scale="0.001 0.001 0.001"/></geometry><material name="horn"/></visual>
+    <collision><origin xyz="0 -0.0145 0.00585" rpy="0 0 0"/><geometry><box size="0.02 0.034 0.0317"/></geometry></collision>
+  </link>
+  <link name="head_turn">
+    <inertial>
+      <origin xyz="-0.00216911 -0.0077476 0.0155053" rpy="0 0 0"/>
+      <mass value="0.0265198"/>
+      <inertia ixx="3.69227e-06" ixy="-6.86231e-08" ixz="-4.99328e-08" iyy="3.57044e-06" iyz="-1.64382e-08" izz="4.57395e-06"/>
+    </inertial>
+    <visual><origin xyz="0 0 0" rpy="0 0 0"/><geometry><mesh filename="meshes/head_yaw_servo.stl" scale="0.001 0.001 0.001"/></geometry><material name="servo"/></visual>
+    <visual><origin xyz="0 0 0" rpy="0 0 0"/><geometry><mesh filename="meshes/head_turn_bracket.stl" scale="0.001 0.001 0.001"/></geometry><material name="bracket"/></visual>
+    <visual><origin xyz="0 0 0" rpy="0 0 0"/><geometry><mesh filename="meshes/head_roll_horn.stl" scale="0.001 0.001 0.001"/></geometry><material name="horn"/></visual>
+    <collision><origin xyz="-0.00095 -0.0075 0.016" rpy="0 0 0"/><geometry><box size="0.0399 0.034 0.026"/></geometry></collision>
+  </link>
+  <link name="head">
+    <inertial>
+      <origin xyz="0.0189225 0.00187879 0.00898349" rpy="0 0 0"/>
+      <mass value="0.148334"/>
+      <inertia ixx="0.000135906" ixy="-9.93739e-06" ixz="-1.67349e-05" iyy="0.000218886" iyz="6.28332e-07" izz="0.000277404"/>
+    </inertial>
+    <visual><origin xyz="0 0 0" rpy="0 0 0"/><geometry><mesh filename="meshes/head_hood.stl" scale="0.001 0.001 0.001"/></geometry><material name="shell"/></visual>
+    <visual><origin xyz="0 0 0" rpy="0 0 0"/><geometry><mesh filename="meshes/head_bottom_shell.stl" scale="0.001 0.001 0.001"/></geometry><material name="shell"/></visual>
+    <visual><origin xyz="0 0 0" rpy="0 0 0"/><geometry><mesh filename="meshes/upper_bill.stl" scale="0.001 0.001 0.001"/></geometry><material name="trim"/></visual>
+    <visual><origin xyz="0 0 0" rpy="0 0 0"/><geometry><mesh filename="meshes/upper_bill_pad.stl" scale="0.001 0.001 0.001"/></geometry><material name="pad"/></visual>
+    <visual><origin xyz="0 0 0" rpy="0 0 0"/><geometry><mesh filename="meshes/face_plate.stl" scale="0.001 0.001 0.001"/></geometry><material name="face"/></visual>
+    <visual><origin xyz="0 0 0" rpy="0 0 0"/><geometry><mesh filename="meshes/eye_ring.stl" scale="0.001 0.001 0.001"/></geometry><material name="trim"/></visual>
+    <visual><origin xyz="0 0 0" rpy="0 0 0"/><geometry><mesh filename="meshes/camera_lens.stl" scale="0.001 0.001 0.001"/></geometry><material name="lens"/></visual>
+    <visual><origin xyz="0 0 0" rpy="0 0 0"/><geometry><mesh filename="meshes/camera_glass.stl" scale="0.001 0.001 0.001"/></geometry><material name="glass"/></visual>
+    <visual><origin xyz="0 0 0" rpy="0 0 0"/><geometry><mesh filename="meshes/camera_holder.stl" scale="0.001 0.001 0.001"/></geometry><material name="chip"/></visual>
+    <visual><origin xyz="0 0 0" rpy="0 0 0"/><geometry><mesh filename="meshes/tof_sensor.stl" scale="0.001 0.001 0.001"/></geometry><material name="lens"/></visual>
+    <visual><origin xyz="0 0 0" rpy="0 0 0"/><geometry><mesh filename="meshes/rec_led.stl" scale="0.001 0.001 0.001"/></geometry><material name="led"/></visual>
+    <visual><origin xyz="0 0 0" rpy="0 0 0"/><geometry><mesh filename="meshes/main_board.stl" scale="0.001 0.001 0.001"/></geometry><material name="pcb"/></visual>
+    <visual><origin xyz="0 0 0" rpy="0 0 0"/><geometry><mesh filename="meshes/robot_hat.stl" scale="0.001 0.001 0.001"/></geometry><material name="pcb2"/></visual>
+    <visual><origin xyz="0 0 0" rpy="0 0 0"/><geometry><mesh filename="meshes/speaker.stl" scale="0.001 0.001 0.001"/></geometry><material name="chip"/></visual>
+    <visual><origin xyz="0 0 0" rpy="0 0 0"/><geometry><mesh filename="meshes/head_frame.stl" scale="0.001 0.001 0.001"/></geometry><material name="bracket"/></visual>
+    <visual><origin xyz="0 0 0" rpy="0 0 0"/><geometry><mesh filename="meshes/head_roll_servo.stl" scale="0.001 0.001 0.001"/></geometry><material name="servo"/></visual>
+    <visual><origin xyz="0 0 0" rpy="0 0 0"/><geometry><mesh filename="meshes/mouth_servo.stl" scale="0.001 0.001 0.001"/></geometry><material name="servo"/></visual>
+    <collision><origin xyz="0.0219437 0 0.01245" rpy="0 0 0"/><geometry><box size="0.124513 0.0954253 0.0587"/></geometry></collision>
+  </link>
+  <link name="jaw">
+    <inertial>
+      <origin xyz="0.0385593 -0.026754 -0.0149543" rpy="0 0 0"/>
+      <mass value="0.0311456"/>
+      <inertia ixx="2.73985e-05" ixy="1.49637e-06" ixz="1.45422e-06" iyy="7.06773e-06" iyz="-5.80332e-07" izz="3.2987e-05"/>
+    </inertial>
+    <visual><origin xyz="0 0 0" rpy="0 0 0"/><geometry><mesh filename="meshes/mouth_horn.stl" scale="0.001 0.001 0.001"/></geometry><material name="horn"/></visual>
+    <visual><origin xyz="0 0 0" rpy="0 0 0"/><geometry><mesh filename="meshes/lower_bill.stl" scale="0.001 0.001 0.001"/></geometry><material name="trim"/></visual>
+    <visual><origin xyz="0 0 0" rpy="0 0 0"/><geometry><mesh filename="meshes/lower_bill_pad.stl" scale="0.001 0.001 0.001"/></geometry><material name="pad"/></visual>
+    <collision><origin xyz="0.02635 -0.028 -0.00695" rpy="0 0 0"/><geometry><box size="0.0657 0.0988 0.0269"/></geometry></collision>
+  </link>
+  <joint name="left_hip_yaw" type="revolute">
+    <origin xyz="0.006 0.0175 -0.005" rpy="0 0 0"/>
+    <parent link="trunk"/><child link="left_hip"/>
+    <axis xyz="0 0 -1"/>
+    <limit lower="-0.349066" upper="0.523599" effort="0.96" velocity="10"/>
+  </joint>
+  <joint name="left_hip_roll" type="revolute">
+    <origin xyz="0.0165 0 -0.0125" rpy="0 0 0"/>
+    <parent link="left_hip"/><child link="left_hip_cradle"/>
+    <axis xyz="1 0 0"/>
+    <limit lower="-0.349066" upper="0.349066" effort="0.96" velocity="10"/>
+  </joint>
+  <joint name="left_hip_pitch" type="revolute">
+    <origin xyz="-0.0185 0.025 0" rpy="0 0 0"/>
+    <parent link="left_hip_cradle"/><child link="left_thigh"/>
+    <axis xyz="0 1 0"/>
+    <limit lower="-1.5708" upper="1.5708" effort="0.96" velocity="10"/>
+  </joint>
+  <joint name="left_knee" type="revolute">
+    <origin xyz="-0.0358 -0.004 -0.022" rpy="0 0 0"/>
+    <parent link="left_thigh"/><child link="left_shin"/>
+    <axis xyz="0 -1 0"/>
+    <limit lower="-1.5708" upper="1.22173" effort="0.96" velocity="10"/>
+  </joint>
+  <joint name="left_ankle" type="revolute">
+    <origin xyz="0 0.026 -0.042" rpy="0 0 0"/>
+    <parent link="left_shin"/><child link="left_foot"/>
+    <axis xyz="0 1 0"/>
+    <limit lower="-1.39626" upper="1.39626" effort="0.96" velocity="10"/>
+  </joint>
+  <joint name="right_hip_yaw" type="revolute">
+    <origin xyz="0.006 -0.0175 -0.005" rpy="0 0 0"/>
+    <parent link="trunk"/><child link="right_hip"/>
+    <axis xyz="0 0 -1"/>
+    <limit lower="-0.523599" upper="0.349066" effort="0.96" velocity="10"/>
+  </joint>
+  <joint name="right_hip_roll" type="revolute">
+    <origin xyz="0.0165 0 -0.0125" rpy="0 0 0"/>
+    <parent link="right_hip"/><child link="right_hip_cradle"/>
+    <axis xyz="1 0 0"/>
+    <limit lower="-0.349066" upper="0.349066" effort="0.96" velocity="10"/>
+  </joint>
+  <joint name="right_hip_pitch" type="revolute">
+    <origin xyz="-0.0185 -0.025 0" rpy="0 0 0"/>
+    <parent link="right_hip_cradle"/><child link="right_thigh"/>
+    <axis xyz="0 -1 0"/>
+    <limit lower="-1.5708" upper="1.5708" effort="0.96" velocity="10"/>
+  </joint>
+  <joint name="right_knee" type="revolute">
+    <origin xyz="-0.0358 0.004 -0.022" rpy="0 0 0"/>
+    <parent link="right_thigh"/><child link="right_shin"/>
+    <axis xyz="0 1 0"/>
+    <limit lower="-1.22173" upper="1.5708" effort="0.96" velocity="10"/>
+  </joint>
+  <joint name="right_ankle" type="revolute">
+    <origin xyz="0 -0.026 -0.042" rpy="0 0 0"/>
+    <parent link="right_shin"/><child link="right_foot"/>
+    <axis xyz="0 -1 0"/>
+    <limit lower="-1.39626" upper="1.39626" effort="0.96" velocity="10"/>
+  </joint>
+  <joint name="neck_pitch" type="revolute">
+    <origin xyz="0.026 0.0145 0.0324" rpy="0 0 0"/>
+    <parent link="trunk"/><child link="neck"/>
+    <axis xyz="0 -1 0"/>
+    <limit lower="-1.5708" upper="0.698132" effort="0.96" velocity="10"/>
+  </joint>
+  <joint name="head_pitch" type="revolute">
+    <origin xyz="0 0 0.05" rpy="0 0 0"/>
+    <parent link="neck"/><child link="head_tilt"/>
+    <axis xyz="0 1 0"/>
+    <limit lower="-0.523599" upper="1.5708" effort="0.96" velocity="10"/>
+  </joint>
+  <joint name="head_yaw" type="revolute">
+    <origin xyz="0 -0.0145 0.0187" rpy="0 0 0"/>
+    <parent link="head_tilt"/><child link="head_turn"/>
+    <axis xyz="0 0 1"/>
+    <limit lower="-2.96706" upper="2.96706" effort="0.96" velocity="10"/>
+  </joint>
+  <joint name="head_roll" type="revolute">
+    <origin xyz="-0.0179 0 0.0145" rpy="0 0 0"/>
+    <parent link="head_turn"/><child link="head"/>
+    <axis xyz="-1 0 0"/>
+    <limit lower="-0.20944" upper="0.20944" effort="0.96" velocity="10"/>
+  </joint>
+  <joint name="mouth" type="revolute">
+    <origin xyz="0.018 0.028 0.003" rpy="0 0 0"/>
+    <parent link="head"/><child link="jaw"/>
+    <axis xyz="0 1 0"/>
+    <limit lower="0" upper="0.523599" effort="0.96" velocity="10"/>
+  </joint>
+</robot>

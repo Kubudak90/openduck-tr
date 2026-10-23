@@ -1,0 +1,6 @@
+__pycache__/
+*.pyc
+*.FCBak
+build/build.log
+runs/
+runs_*.log
