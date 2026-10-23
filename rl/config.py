@@ -11,6 +11,16 @@ import os
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SCENE_PATH = os.path.join(ROOT, "build", "sim", "scene.xml")
 
+# --- Robot profili (OpenDuck-TR spec 3.2.3-3.2.4; rl/actuators.py, rl/sensors.py) ------------------
+# "xl330_27": 27 cm XL330 robotu, MJCF aktuatorleri aynen (walk bit-duzeyinde ayni; varsayilan).
+# "tr35_b2" : PWM servo aktuator modeli + sensor modeli, yuklenen MJCF'ye eklem -> servo sinifi haritasiyla.
+# Ortam degiskeni OPENDUCK_ROBOT varsayilani secer; build_spec/VecEnv/OpenDuckEnv robot= ile ornek basina.
+ROBOT_PROFILES = ("xl330_27", "tr35_b2")
+ROBOT_PROFILE = os.environ.get("OPENDUCK_ROBOT", "xl330_27")
+if ROBOT_PROFILE not in ROBOT_PROFILES:
+    raise ValueError("OPENDUCK_ROBOT=%r (gecerli: %s)" % (ROBOT_PROFILE, ", ".join(ROBOT_PROFILES)))
+JOINT_RANGE_MARGIN_DEG = 3.0       # tr35: aktuatorlu eklem range = ctrlrange +- bu (varyant sinirlarindan SONRA)
+
 # --- Zamanlama -----------------------------------------------------------------
 SIM_DT = 0.005               # fizik adimi (s)
 CTRL_DT = 0.02               # politika adimi (s) -> 50 Hz

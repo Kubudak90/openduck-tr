@@ -15,12 +15,21 @@ Model varyantlari (variant=, gorev -> rl/tasks.py model_variant):
   "getup" : main + EXTRA_COLLISION geomlari (yalnizca zemin: contype 0, conaffinity 1; sinif
             "collision"). Sensor/eklem/aktuator sirasi her varyantta ayni; yeni sensorler sona eklenir.
 
+Robot profili (robot=, varsayilan config.ROBOT_PROFILE / OPENDUCK_ROBOT; rl/actuators.py):
+  "xl330_27": yukaridaki model aynen.
+  "tr35_b2" : + servo sinifi parametreleri (actuators.apply_to_spec; kp, forcerange, sonum, armature, frictionloss),
+              backlash=True ise DS eklemlerine seri "<eklem>_play" bosluk mafsali, ve EN SONDA degismez: aktuatorlu
+              eklemlerde range = ctrlrange +- C.JOINT_RANGE_MARGIN_DEG (varyant sinirlayicilarindan sonra).
+              Derlenmis modelde profil isareti (actuators.model_profile).
+
 RobotIndex, her iki arka ucun (CPU/MJX) ham durumdan dizi cekmek icin kullandigi indeksleri toplar.
 """
 import mujoco
 import numpy as np
 
+from . import actuators as A
 from . import config as C
+from . import sensors as SENS
 
 VARIANTS = ("walk", "main", "getup")
 HEAD_SITE = "head_center"
@@ -95,9 +104,10 @@ def add_extra_collision(spec, geoms=None):
         spec.body(body).add_geom(d, name=body + "_collision", type=t, size=sz, pos=list(pos), quat=q)
 
 
-def build_spec(scene_path=None, visual=False, variant="walk"):
+def build_spec(scene_path=None, visual=False, variant="walk", robot=None, backlash=None):
     if variant not in VARIANTS:
         raise ValueError("variant %r (%s)" % (variant, ", ".join(VARIANTS)))
+    robot = A.profile(robot)
     spec = mujoco.MjSpec.from_file(scene_path or C.SCENE_PATH)
     if not visual:
         for g in list(spec.geoms):
@@ -121,11 +131,44 @@ def build_spec(scene_path=None, visual=False, variant="walk"):
         _add_head_sensor(spec)
     if variant == "getup":
         add_extra_collision(spec)
+    if robot == A.TR35:
+        A.apply_to_spec(spec, robot, bool(backlash))
+        A.enforce_range_margin(spec)         # degismez: butun sinirlayicilardan sonra
+    elif backlash:
+        raise ValueError("bosluk eklemi yalniz %s profilinde" % A.TR35)
     return spec
 
 
-def build_model(scene_path=None, visual=False, variant="walk"):
-    return build_spec(scene_path, visual, variant).compile()
+def build_model(scene_path=None, visual=False, variant="walk", robot=None, backlash=None):
+    return build_spec(scene_path, visual, variant, robot, backlash).compile()
+
+
+def play_joints(model):
+    """Bosluk eklemi kimlikleri ("<eklem>_play")."""
+    return np.array([j for j in range(model.njnt) if (mujoco.mj_id2name(model, mujoco.mjtObj.mjOBJ_JOINT, j) or "")
+                     .endswith(A.PLAY_SUFFIX)], dtype=np.int64)
+
+
+def expand_state(model, qpos=None, qvel=None):
+    """Bosluk eklemsiz duzendeki qpos/qvel (or. poz bankalari) -> bu modelin duzeni (bosluk eklemleri 0). Boyut
+    zaten uyuyorsa aynen. Dondurur (qpos, qvel)."""
+    pj = play_joints(model)
+    out = []
+    for x, n, adr in ((qpos, model.nq, model.jnt_qposadr), (qvel, model.nv, model.jnt_dofadr)):
+        if x is None:
+            out.append(None)
+            continue
+        x = np.asarray(x)
+        if x.shape[-1] == n or len(pj) == 0:
+            out.append(x)
+            continue
+        keep = np.setdiff1d(np.arange(n), adr[pj])
+        if x.shape[-1] != len(keep):
+            raise ValueError("durum boyutu %d, model %d (bosluksuz %d)" % (x.shape[-1], n, len(keep)))
+        y = np.zeros(x.shape[:-1] + (n,), dtype=x.dtype)
+        y[..., keep] = x
+        out.append(y)
+    return tuple(out)
 
 
 def model_variant(model):
@@ -174,6 +217,7 @@ class RobotIndex(object):
         self.s_foot_pos = [sensor("left_foot_pos"), sensor("right_foot_pos")]
         self.s_foot_vel = [sensor("left_foot_vel"), sensor("right_foot_vel")]
         self.s_head_vel = sensor(HEAD_VEL_SENSOR)          # yalniz main/getup modelinde (yoksa None)
+        self.s_acc = sensor("accelerometer")
 
         self.foot_geom = np.array([gid(n) for n in C.FOOT_GEOMS])
         self.floor_geom = gid(C.FLOOR_GEOM)
@@ -198,3 +242,13 @@ class RobotIndex(object):
         self.action_lo = self.ctrl_lo[self.action_act_id].copy()
         self.action_hi = self.ctrl_hi[self.action_act_id].copy()
         self.head_range = np.array([C.HEAD_RANDOM["range"][n] for n in C.HEAD_JOINTS])
+
+        # robot profili; tr35: aktuator tablosu (aktuator sirasi) ve gozlem eklemlerinin pot tablosu
+        self.robot = A.model_profile(m)
+        self.act = self.pot = None
+        self.play_jnt = play_joints(m)
+        if self.robot == A.TR35:
+            self.act = A.actuator_table(m)
+            cls = [A.joint_class(self.robot, n) for n in C.OBS_JOINTS]
+            rails = [A.CLASSES[c]["rail"] for c in cls]
+            self.pot = SENS.pot_table(C.OBS_JOINTS, cls, rails, [A.RAILS[r]["volt"] for r in rails])

@@ -1222,3 +1222,149 @@ def test_cpu_mjx_lockstep_parity():
         if task == "getup":
             assert n_done >= 1                                            # zaman asimi + oto-sifirlama denendi
         cenv.close()
+
+
+# --- tr35_b2 profili: CPU == MJX adim adim (aktuator + sensor modeli, DR ve gurultu acik) -----------------------
+def _parity_draws_tr35(env, task):
+    """tr35: env_cpu'nun cektigi sayilar (boyuta gore kuyruk) MJX anahtarlarindan. Sifirlama: [genel DR vektoru
+    (randomize; sample_dr anahtar sirasi), sifirlama blogu (_parity_draws ile ayni), tr35 bolum blogu fold_in(k_n, 3)].
+    Adim: [alt adim gurultusu fold_in(k_noise, 5), segment 8, o adimin sifirlamasi]."""
+    U = jax.random.uniform
+    nb, nk, nad = env.mj_model.nbody - 1, len(env.sts_act), len(env.act_dof)
+
+    def dr_u(k_dr):
+        ks = jax.random.split(k_dr, 9)
+        one = lambda k: U(k, ()).reshape(1)
+        return jnp.concatenate([one(ks[0]), U(ks[1], (nb,)), one(ks[2]), U(ks[3], (3,)), U(ks[4], (nk,)),
+                                U(ks[5], (nad,)), U(ks[6], (nad,)), U(ks[7], (nad,)), jnp.full((1,), 0.5)])
+
+    def reset_u(rk):
+        _, k_dr, k_q, k_yaw, k_v, k_ph, k_cmd, k_ht, k_pt, k_n = jax.random.split(rk, 10)
+        k_kind, k_i = jax.random.split(jax.random.fold_in(k_n, 2))
+        parts = [U(k_q, (14,)), U(k_yaw, (1,)), U(k_v, (2,)), U(k_ph, (1,)), jnp.full((4,), 0.5), U(k_ht, (1,)),
+                 U(k_pt, (1,)), U(k_kind, (1,)), U(k_i, (1,))]
+        base = jnp.concatenate(parts + ([U(k_cmd, (T.NUM_SEGMENT_U,))] if task == "main" else []))
+        return dr_u(k_dr), base, U(jax.random.fold_in(k_n, 3), (env.n_ue,))
+
+    def step_u(r):
+        ks = jax.random.split(r, 6)
+        us = U(jax.random.fold_in(ks[4], 5), (C.N_SUBSTEPS, env.n_tick)).reshape(-1)
+        return (us, U(ks[3], (T.NUM_SEGMENT_U,))) + reset_u(ks[5])
+
+    return jax.jit(jax.vmap(reset_u)), jax.jit(jax.vmap(step_u))
+
+
+def test_cpu_mjx_lockstep_parity_tr35():
+    """tr35_b2: env_cpu.VecEnv (MuJoCo C) == OpenDuckEnv (MJX) adim adim; DR (genel + servo), sensor gurultusu/biaslari,
+    kart gecikmeleri, olu bant, PWM kuantalama, LEG CC olceklemesi, pot (ADC1/ADS1115 mux) + IIR, IMU + tamamlayici
+    filtre ayni rastgele sayilarla. Her adimdan sonra C fizik + sensor + ctrl_prev durumu MJX'e kopyalanir (f32/f64
+    farki birikmesin). Pot kaynakli gozlem dilimlerinde ADC kuantalama esigi f32/f64 arasinda tek LSB sapabilir:
+    o dilimlerde tolerans LSB'li ve siki toleransi asan oran kucuk olmali; diger her sey siki. getup bosluk eklemli."""
+    from rl.env_cpu import VecEnv
+    n, steps = 4, 25
+    kw = dict(randomize=True, noise=True, head_random=False, push=False, robot="tr35_b2")
+    for task, rp, bl in (("main", {"home": 0.5, "seated": 0.5}, False),
+                         ("getup", {"fallen": 0.5, "midfall": 0.25, "stand": 0.25}, True)):
+        spec = TK.get_task(task)
+        # tr35 frictionloss'u (DS 0.086 N.m x DR) sifirlamadan sonraki yapis-kay gecisinde C'de 9 Newton yinelemesi
+        # istiyor; MJX 8'de yakinsamaz (alt adimda 0.07 rad/s). Erken cikisli 32/16 C ile 1e-6 ayni.
+        menv = OpenDuckEnv(task=task, reset_probs=rp, solver_iterations=32, ls_iterations=16,
+                           final_weights=task == "getup", backlash=bl, **kw)
+        cenv = VecEnv(n, num_workers=0, task=task, reset_probs=rp, progress=1.0, backlash=bl, **kw)
+        core = cenv._core
+        assert core.n_ue == menv.n_ue and core.n_tick == menv.n_tick
+        assert len(core.idx.play_jnt) == (9 if bl else 0)
+        core.rngs = rngs = [_ParityRNG() for _ in range(n)]
+        reset_u, step_u = _parity_draws_tr35(menv, task)
+        keys = _keys(n, 41)
+        for j, arrs in enumerate(zip(*(np.asarray(x) for x in reset_u(keys)))):
+            for x in arrs:
+                rngs[j].push(x)
+        st = jax.jit(jax.vmap(menv.reset))(keys)
+        obs_c, crit_c = cenv.reset()
+        assert np.array_equal(core.reset_kind, np.asarray(st.info["reset_kind"])), task
+        trm = jax.tree_util.tree_map(np.asarray, st.info["tr"])
+        assert np.array_equal(core.ap["delay"], trm["act"]["delay"]), task
+        assert np.allclose(core.ap["tau_s"], trm["act"]["tau_s"], rtol=1e-5)
+        assert len(set(core.ap["delay"][:, 0].tolist())) >= 2 or len(set(core.ap["delay"][:, 1].tolist())) >= 2
+        for k in ("bias", "gnd", "cm_eps", "ads_tc", "ads_phase", "gb", "gs", "R", "ab", "vib"):
+            assert np.allclose(core.sp[k], trm["sens"][k], rtol=1e-4, atol=1e-7), (task, k)
+        info = dict(st.info)
+        if task == "main":
+            core.seg_timer[:] = 0.05
+            info["seg_timer"] = jnp.full((n,), 0.05, jnp.float32)
+        else:
+            core.step_count[0] = spec.max_episode_steps - 10
+            core.datas[0].time = core.step_count[0] * C.CTRL_DT
+            info["steps"] = info["steps"].at[0].set(spec.max_episode_steps - 10)
+        st = st.replace(info=info)
+        jstep = jax.jit(jax.vmap(menv.step))
+        rng = np.random.default_rng(42)
+        P = core.idx.pot
+        sl_q, sl_v = spec.obs_slices["joint_pos"], spec.obs_slices["joint_vel"]
+        lsb = float(P["lsb"].max())
+        tol_q = 2e-3 + lsb
+        tol_v = 2e-3 + 2.0 * C.OBS_SCALES["joint_vel"] * P["alpha"] * lsb / C.SIM_DT
+        n_done, n_loose, n_pot = 0, 0, 0
+        cc_seen = 1.0
+        for t in range(-1, steps):
+            if t >= 0:
+                a = (0.3 * rng.standard_normal((n, spec.num_actions)) * (np.arange(n) % 2)[:, None]).astype(np.float32)
+                a[n - 1] *= 6.0
+                draws = [np.asarray(x) for x in step_u(st.info["rng"])]
+                for j in range(n):
+                    for x in draws:
+                        rngs[j].push(x[j])
+                sum0 = core.ep_sum.copy()
+                obs_c, crit_c, rew_c, done_c, info_c = cenv.step(a)
+                for r_ in rngs:
+                    r_.q = {}
+                st = jstep(st, jnp.asarray(a))
+                done_m = np.asarray(st.done) > 0.5
+                assert np.array_equal(done_c, done_m), (task, t, done_c, done_m)
+                assert np.array_equal(info_c["time_outs"], np.asarray(st.info["time_out"]) > 0.5), (task, t)
+                assert np.allclose(rew_c, np.asarray(st.reward), atol=1e-3), (task, t, rew_c - np.asarray(st.reward))
+                n_done += int(done_c.sum())
+                live = ~done_c
+                inc = core.ep_sum - sum0
+                for i, k in enumerate(spec.reward_keys):
+                    m = np.asarray(st.metrics["rew_" + k])
+                    assert np.allclose(inc[live, i], m[live], atol=1e-4, rtol=1e-3), (task, t, k, inc[live, i], m[live])
+                # olcut kancalari (adim sonu, yasayan ortamlar)
+                trm = jax.tree_util.tree_map(np.asarray, st.info["tr"])
+                met = core.met
+                assert np.allclose(met["rail"][live], trm["met"]["rail"][live], rtol=1e-2, atol=0.05), (task, t)
+                assert np.allclose(met["rail_peak"][live], trm["met"]["rail_peak"][live], rtol=1e-2, atol=0.05)
+                assert np.allclose(met["cc"][live], trm["met"]["cc"][live], atol=1e-2), (task, t)
+                assert np.allclose(met["tau_net"][live], trm["met"]["tau_net"][live], atol=0.05), (task, t)
+                assert np.allclose(met["limit"][live], trm["met"]["limit"][live], atol=0.1), (task, t)
+                cc_seen = min(cc_seen, float(met["cc"].min()))
+            om, cm = np.asarray(st.obs["state"]), np.asarray(st.obs["privileged_state"])
+            assert np.allclose(crit_c, cm, atol=2e-3), (task, t, np.abs(crit_c - cm).max(axis=0))
+            dq, dv = np.abs(obs_c[:, sl_q] - om[:, sl_q]), np.abs(obs_c[:, sl_v] - om[:, sl_v])
+            assert dq.max() < tol_q and dv.max() < tol_v, (task, t, dq.max(), dv.max())
+            n_loose += int((dq > 2e-3).sum() + (dv > 2e-3).sum())
+            n_pot += dq.size + dv.size
+            rest = np.ones(spec.num_obs, bool)
+            rest[sl_q] = rest[sl_v] = False
+            assert np.allclose(obs_c[:, rest], om[:, rest], atol=2e-3), (task, t, np.abs(obs_c - om)[:, rest].max(0))
+            for name in ("last_action", "command", "posture", "phase"):
+                if name in spec.obs_slices:
+                    sl = spec.obs_slices[name]
+                    assert np.allclose(obs_c[:, sl], om[:, sl], atol=1e-5), (task, t, name)
+            inf = jax.tree_util.tree_map(np.asarray, st.info)
+            steps_m = np.where(np.asarray(st.done) > 0.5, 0, inf["steps"])
+            assert np.array_equal(core.step_count, steps_m) and np.array_equal(core.reset_kind, inf["reset_kind"])
+            assert np.allclose(core.ctrl_prev, inf["tr"]["ctrl_prev"], atol=1e-5), (task, t)
+            # C durumunu MJX'e kopyala: fizik + sensor filtreleri + son hedef
+            qp, qv, qw = (np.stack([getattr(d, f) for d in core.datas]) for f in ("qpos", "qvel", "qacc_warmstart"))
+            f32 = lambda x: jnp.asarray(x, jnp.float32)
+            tr = dict(st.info["tr"], ctrl_prev=f32(core.ctrl_prev),
+                      pot={k: f32(v) for k, v in core.pot_st.items()}, imu={k: f32(v) for k, v in core.imu_st.items()})
+            st = st.replace(data=st.data.replace(qpos=f32(qp), qvel=f32(qv), qacc_warmstart=f32(qw)),
+                            info=dict(st.info, tr=tr))
+        assert n_loose <= 0.05 * n_pot, (task, n_loose, n_pot)
+        assert cc_seen < 1.0, task                                       # CC olceklemesi denendi
+        if task == "getup":
+            assert n_done >= 1
+        cenv.close()

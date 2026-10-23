@@ -13,6 +13,14 @@ bit-duzeyinde ayni), "main" (yurume + govde yuksekligi + otur/kalk; 5 boyutlu ko
 oturus bankasindan sifirlama) ve "getup" (14 aksiyon, dusmus/dusus-ortasi bankalari, dusme
 sonlandirmasi yok, 8 s). Poz bankalari (rl/pose_bank.py) ebeveyn surecte BIR KEZ uretilir ve iscilere
 gecirilir: her iscide birebir ayni banka, sonuclar isci sayisindan bagimsiz.
+
+Robot profili (robot=, varsayilan config.ROBOT_PROFILE / OPENDUCK_ROBOT): "xl330_27" yukaridaki davranis aynen.
+"tr35_b2" (rl/actuators.py, rl/sensors.py): fizik alt adim alt adim (Python dongusu; MJX ile ayni sira): gecikmeli
+hedef, PWM kuantalama, olu bant, LEG ray CC olceklemesi; her alt adimda pot/IMU algilamasi. Aktor gozlemi sensor
+modelinden (q/qd pot, gyro, tamamlayici filtre gravity), oduller/kritik gercek durumdan; genel OBS_NOISE kapali.
+RNG: bolum basina sifirlama blogundan SONRA rng.random(actuators.n_uniform(nu) + sensors.n_episode(14)), her adimda
+U blogundan SONRA rng.random(N_SUBSTEPS * sensors.n_tick(14)). backlash=True: DS bosluk eklemleri (bankalar
+robot_model.expand_state ile genisletilir).
 """
 import copy
 import multiprocessing as mp
@@ -26,11 +34,13 @@ import weakref
 import mujoco
 import numpy as np
 
+from . import actuators as ACT
 from . import config as C
 from . import pose_bank as PB
+from . import sensors as SENS
 from . import task_math as T
 from . import tasks as TK
-from .robot_model import RobotIndex, build_spec
+from .robot_model import RobotIndex, build_spec, expand_state
 
 REW_KEYS = list(C.REWARD_WEIGHTS)       # walk odul terimleri (geri uyum; gorev bazli: VecEnv.reward_keys)
 CMD_STEPS = int(round(C.COMMAND_RESAMPLE_S / C.CTRL_DT))
@@ -75,10 +85,10 @@ def _views(buf, n, task="walk"):
     return {name: raw[off:off + nb].view(dt).reshape(shape) for name, dt, shape, off, nb in lay}
 
 
-def physics_model(scene_path=None, textures=False, variant="walk"):
-    """robot_model.build_model(variant=) ile ayni fizik; textures=False ise gok/zemin dokulari atilir
-    (modeli ~5 MB'tan ~40 KB'a indirir, her ortamin kendi kopyasi oldugu icin onemli)."""
-    spec = build_spec(scene_path, variant=variant)
+def physics_model(scene_path=None, textures=False, variant="walk", robot=None, backlash=None):
+    """robot_model.build_model(variant=, robot=, backlash=) ile ayni fizik; textures=False ise gok/zemin dokulari
+    atilir (modeli ~5 MB'tan ~40 KB'a indirir, her ortamin kendi kopyasi oldugu icin onemli)."""
+    spec = build_spec(scene_path, variant=variant, robot=robot, backlash=backlash)
     if not textures:
         for mt in spec.materials:
             mt.textures = [""] * len(mt.textures)
@@ -178,16 +188,20 @@ class _EnvSlice(object):
         self.spec = spec = TK.get_task(flags.get("task", "walk"))
         self.task = spec.name
         variant = flags.get("model_variant") or spec.model_variant
-        base = physics_model(scene_path, textures, variant)
+        self.robot = ACT.profile(flags.get("robot"))
+        self.tr35 = self.robot == ACT.TR35
+        self.dr = ACT.domain_rand(self.robot)           # xl330: config.DOMAIN_RAND
+        base = physics_model(scene_path, textures, variant, self.robot, flags.get("backlash"))
         self.idx = idx = RobotIndex(base, list(spec.action_joints))
         self.models = [copy.copy(base) for _ in range(n)]
         self.datas = [mujoco.MjData(m) for m in self.models]
         seqs = np.random.SeedSequence(seed).spawn(num_envs)[lo:hi]
         self.rngs = [np.random.Generator(np.random.PCG64(s)) for s in seqs]
 
-        self.randomize = bool(flags["randomize"]) and _DR["enabled"]
-        self.push = bool(flags["push"]) and _DR["enabled"]
+        self.randomize = bool(flags["randomize"]) and self.dr["enabled"]
+        self.push = bool(flags["push"]) and self.dr["enabled"]
         self.noise = bool(flags["noise"])
+        self.noise_obs = self.noise and not self.tr35    # genel OBS_NOISE (tr35: sensor modeli)
         self.head_random = bool(flags["head_random"]) and spec.head_mode != "policy"   # getup: bas politikada
         self.terminate = bool(flags.get("terminate", True))
         self.max_steps = int(flags.get("max_episode_steps") or spec.max_episode_steps)
@@ -207,12 +221,12 @@ class _EnvSlice(object):
         self.default_head = idx.init_ctrl[idx.head_act_id].copy()
         self.num_obs, A = spec.num_obs, spec.num_actions
         self.noise_vec = np.asarray(T.noise_vector(np, self.task), dtype=np.float64)
-        self.K = int(_DR["action_delay_steps"][1]) if self.randomize else 0
+        self.K = int(self.dr["action_delay_steps"][1]) if self.randomize else 0
         if self.task == "getup":
             self.act_scale = TK.action_scale_vector(spec, idx.default_action_q, idx.action_lo, idx.action_hi)
 
         # adim basina cekilen duzgun sayilarin yerlesimi (her ortam her adimda ayni miktari tuketir)
-        self.o_noise, nu = 0, (self.num_obs if self.noise else 0)
+        self.o_noise, nu = 0, (self.num_obs if self.noise_obs else 0)
         self.o_head, nu = nu, nu + (6 if self.head_random else 0)
         self.o_push, nu = nu, nu + (3 if self.push else 0)
         self.n_uniform = nu
@@ -239,6 +253,8 @@ class _EnvSlice(object):
         self._is_head = np.zeros(base.ngeom, bool)
         self._is_head[idx.head_geoms] = True
         self._f6 = np.zeros(6)
+        if self.tr35:
+            self._tr35_init(base)
 
         # ortam durumu
         self.phase = np.zeros(n)
@@ -279,6 +295,9 @@ class _EnvSlice(object):
         self.rspec = reset_spec(spec, flags.get("reset_probs"))
         self.kinds = [k for k, _ in self.rspec.reset_probs]
         self.banks = banks or {}
+        if len(idx.play_jnt):                 # bosluk eklemli model: bankalar bosluksuz duzende
+            self.banks = {k: dict(b, **dict(zip(("qpos", "qvel"), expand_state(base, b["qpos"], b["qvel"]))))
+                          for k, b in self.banks.items()}
         for kind, p in self.rspec.reset_probs:
             if p > 0 and kind in PB.KINDS and kind not in self.banks:
                 raise ValueError("%s sifirlamasi icin poz bankasi verilmedi" % kind)
@@ -294,6 +313,136 @@ class _EnvSlice(object):
         else:
             self.set_progress(flags.get("progress", 0.0))
         self._setup_dr(base)
+
+    # -- tr35: aktuator + sensor modeli (rl/actuators.py, rl/sensors.py)
+    def _tr35_init(self, base):
+        idx, n = self.idx, self.n
+        t, nu, no = idx.act, base.nu, len(idx.obs_qpos_adr)
+        self.n_ue_act = ACT.n_uniform(nu)
+        self.n_ue = self.n_ue_act + SENS.n_episode(no)
+        self.n_tick = SENS.n_tick(no)
+        self.n_us = C.N_SUBSTEPS * self.n_tick
+        self.US = np.zeros((n, self.n_us))
+        self.ap = ACT.sample_params(np, np.zeros((n, self.n_ue_act)), t, False)     # bolum: tau_s, db_half, ...
+        self.sp = SENS.episode(np, np.zeros((n, self.n_ue - self.n_ue_act)), idx.pot, False)
+        self.mprm = {k: np.zeros((n, nu)) for k in ("gain", "b0", "b1", "b2", "damping")}
+        self.ctrl_prev = np.zeros((n, nu))
+        z = np.zeros((n, no))
+        self.pot_st = SENS.pot_reset(np, z, z, self.sp, idx.pot)
+        self.imu_st = {"g": np.zeros((n, 3)), "w": np.zeros((n, 3))}
+        self.met = ACT.metrics_init(np, np.zeros((n, nu)))
+        self._lim_type = int(mujoco.mjtConstraint.mjCNSTR_LIMIT_JOINT)
+        for j in range(n):
+            self._tr35_model_prm(j)
+
+    def _tr35_model_prm(self, j):
+        m, ad = self.models[j], self.idx.act["act_dadr"]
+        mp = self.mprm
+        mp["gain"][j] = m.actuator_gainprm[:, 0]
+        mp["b0"][j], mp["b1"][j], mp["b2"][j] = (m.actuator_biasprm[:, i] for i in range(3))
+        mp["damping"][j] = m.dof_damping[ad]
+
+    def _tr35_episode(self, j, ue):
+        """Bolum parametreleri (DR randomize'a, sensor biaslari noise'a bagli); randomize ise model alanlari +
+        mj_setConst (qpos ayarlanmadan ONCE)."""
+        t, m = self.idx.act, self.models[j]
+        ap = ACT.sample_params(np, ue[:self.n_ue_act], t, self.randomize)
+        for k, v in ap.items():
+            self.ap[k][j] = v
+        for k, v in SENS.episode(np, ue[self.n_ue_act:], self.idx.pot, self.noise).items():
+            self.sp[k][j] = v
+        m.actuator_forcerange[:, 0] = -ap["tau_s"]
+        m.actuator_forcerange[:, 1] = ap["tau_s"]
+        if self.randomize:
+            ad = t["act_dadr"]
+            m.actuator_gainprm[:, 0] = ap["kp"]
+            m.actuator_biasprm[:, 1] = -ap["kp"]
+            m.dof_damping[ad] = ap["damping"]
+            m.dof_armature[ad] = ap["armature"]
+            m.dof_frictionloss[ad] = ap["frictionloss"]
+            pj = t["play_jnt"] >= 0
+            if pj.any():
+                h = 0.5 * ap["backlash"][pj]
+                m.jnt_range[t["play_jnt"][pj]] = np.stack([-h, h], axis=-1)
+            mujoco.mj_setConst(m, self.datas[j])
+        self._tr35_model_prm(j)
+
+    def _tr35_sensor_reset(self, j, ctrl):
+        """Sifirlama / set_state sonrasi (fiziksel durum toplandiktan sonra) sensor ve aktuator durumu."""
+        idx, sl = self.idx, slice(j, j + 1)
+        sp = {k: v[sl] for k, v in self.sp.items()}
+        q, qd = self.QPOS[sl][:, idx.obs_qpos_adr], self.QVEL[sl][:, idx.obs_dof_adr]
+        for k, v in SENS.pot_reset(np, q, qd, sp, idx.pot).items():
+            self.pot_st[k][j] = v[0]
+        for k, v in SENS.imu_reset(np, self.SD[sl][:, idx.s_quat], self.SD[sl][:, idx.s_gyro], sp).items():
+            self.imu_st[k][j] = v[0]
+        self.ctrl_prev[j] = ctrl
+        for k, v in self.met.items():
+            v[j] = 1.0 if k == "cc" else 0.0
+
+    def _head_force_now(self, m, d):
+        """Kafa geomlari - zemin temaslarinin mj_contactForce normal kuvvet toplami (N)."""
+        if not d.ncon:
+            return 0.0
+        fl, hd, f6 = self.idx.floor_geom, self._is_head, self._f6
+        g = d.contact.geom
+        hit = np.flatnonzero(((g[:, 0] == fl) & hd[g[:, 1]]) | ((g[:, 1] == fl) & hd[g[:, 0]]))
+        f = 0.0
+        for c in hit:
+            mujoco.mj_contactForce(m, d, int(c), f6)
+            f += abs(f6[0])
+        return f
+
+    def _tr35_substeps(self, ctrl_new):
+        """N_SUBSTEPS alt adim, ortamlar alt adim basina topluca (actuators / sensors sirasi; MJX ile ayni)."""
+        idx, n, nsub = self.idx, self.n, C.N_SUBSTEPS
+        t, P, mp, ap = idx.act, idx.pot, self.mprm, self.ap
+        aq, ad, oq, oa = t["act_qadr"], t["act_dadr"], idx.obs_qpos_adr, idx.obs_act_id
+        nu, no = len(aq), len(oq)
+        QA, VA, AF = np.empty((n, nu)), np.empty((n, nu)), np.empty((n, nu))
+        QO, GY, AC = np.empty((n, no)), np.empty((n, 3)), np.empty((n, 3))
+        met = ACT.metrics_init(np, np.zeros((n, nu)))
+        lim, j2a, LT = met["limit"], t["jnt2act"], self._lim_type
+        us = self.US.reshape(n, nsub, self.n_tick)
+        hfp, sg, sa = self.head_force_peak, idx.s_gyro, idx.s_acc
+        if hfp:
+            self.HFPEAK[:] = 0.0
+        tn = None
+        for k in range(nsub):
+            for j, (m, d, cv, qv, sd, qp, qa, af, xp) in enumerate(self._dv):
+                QA[j] = qp[aq]
+                VA[j] = qv[ad]
+            c, frc, dem, sc = ACT.shape_substep(np, k, self.ctrl_prev, ctrl_new, QA, VA, ap, t, mp["gain"],
+                                                mp["b0"], mp["b1"], mp["b2"], mp["damping"])
+            met["rail"] = met["rail"] + dem
+            met["rail_peak"] = np.maximum(met["rail_peak"], dem)
+            met["cc"] = np.minimum(met["cc"], sc)
+            for j, (m, d, cv, qv, sd, qp, qa, af, xp) in enumerate(self._dv):
+                fr = m.actuator_forcerange
+                fr[:, 0] = -frc[j]
+                fr[:, 1] = frc[j]
+                cv[:] = c[j]
+                mujoco.mj_step(m, d)
+                if hfp:
+                    self.HFPEAK[j] = max(self.HFPEAK[j], self._head_force_now(m, d))
+                QO[j] = qp[oq]
+                AF[j] = af
+                GY[j] = sd[sg]
+                AC[j] = sd[sa]
+                ne = d.nefc
+                if ne:
+                    sel = d.efc_type[:ne] == LT
+                    if sel.any():
+                        a = j2a[d.efc_id[:ne][sel]]
+                        ok = a >= 0
+                        np.maximum.at(lim[j], a[ok], np.abs(d.efc_force[:ne][sel][ok]))
+            tn, cur, rail = ACT.after_substep(np, AF, VA, mp["damping"], ap, t)
+            self.pot_st = SENS.pot_tick(np, self.pot_st, QO, cur[:, oa], rail, us[:, k, :no], self.sp, P, self.noise)
+            self.imu_st = SENS.imu_tick(np, self.imu_st, GY, AC, rail, us[:, k, no:], self.sp, self.noise)
+        met["rail"] = met["rail"] / nsub
+        met["tau_net"] = tn
+        self.met = met
+        self.ctrl_prev = np.array(ctrl_new, dtype=np.float64)
 
     # -- mufredat (getup gec terimleri; walk/main agirliklari sabit)
     def set_progress(self, p):
@@ -325,11 +474,11 @@ class _EnvSlice(object):
     # -- alan rastgelelestirme (her zaman nominalden; tek bir rng cagrisi)
     def _setup_dr(self, base):
         nb, nad, nk = base.nbody - 1, len(self.act_dof), len(self.sts_act)
-        parts = [("friction", 1, _DR["friction"]), ("mass", nb, _DR["link_mass_scale"]),
-                 ("trunk_add", 1, _DR["trunk_added_mass"]),
-                 ("com", 3, (-_DR["trunk_com_offset"], _DR["trunk_com_offset"])),
-                 ("kp", nk, _DR["kp_scale"]), ("damping", nad, _DR["damping_scale"]),
-                 ("frictionloss", nad, _DR["frictionloss_scale"]), ("armature", nad, _DR["armature_scale"]),
+        parts = [("friction", 1, self.dr["friction"]), ("mass", nb, self.dr["link_mass_scale"]),
+                 ("trunk_add", 1, self.dr["trunk_added_mass"]),
+                 ("com", 3, (-self.dr["trunk_com_offset"], self.dr["trunk_com_offset"])),
+                 ("kp", nk, self.dr["kp_scale"]), ("damping", nad, self.dr["damping_scale"]),
+                 ("frictionloss", nad, self.dr["frictionloss_scale"]), ("armature", nad, self.dr["armature_scale"]),
                  ("delay", 1, (0.0, 1.0))]
         self.dr_sl, lo, hi, o = {}, [], [], 0
         for name, k, (a, b) in parts:
@@ -373,7 +522,7 @@ class _EnvSlice(object):
             x[ad] *= v[sl[field[4:]]]
             getattr(m, field)[:] = x
 
-        lo, hi = _DR["action_delay_steps"]
+        lo, hi = self.dr["action_delay_steps"]
         self.delay[j] = min(lo + int(v[sl["delay"]][0] * (hi - lo + 1)), hi)
         self.friction[j] = f
         mujoco.mj_setConst(m, self.datas[j])
@@ -419,6 +568,8 @@ class _EnvSlice(object):
         # [eklem gurultusu(14), yaw, taban hizi(2), faz, komut(4), bas zamanlayici, itme zamanlayici]
         # + main: [tur, banka indeksi, segment(8)]; getup: [tur, banka indeksi]
         u = rng.random(self.n_reset_u)
+        if self.tr35:
+            self._tr35_episode(j, rng.random(self.n_ue))
         nj = len(idx.obs_qpos_adr)
         mujoco.mj_resetData(m, d)
         kind, name, bank, label = 0, "home", None, -1.0
@@ -452,6 +603,8 @@ class _EnvSlice(object):
         mujoco.mj_forward(m, d)
         self._gather(j)
         self._contacts_one(j)
+        if self.tr35:
+            self._tr35_sensor_reset(j, d.ctrl)
 
         self.phase[j] = u[nj + 3]
         if self.task == "walk":
@@ -484,7 +637,7 @@ class _EnvSlice(object):
         self.head_target[j] = 0.0
         lo, hi = _HR["resample_s"]
         self.head_timer[j] = lo + (hi - lo) * u[nj + 8]
-        lo, hi = _DR["push_interval_s"]
+        lo, hi = self.dr["push_interval_s"]
         self.push_timer[j] = lo + (hi - lo) * u[nj + 9]
 
     def set_state(self, j, qpos, qvel, ctrl=None, warmstart=None):
@@ -501,6 +654,8 @@ class _EnvSlice(object):
         mujoco.mj_forward(m, d)
         self._gather(j)
         self._contacts_one(j)
+        if self.tr35:
+            self._tr35_sensor_reset(j, d.ctrl)
         self._task_reset(j, 0.0)
         self.reset_kind[j], self.bank_label[j] = -1.0, -1.0
         self.step_count[j] = 0
@@ -543,12 +698,22 @@ class _EnvSlice(object):
         elif self.task == "getup":
             del s["command"], s["phase"]
             s.update(trunk_floor=TF, head_floor=HF, head_vel=SD[:, idx.s_head_vel], **MEM)
+        if self.tr35:                      # olcut kancalari (gozlem eklemleri sirasi; tau_s bolum ornegi)
+            r = slice(None) if rows is None else rows
+            oa, met = idx.obs_act_id, self.met
+            tn, ts = met["tau_net"][r][:, oa], self.ap["tau_s"][r][:, oa]
+            s.update(tau_net=tn, tau_s=ts, tau_ratio=tn / ts, limit_torque=met["limit"][r][:, oa],
+                     rail_demand=met["rail"][r], rail_peak=met["rail_peak"][r], cc_scale=met["cc"][r])
         return s
+
+    def _obs_state(self, s):
+        """tr35 aktor gozlemi durumu: q/qd pot, gyro olculen, gravity filtre ciktisi (sensors.obs_state)."""
+        return SENS.obs_state(np, s, self.pot_st["v"], self.pot_st["qdf"], self.imu_st["w"], self.imu_st["g"])
 
     def _write_obs(self, noise_u):
         s = self._state(self.a_prev, self.a_prev)
-        obs = T.observation(np, s, self.task)
-        if self.noise:
+        obs = T.observation(np, self._obs_state(s) if self.tr35 else s, self.task)
+        if self.noise_obs:
             obs = obs + self.noise_vec * (2.0 * noise_u - 1.0)
             self._last_noise[:] = noise_u
         self.io["obs"][:] = obs
@@ -566,6 +731,9 @@ class _EnvSlice(object):
                  bank_label=self.bank_label.copy())
         if self.head_force_peak:            # son kontrol adiminin alt adim tepe kuvveti (sifirlamada korunur)
             s["head_force_peak"] = self.HFPEAK.copy()
+        if self.tr35:                       # aktorun gordugu olcumler
+            s.update(q_obs=self.pot_st["v"].copy(), qd_obs=self.pot_st["qdf"].copy(), gyro_obs=self.imu_st["w"].copy(),
+                     gravity_obs=self.imu_st["g"].copy(), ctrl_prev=self.ctrl_prev.copy())
         if self.task == "main":
             s.update(seg=self.seg.copy(), seg_timer=self.seg_timer.copy(), locked=self.fixed_cmd is not None,
                      **{"ev_" + k: np.array(v) for k, v in self.ev.items()})
@@ -577,7 +745,7 @@ class _EnvSlice(object):
         for j in range(self.n):
             self._reset_env(j)
         noise_u = np.zeros((self.n, self.num_obs))
-        if self.noise:
+        if self.noise_obs:
             for j, rng in enumerate(self.rngs):
                 rng.random(out=noise_u[j])
         self._write_obs(noise_u)
@@ -599,18 +767,10 @@ class _EnvSlice(object):
         """nsub kez mj_step(m, d) (mj_step(m, d, nsub) ile bit-duzeyinde ayni); dondurur: alt adimlarin her birinden
         sonra kafa geomlari (idx.head_geoms) - zemin temaslarinin mj_contactForce normal kuvvet toplaminin (N) en
         buyugu (eval_tasks.head_force ile ayni tanim, kontrol adimi yerine her alt adimda)."""
-        fl, hd, f6, pk = self.idx.floor_geom, self._is_head, self._f6, 0.0
+        pk = 0.0
         for _ in range(nsub):
             mujoco.mj_step(m, d)
-            if d.ncon:
-                g = d.contact.geom
-                hit = np.flatnonzero(((g[:, 0] == fl) & hd[g[:, 1]]) | ((g[:, 1] == fl) & hd[g[:, 0]]))
-                if len(hit):
-                    f = 0.0
-                    for c in hit:
-                        mujoco.mj_contactForce(m, d, int(c), f6)
-                        f += abs(f6[0])
-                    pk = max(pk, f)
+            pk = max(pk, self._head_force_now(m, d))
         return pk
 
     # -- kontrol adimi (TASK.md sirasiyla)
@@ -620,6 +780,9 @@ class _EnvSlice(object):
         if self.n_uniform:
             for j, rng in enumerate(self.rngs):
                 rng.random(out=U[j])
+        if self.tr35:                       # alt adim algilama gurultusu (sabit yerlesim)
+            for j, rng in enumerate(self.rngs):
+                self.US[j] = rng.random(self.n_us)
 
         # 1. aksiyon -> hedefler (gecikmeli); main: guncel durustan q_ref
         ref = T.posture_ref(np, self.h_ref, self.alpha, idx.default_obs_q) if task == "main" else None
@@ -652,6 +815,8 @@ class _EnvSlice(object):
             ctrl[:, idx.head_act_id] = self.default_head + self.head_offset + ref["head_offset"]
         ctrl[:, idx.action_act_id] = targets
         np.clip(ctrl, idx.ctrl_lo, idx.ctrl_hi, out=ctrl)
+        if self.tr35:                       # PCA9685 adimi (kontrol adiminda bir kez)
+            ctrl = ACT.quantize_pwm(np, ctrl, idx.act["pwm_res"], idx.ctrl_lo, idx.ctrl_hi)
 
         # 4. itme (main: yalniz alpha < ALPHA_STAND_MAX iken uygulanir; sayilar her durumda tuketilir)
         if self.push:
@@ -659,8 +824,8 @@ class _EnvSlice(object):
             self.push_timer -= C.CTRL_DT
             pm = np.flatnonzero(self.push_timer <= 0.0)
             if len(pm):
-                dv = (2.0 * up[pm, :2] - 1.0) * _DR["push_vel"]
-                lo, hi = _DR["push_interval_s"]
+                dv = (2.0 * up[pm, :2] - 1.0) * self.dr["push_vel"]
+                lo, hi = self.dr["push_interval_s"]
                 self.push_timer[pm] = lo + (hi - lo) * up[pm, 2]
                 for k, j in enumerate(pm):
                     if task != "main" or self.alpha[j] < C.ALPHA_STAND_MAX:
@@ -670,11 +835,16 @@ class _EnvSlice(object):
         SD, QPOS, QVEL, QACC, AF, TZ, TIME = self.SD, self.QPOS, self.QVEL, self.QACC, self.AF, self.TZ, self.TIME
         tb, nsub, mj_step, hfp = idx.trunk_body, C.N_SUBSTEPS, mujoco.mj_step, self.head_force_peak
         gl, dl = [], []
+        if self.tr35:
+            self._tr35_substeps(ctrl)
         for j, (m, d, cv, qv, sd, qp, qa, af, xp) in enumerate(self._dv):
-            cv[:] = ctrl[j]
-            if hfp:
+            if self.tr35:
+                pass
+            elif hfp:
+                cv[:] = ctrl[j]
                 self.HFPEAK[j] = self._substeps_head_peak(m, d, nsub)
             else:
+                cv[:] = ctrl[j]
                 mj_step(m, d, nsub)
             SD[j] = sd
             QPOS[j] = qp
@@ -894,6 +1064,8 @@ class VecEnv(object):
     model_variant      fizik modeli degisikligi (oynatma: main politikasi getup modelinde, devir icin ayni geomlar)
     head_force_peak    True: fizik alt adim alt adim (dinamik ayni); task_state()["head_force_peak"] (N,) = son kontrol
                        adimindaki alt adimlarin kafa-zemin normal kuvveti en buyugu (N; degerlendirme A4)
+    robot              None (config.ROBOT_PROFILE) | "xl330_27" | "tr35_b2" (aktuator + sensor modeli; modul notu)
+    backlash           tr35: DS eklemlerinde seri bosluk eklemi (None/False: yok)
     """
 
     num_obs = C.NUM_OBS                 # sinif degerleri walk icin; ornek degerleri gorevden
@@ -904,8 +1076,11 @@ class VecEnv(object):
     def __init__(self, num_envs, num_workers=None, seed=0, randomize=True, noise=True, head_random=True,
                  push=True, fixed_command=None, start_method=None, scene_path=None, textures=None,
                  task="walk", terminate=True, reset_probs=None, max_episode_steps=None, progress=0.0,
-                 episode_details=False, bank_n=None, model_variant=None, head_force_peak=False):
+                 episode_details=False, bank_n=None, model_variant=None, head_force_peak=False, robot=None,
+                 backlash=None):
         self.spec = spec = TK.get_task(task)
+        self.robot = ACT.profile(robot)
+        self.backlash = bool(backlash)
         self.task = spec.name
         self.num_obs, self.num_critic_obs, self.num_actions = spec.num_obs, spec.num_critic_obs, spec.num_actions
         self.reward_keys = list(spec.reward_keys)
@@ -927,7 +1102,7 @@ class VecEnv(object):
         flags = dict(randomize=randomize, noise=noise, head_random=head_random, push=push, task=self.task,
                      terminate=terminate, reset_probs=None if reset_probs is None else dict(reset_probs),
                      max_episode_steps=max_episode_steps, progress=float(progress), model_variant=model_variant,
-                     head_force_peak=bool(head_force_peak))
+                     head_force_peak=bool(head_force_peak), robot=self.robot, backlash=self.backlash)
         banks = load_banks(spec, reset_probs, bank_n, self.model_variant) if self.task != "walk" else {}
         self._progress = float(progress)
         self._core, self._conns, self._procs, self._broken, self._idx = None, [], [], False, None
@@ -1139,8 +1314,8 @@ class VecEnv(object):
         if self._core is not None:
             return self._core.idx
         if self._idx is None:
-            self._idx = RobotIndex(physics_model(self._scene_path, variant=self.model_variant),
-                                   list(self.spec.action_joints))
+            self._idx = RobotIndex(physics_model(self._scene_path, variant=self.model_variant, robot=self.robot,
+                                                 backlash=self.backlash), list(self.spec.action_joints))
         return self._idx
 
     def close(self):
