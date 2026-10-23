@@ -168,33 +168,78 @@
       }
     },
     "trunk": {
-      "_note": "P2b bolumu (P2-0 yer tutucu): electronics = cad/electronics.py parcasi -> [x, y, z_alt, rot_z, eksen sirasi] (kutu alt orta noktasi; 'xzy' kenar ustu, 'zyx' dik); P2-0 yerlesimi yalniz hacim fizibilitesidir, P2b yeniden planlar. mass_blocks: [merkez, yari olcu, g] sasi+kafes+kabuk+vida+kablo butcesi",
+      "_note": "P2b bolumu (cad/trunk.py build_tr35_b2, cad/electronics.py; docs/workflow/openduck-tr/p2b-hacim.md). electronics: parca[#n] -> [x, y, z_alt, rot_z, perm] (kutu alt orta noktasi; perm dunya x/y/z'ye giden kayit ekseni, 'yzx' = kart dik). struct: sasi/kabuk olculeri (mm, PETG yapi; kabuk et kalinligi params.wall); kutu listeleri [x0, x1, y0, y1, z0, z1]. wiring: govde ici kablo demetleri (harness, sol/sag ayri), cap d ve nokta listesi",
       "hip_yaw_horn_toward": [-1, 0, 0],
       "neck_horn_toward": [0, 0, 1],
       "imu_item": "imu_mpu6500",
+      "mass_budget_g": 733.6,
       "electronics": {
-        "battery_4s_lipo": [-53.0, 0.0, -2.5, 0],
-        "buck_20a": [-58.0, 0.0, 31.0, 0],
-        "pca9685#1": [-26.75, 31.0, -2.5, 0, "xzy"],
-        "pca9685#2": [-26.75, -31.0, -2.5, 0, "xzy"],
+        "battery_4s_lipo": [-53.0, 0.0, -1.5, 0],
+        "buck_20a": [-61.8, 0.0, 30.8, 0],
+        "xl4015": [-53.0, -5.5, -21.7, 90],
+        "aux_bus_cap": [-53.0, 27.0, -22.2, 0],
         "esp32_s3_devkitc": [-29.0, 0.0, 62.0, 90],
-        "xl4015": [-53.0, 0.0, -21.0, 90],
-        "servo_hub": [-37.0, 33.0, 25.0, 0, "xzy"],
-        "lipo_alarm": [-38.0, -32.5, 26.0, 0, "xzy"],
-        "bus_caps": [33.5, 10.0, -3.0, 0, "xzy"],
-        "power_latch": [33.5, -29.5, -3.0, 0],
-        "fuse_15a": [33.5, -29.5, 5.2, 0],
-        "main_switch": [33.5, 29.5, -2.5, 0],
-        "mp1584": [33.5, -12.5, -3.0, 0],
-        "ina226": [33.5, -13.0, 1.2, 0],
-        "xt30_pair": [-29.0, 36.0, 62.0, 0],
-        "ads1115#1": [20.9, -9.25, 33.0, 0, "zyx"],
-        "ads1115#2": [20.9, 9.25, 33.0, 0, "zyx"],
-        "imu_mpu6500": [-27.5, 0.0, 27.8, 0]
+        "pca9685#1": [-27.0, 32.0, -2.5, 0, "yzx"],
+        "pca9685#2": [-27.0, -32.0, -2.5, 0, "yzx"],
+        "imu_mpu6500": [-22.5, 0.0, 30.8, 90],
+        "divider_board": [-26.5, 0.0, 35.0, 0, "zxy"],
+        "main_switch": [35.75, 29.0, -2.0, 0],
+        "servo_hub": [32.5, 8.8, -1.5, 90],
+        "ina226": [29.5, 9.0, 6.5, 90],
+        "leg_bus_cap#1": [8.0, 30.0, 4.0, 0],
+        "leg_bus_cap#2": [8.0, -30.0, 4.0, 0],
+        "xt30_pair": [-77.0, 24.75, -1.5, 0, "xzy"],
+        "fuse_15a": [-53.0, 29.15, 5.0, 0, "zyx"],
+        "vbat_cap": [-49.5, -29.0, -1.5, 0, "yzx"],
+        "overshoot_clamp": [-49.5, -32.5, 26.0, 0, "yzx"],
+        "lipo_alarm": [6.75, 0.0, 39.7, 0, "xzy"],
+        "power_latch": [-75.0, -24.8, 16.0, 0, "xzy"],
+        "ads1115#1": [-75.0, -24.8, -1.5, 0, "xzy"],
+        "ads1115#2": [-75.0, 24.8, 9.0, 0, "xzy"],
+        "mp1584": [-49.5, 34.0, 30.0, 0, "yzx"]
       },
-      "mass_blocks": {
-        "trunk_bracket_front": [[2.0, 0.0, 46.0], [3.0, 3.0, 3.0], 136.4],
-        "trunk_bracket_rear": [[-75.0, 0.0, 61.0], [2.0, 2.0, 2.0], 68.0]
+      "struct": {
+        "floor_t": 1.5, "bay_gap": 0.2, "bay_wall_t": 1.2, "strap_t": 0.8, "strap_x": [-47.5, -40.5],
+        "roof_t": 1.5, "roof_hw": 22.0, "hood_t": 1.8, "bearing_shoulder": 1.0, "harness_gap": 0.5,
+        "stop_t": 2.0, "stop_center_hw": 2.5, "side_stops": [[-20.0, -12.5, 11.5]],
+        "bracket_t": 4.0, "cage_rear_x": [-13.8, -10.5], "cage_plate_t": 4.0, "cage_side_gap": 0.2,
+        "cage_nut_edge": 0.12, "fit_es": 0.2, "fit_servo": 0.15, "frame_bar": 2.0, "web_x0": 19.0,
+        "frame_wire_holes": [[28.4, 1.75, 2.6], [34.332, 1.75, 1.9]],
+        "shelves": [[-58.0, -48.0, 28.5, 36.0, -1.5, 5.0], [-58.0, -48.0, -36.0, -21.4, 24.5, 26.0]],
+        "posts": [[-29.0, -24.0, 13.5, 19.5, 30.8, 35.0], [-29.0, -24.0, -19.5, -13.5, 30.8, 35.0]],
+        "xl4015_posts": [[-62.0, 17.3], [-44.0, -30.7]], "post_r": 2.5, "pocket_gap": 0.2,
+        "floor_notches": [[41.5, 46.5, 20.8, 38.5, -3.5, -1.4]],
+        "seat_pad_t": 0.4, "seat_pad_g": 0.1, "chin_gap": 0.5, "housing_gap": 0.5, "shell_back_y0": 32.0, "shell_back_z0": 3.0,
+        "hood": {
+          "x1": -25.0, "top_hw": 33.5, "posts": [[-27.0, -25.0, 20.0, 22.0]],
+          "ports": [[-93.0, -89.2, -22.0, 22.0, -2.5, 30.8], [-93.0, -89.2, 22.0, 28.2, -2.5, 12.0], [-93.0, -89.2, -27.0, 27.0, 30.6, 58.0]],
+          "grille": [-88.0, -44.0, 22.0, 3.0, 5.0],
+          "intake_side": [-86.0, -64.0, 34.0, 56.0, 3.0, 5.0]
+        },
+        "shell_cuts": {
+          "left": [[43.3, 47.0, 21.3, 36.7, -2.2, 19.2]],
+          "right": [[43.3, 47.0, -21.2, -9.7, -2.0, 61.0]]
+        },
+        "shell_holes": {"left": [], "right": [[33.332, -34.4, 2.8, 13.5, 21.0]]},
+        "shell_vents": [-57.0, -41.0, 3.0, 18.0, 2.0, 4.0],
+        "switch_panel": [41.7, 43.5, 21.0, 38.0, -3.0, 20.0],
+        "usb_port": [-29.0, 66.0, 12.0, 7.0],
+        "es_screw_len": 6.0, "neck_screw_len": 8.0, "fastener_mass_g": 20.0
+      },
+      "wiring": {
+        "_note": "govde ici kablo kanallari (harness): kalca demeti yaw giris noktasindan (legs in-tube ust ucu) kalinlik d ile yukari + yana, sonra guc (hub'a) ve sinyal/pot (PCA/bolucuye) kollari; boyun demeti head in-tube alt ucundan guc (hub) ve sinyal (PCA#2/ADS) kollari; batarya ana kablosu on yuzden XT30'a",
+        "bundles": {
+          "left_hip_trunk_wiring": {"d": 7.5, "pts": [[-9.5, 8.0, 12.0], [-9.5, 8.0, 16.0], [-9.5, 25.0, 16.0]]},
+          "left_hip_power_wiring": {"d": 4.4, "pts": [[-9.5, 25.0, 17.5], [-9.5, 32.5, 17.5], [-9.5, 32.5, 1.75], [19.5, 32.5, 1.75], [22.5, 24.0, 1.75], [22.5, 20.8, 1.75]]},
+          "left_hip_signal_wiring": {"d": 3.0, "pts": [[-9.5, 25.0, 13.75], [-9.5, 26.6, 13.75], [-14.0, 26.6, 13.75], [-16.5, 24.6, 13.75], [-38.0, 24.6, 13.75]]},
+          "right_hip_trunk_wiring": {"d": 7.5, "pts": [[-9.5, -8.0, 12.0], [-9.5, -8.0, 16.0], [-9.5, -25.0, 16.0]]},
+          "right_hip_power_wiring": {"d": 4.4, "pts": [[-9.5, -25.0, 17.5], [-9.5, -32.5, 17.5], [-9.5, -32.5, 1.75], [19.5, -32.5, 1.75], [28.4, -22.0, 1.75], [28.4, -3.2, 1.75]]},
+          "right_hip_signal_wiring": {"d": 3.0, "pts": [[-9.5, -25.0, 13.75], [-9.5, -26.6, 13.75], [-14.0, -26.6, 13.75], [-16.5, -24.6, 13.75], [-38.0, -24.6, 13.75]]},
+          "neck_trunk_wiring": {"d": 5.0, "pts": [[33.332, -34.4, 18.0], [33.332, -34.4, 14.0]]},
+          "neck_power_wiring": {"d": 3.0, "pts": [[34.332, -34.4, 14.0], [34.332, -34.4, 1.75], [34.332, -3.2, 1.75]]},
+          "neck_signal_wiring": {"d": 2.0, "pts": [[31.832, -34.4, 14.0], [31.832, -34.4, 12.0], [24.0, -28.0, 12.0], [20.0, -27.4, 12.0], [20.0, -27.4, 21.0], [-16.0, -27.4, 21.0], [-18.0, -26.5, 17.5], [-38.0, -26.5, 17.5]]},
+          "battery_lead_wiring": {"d": 6.0, "pts": [[-14.0, 17.0, 1.5], [-11.0, 17.0, 1.5], [-11.0, 25.3, 1.5], [-66.0, 25.3, 1.5]]}
+        }
       }
     },
     "head": {
