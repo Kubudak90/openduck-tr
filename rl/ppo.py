@@ -97,6 +97,12 @@ class ActorCritic(nn.Module):
     def from_arch(cls, arch):
         return cls(**arch)
 
+    def network(self):
+        """policy_meta "network" alani: aktor/kritik gizli katmanlari, aktivasyon, gozlem normalizasyonu."""
+        a = self.arch
+        return {"actor_hidden": list(a["actor_hidden"]), "critic_hidden": list(a["critic_hidden"]),
+                "activation": a["activation"], "obs_normalization": bool(a["obs_normalization"])}
+
     @property
     def std(self):
         return torch.exp(self.log_std)

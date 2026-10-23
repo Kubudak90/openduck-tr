@@ -5,6 +5,7 @@ OpenDuck egitimini RunPod'da calistirir (yalnizca stdlib). API anahtari: RUNPOD_
 
   python3 tools/runpod/launch.py gpus [--cpu] [--all]
   python3 tools/runpod/launch.py launch [--backend mjx|cpu] [--source inline|git] [--gpu ID ...]
+          [--robot xl330_27|tr35_b2 [--kappa K]]
           [--max-hours H] [--wait [--keep]] [--dry-run [--full]] [-- EGITIM_ARGUMANLARI ...]
   python3 tools/runpod/launch.py status    [NAME | --pod-id ID] [--json]
   python3 tools/runpod/launch.py fetch     [NAME | --pod-id ID] [--all]
@@ -18,6 +19,9 @@ bagimliliklari kurar, egitimi sure siniriyla calistirir ve bitince sunmaya devam
 Yerel kayit runs/<name>/runpod/pod.json; fetch egitim ciktilarini (pod'daki run/) runs/<name>/ altina,
 pod dosyalarini (status.json, loglar) runs/<name>/runpod/ altina indirir.
 API: varsayilan REST v2 (https://api.runpod.io/v2); --api v1 eski REST (rest.runpod.io/v1, 15.11.2026'da kapaniyor).
+--robot tr35_b2: pod ortamina OPENDUCK_ROBOT=tr35_b2 (--kappa -> OPENDUCK_KAPPA) eklenir; satir ici paket / git
+denetimi build/sim yerine build/tr35_b2/sim/{openduck,scene}.xml ve rl/derived/tr35_b2.json ister. Varsayilan
+xl330_27 istek govdesi bugunkuyle ayni.
 """
 import argparse
 import base64
@@ -58,6 +62,27 @@ TRAIN_MODULE = {"mjx": "rl/train_mjx.py", "cpu": "rl/train.py"}
 # satir ici paket: egitim modulunun rl/ icindeki import kapanisi + bunlar (rl/play.py, testler gitmez)
 INLINE_EXTRA = ["rl/__init__.py", "rl/robot_model.py", "build/sim/openduck.xml", "build/sim/scene.xml",
                 "tools/runpod/pod_entry.sh"]
+# robot profili (--robot -> pod'da OPENDUCK_ROBOT). tr35_b2: xl330 build dosyalari yerine TR-35 MJCF + sahne + turetilmis
+# sabitler (rl/config.py SCENE_PATHS / DERIVED_PATHS varsayilanlari; pod'da OPENDUCK_SCENE / OPENDUCK_DERIVED yok)
+ROBOTS = ("xl330_27", "tr35_b2")
+XL330_FILES = ["build/sim/openduck.xml", "build/sim/scene.xml"]
+TR35_FILES = ["build/tr35_b2/sim/openduck.xml", "build/tr35_b2/sim/scene.xml", "rl/derived/tr35_b2.json"]
+SIM_DIRS = {"xl330_27": "build/sim", "tr35_b2": "build/tr35_b2/sim"}
+
+
+def _robot_files(files, robot):
+    """xl330 listesi aynen; tr35_b2: xl330 build dosyalari yerine TR35_FILES."""
+    if robot in (None, ROBOTS[0]):
+        return list(files)
+    return [f for f in files if f not in XL330_FILES] + TR35_FILES
+
+
+def needed(robot=None):
+    return _robot_files(NEEDED, robot)
+
+
+def inline_extra(robot=None):
+    return _robot_files(INLINE_EXTRA, robot)
 TERMINAL = ("done", "failed", "timeout", "stopped")
 CUDA_V1 = ["13.0", "12.9", "12.8", "12.7", "12.6", "12.5", "12.4", "12.3", "12.2", "12.1", "12.0", "11.8"]
 CKPT_EXT = (".pt", ".pth", ".ckpt", ".pkl", ".npz", ".msgpack", ".safetensors")
@@ -345,11 +370,11 @@ def rl_imports(start):
     return seen
 
 
-def build_inline(backend, strict=True):
-    files = rl_imports([TRAIN_MODULE[backend]] + INLINE_EXTRA)
+def build_inline(backend, strict=True, robot=None):
+    files = rl_imports([TRAIN_MODULE[backend]] + inline_extra(robot))
     files.update(os.path.relpath(p, ROOT).replace(os.sep, "/")
                  for p in glob.glob(os.path.join(ROOT, "rl", "requirements-*.txt")))
-    missing = [f for f in NEEDED + ["tools/runpod/pod_entry.sh", TRAIN_MODULE[backend]] if f not in files]
+    missing = [f for f in needed(robot) + ["tools/runpod/pod_entry.sh", TRAIN_MODULE[backend]] if f not in files]
     if missing:
         (die if strict else warn)("satir ici paket icin eksik dosya: %s" % ", ".join(missing))
     buf = io.BytesIO()
@@ -392,15 +417,18 @@ def git_info(a):
         (warn if a.dry_run else die)("origin/%s yok: dali push edin ya da --source inline kullanin" % ref)
         return {"repo": repo, "ref": ref, "commit": ""}
     commit = r.stdout.strip()
-    missing = [f for f in NEEDED + [TRAIN_MODULE[a.backend]] if git("cat-file", "-e", "%s:%s" % (commit, f)).returncode]
+    robot = getattr(a, "robot", None)
+    missing = [f for f in needed(robot) + [TRAIN_MODULE[a.backend]]
+               if git("cat-file", "-e", "%s:%s" % (commit, f)).returncode]
     if missing:
         (warn if a.dry_run else die)("origin/%s (%s) icinde eksik: %s -> commit+push ya da --source inline" % (
             ref, commit[:10], ", ".join(missing)))
     if git("rev-parse", "HEAD").stdout.strip() != commit:
         warn("yerel HEAD origin/%s ile ayni degil; pod %s commit'ini calistirir" % (ref, commit[:10]))
-    dirty = git("status", "--porcelain", "--", "rl", "build/sim").stdout.rstrip()
+    sim = SIM_DIRS.get(robot or ROBOTS[0], "build/sim")
+    dirty = git("status", "--porcelain", "--", "rl", sim).stdout.rstrip()
     if dirty:
-        warn("rl/ ya da build/sim'de commit edilmemis degisiklik var; pod bunlari gormez:\n  " +
+        warn("rl/ ya da %s'de commit edilmemis degisiklik var; pod bunlari gormez:\n  " % sim +
              dirty.replace("\n", "\n  "))
     return {"repo": repo, "ref": ref, "commit": commit}
 
@@ -427,6 +455,11 @@ def pod_env(a, name, token, train_args, linger, expires, code=None, gitd=None):
             env["OPENDUCK_ENTRY_B64"] = base64.b64encode(gzip.compress(f.read(), 9, mtime=0)).decode()
         env.update(OPENDUCK_GIT_REPO=gitd["repo"], OPENDUCK_GIT_REF=gitd["ref"], OPENDUCK_GIT_COMMIT=gitd["commit"],
                    OPENDUCK_SECRET_NAME=a.secret, GITHUB_TOKEN="{{ RUNPOD_SECRET_%s }}" % a.secret)
+    robot = getattr(a, "robot", None)
+    if robot not in (None, ROBOTS[0]):        # xl330 govdesi bugunkuyle ayni (anahtar eklenmez)
+        env["OPENDUCK_ROBOT"] = robot
+        if getattr(a, "kappa", None) is not None:
+            env["OPENDUCK_KAPPA"] = fnum(float(a.kappa))
     return env
 
 
@@ -502,7 +535,12 @@ def cmd_launch(a, train_args):
         die("--max-hours > 0 olmali")
     if any(x == "--out" or x.startswith("--out=") for x in train_args):
         die("--out egitim argumani launch tarafindan verilir (pod'da /workspace/out/run)")
-    name = a.name or "%s-%s-%s" % (POD_PREFIX, a.backend, time.strftime("%Y%m%d-%H%M%S"))
+    tr35 = a.robot != ROBOTS[0]
+    if a.kappa is not None and not tr35:
+        die("--kappa yalniz --robot tr35_b2 ile (OPENDUCK_KAPPA)")
+    if a.kappa is not None and not a.kappa > 0:
+        die("--kappa > 0 olmali")
+    name = a.name or "%s-%s-%s" % (POD_PREFIX, a.backend + ("-tr35" if tr35 else ""), time.strftime("%Y%m%d-%H%M%S"))
     if not re.match(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,90}$", name):
         die("gecersiz --name: %r" % name)
     pod_name = name if name.startswith(POD_PREFIX) else "%s-%s" % (POD_PREFIX, name)
@@ -532,9 +570,13 @@ def cmd_launch(a, train_args):
     cat_api = Api("v2", key)
     code = gitd = None
     if a.source == "inline":
-        code, files, raw = build_inline(a.backend, strict=not a.dry_run)
+        code, files, raw = build_inline(a.backend, strict=not a.dry_run, robot=a.robot)
     else:
         gitd = git_info(a)
+    if tr35:
+        print("robot: %s (pod OPENDUCK_ROBOT%s); gerekli dosyalar: %s" % (
+            a.robot, ", OPENDUCK_KAPPA=%s" % fnum(float(a.kappa)) if a.kappa is not None else "",
+            ", ".join("%s%s" % (f, "" if os.path.isfile(os.path.join(ROOT, f)) else " (YOK)") for f in TR35_FILES)))
 
     catalogs = {}
     if a.compute == "gpu" and not a.dry_run:
@@ -570,9 +612,12 @@ def cmd_launch(a, train_args):
     print("istek govdesi: %.1f KB (RunPod siniri ~100 KB)" % (size / 1024.0))
     if expires:
         print("pod en gec %s'de kendini siler (OPENDUCK_EXPIRES_AT)" % time.strftime("%d.%m %H:%M", time.localtime(expires)))
-    if size > BODY_LIMIT:
-        die("istek govdesi %d bayt > %d: satir ici paket cok buyuk; --source git kullanin" % (size, BODY_LIMIT))
-    if size > BODY_WARN:
+    oversize = size > BODY_LIMIT
+    if oversize:
+        # dry-run istegi yine gosterir (cikis kodu 1); gercek launch reddedilir
+        (warn if a.dry_run else die)("istek govdesi %d bayt > %d: satir ici paket cok buyuk; --source git kullanin"
+                                     % (size, BODY_LIMIT))
+    elif size > BODY_WARN:
         warn("istek govdesi sinira yakin (%d bayt)" % size)
 
     if a.dry_run:
@@ -587,7 +632,9 @@ def cmd_launch(a, train_args):
                 names_in = t.getnames()
             print("\npaket icerigi (%d): %s" % (len(names_in), " ".join(names_in)))
         print("\nHTTP: https://<podId>-%d.proxy.runpod.net/%s/status.json" % (a.port, token))
-        return 0
+        if oversize:
+            print("\nUYARI: govde %d bayt > %d; gercek launch bu govdeyi gondermez (--source git)" % (size, BODY_LIMIT))
+        return 1 if oversize else 0
 
     if a.source == "git":
         try:
@@ -667,6 +714,8 @@ def cmd_launch(a, train_args):
            "port": a.port, "http_token": token, "created_at": time.time(), "max_hours": a.max_hours,
            "setup_hours": a.setup_hours, "linger_hours": linger, "expires_at": expires, "train_args": train_args,
            "image": a.image, "code_sha256": env.get("OPENDUCK_CODE_SHA256"), "git": gitd}
+    if tr35:
+        rec.update(robot=a.robot, kappa=a.kappa)
     save_rec(rec)
     cost = p["cost"]
     print("pod: %s  (%s, %s $/saat)" % (p["id"], label, cost if cost is not None else "?"))
@@ -1091,6 +1140,9 @@ def build_parser():
 
     s = common(sub.add_parser("launch", help="pod olustur ve egitimi baslat"))
     s.add_argument("--backend", choices=("mjx", "cpu"), default="mjx", help="mjx: rl.train_mjx (GPU), cpu: rl.train")
+    s.add_argument("--robot", choices=ROBOTS, default=ROBOTS[0],
+                   help="robot profili: pod'da OPENDUCK_ROBOT (tr35_b2: TR-35 MJCF + rl/derived/tr35_b2.json paketlenir)")
+    s.add_argument("--kappa", type=float, default=None, help="tr35_b2: hiz carpani kappa (pod'da OPENDUCK_KAPPA)")
     s.add_argument("--source", choices=("inline", "git"), default="inline",
                    help="inline: kod ortam degiskeninde tar.gz; git: pod repo'yu GitHub token secret'i ile klonlar")
     s.add_argument("--name", help="calisma/pod adi (varsayilan openduck-<backend>-<zaman>)")
