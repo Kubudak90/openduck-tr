@@ -12,7 +12,8 @@ import FreeCAD as App
 import MeshPart
 
 import openduck
-from openduck import ACTUATOR, KINDS, PRINT_KINDS, V
+import servos
+from openduck import KINDS, PRINT_KINDS, V
 
 
 def _local(link, item):
@@ -155,27 +156,53 @@ def _write_urdf(model, data, path):
         f.write("\n".join(L) + "\n")
 
 
+def actuator_classes(model):
+    """MJCF aktuator siniflari {sinif: servos aktuator kaydi}, eklem sirasinda ilk gorulus sirasiyla (servo turu
+    kayit defterinden: XL330 -> kok "openduck", DS32XX -> "ds32xx", ES3054, MG90S, SG90)."""
+    out = OrderedDict()
+    for j in model.joints:
+        a = servos.actuator(servos.get(j["servo"]))
+        prev = out.setdefault(a["mjcf_class"], a)
+        assert prev is a, "MJCF sinifi %s iki farkli aktuator kaydiyla" % a["mjcf_class"]
+    return out
+
+
+def _class_lines(a, sp):
+    return ['%s<joint damping="%s" armature="%s" frictionloss="%s"/>' % (sp, _f(a["damping"]), _f(a["armature"]),
+                                                                        _f(a["frictionloss"])),
+            '%s<position kp="%s" forcerange="-%s %s"/>' % (sp, _f(a["kp"]), _f(a["forcerange"]), _f(a["forcerange"]))]
+
+
+def _default_lines(classes):
+    """<default> blogu: kok "openduck" (trunk childclass) + visual/collision; kok sinifi kullanan aktuator varsa
+    degerleri dogrudan kokte (27 cm XL330 duzeni, bayt-esit), digerleri kokun altinda kendi siniflarinda."""
+    root = servos.ROOT_CLASS
+    L = ['  <default>', '    <default class="%s">' % root]
+    if root in classes:
+        L += _class_lines(classes[root], '      ')
+    L += ['      <default class="visual"><geom type="mesh" contype="0" conaffinity="0" group="2" density="0"/></default>',
+          '      <default class="collision"><geom type="box" contype="0" conaffinity="1" group="3" density="0"'
+          ' friction="0.9 0.02 0.01" rgba="1 0 0 0.3"/></default>']
+    for name, a in classes.items():
+        if name != root:
+            L += ['      <default class="%s">' % name] + _class_lines(a, '        ') + ['      </default>']
+    return L + ['    </default>', '  </default>']
+
+
 def _write_mjcf(model, data, stand, base_z, path):
     kids = {}
     for j in model.joints:
         kids.setdefault(j["parent"], []).append(j)
-    a = ACTUATOR
+    classes = actuator_classes(model)
+    jclass = {j["name"]: servos.actuator(servos.get(j["servo"]))["mjcf_class"] for j in model.joints}
     collide = set(model.meta.get("collision_links", [])) | set(model.meta.get("foot_links", []))
 
     L = ['<!-- OpenDuck - cad/openduck.py tarafindan uretildi; elle duzenlemeyin. -->',
          '<mujoco model="openduck">',
          '  <compiler angle="radian" meshdir="meshes" autolimits="true" inertiafromgeom="false"/>',
-         '  <option timestep="0.002" integrator="implicitfast"/>',
-         '  <default>',
-         '    <default class="openduck">',
-         '      <joint damping="%s" armature="%s" frictionloss="%s"/>' % (_f(a["damping"]), _f(a["armature"]), _f(a["frictionloss"])),
-         '      <position kp="%s" forcerange="-%s %s"/>' % (_f(a["kp"]), _f(a["forcerange"]), _f(a["forcerange"])),
-         '      <default class="visual"><geom type="mesh" contype="0" conaffinity="0" group="2" density="0"/></default>',
-         '      <default class="collision"><geom type="box" contype="0" conaffinity="1" group="3" density="0"'
-         ' friction="0.9 0.02 0.01" rgba="1 0 0 0.3"/></default>',
-         '    </default>',
-         '  </default>',
-         '  <asset>']
+         '  <option timestep="0.002" integrator="implicitfast"/>']
+    L += _default_lines(classes)
+    L.append('  <asset>')
     for kind, k in KINDS.items():
         L.append('    <material name="%s" rgba="%s 1"/>' % (kind, " ".join(_f(c) for c in k["color"])))
     for link in model.links.values():
@@ -193,10 +220,12 @@ def _write_mjcf(model, data, stand, base_z, path):
         L.append('%s<body name="%s" pos="%s"%s>' % (sp, name, pos, attrs))
         if joint is None:
             L.append('%s  <freejoint name="root"/>' % sp)
-        else:
-            L.append('%s  <joint name="%s" axis="%d %d %d" range="%s %s"/>'
-                     % ((sp, joint["name"]) + joint["axis"] + (_f(math.radians(joint["lower"])),
-                                                              _f(math.radians(joint["upper"])))))
+        else:   # kok sinifi childclass'tan miras alinir; diger aktuator siniflari eklemde acikca
+            jc = jclass[joint["name"]]
+            cls = "" if jc == servos.ROOT_CLASS else ' class="%s"' % jc
+            L.append('%s  <joint name="%s"%s axis="%d %d %d" range="%s %s"/>'
+                     % ((sp, joint["name"], cls) + tuple(joint["axis"]) + (_f(math.radians(joint["lower"])),
+                                                                          _f(math.radians(joint["upper"])))))
         L.append('%s  <inertial pos="%s %s %s" mass="%s" fullinertia="%s %s %s %s %s %s"/>'
                  % (sp, _f(d["com"].x), _f(d["com"].y), _f(d["com"].z), _f(d["mass"]),
                     _f(I[0][0]), _f(I[1][1]), _f(I[2][2]), _f(I[0][1]), _f(I[0][2]), _f(I[1][2])))
@@ -226,8 +255,8 @@ def _write_mjcf(model, data, stand, base_z, path):
     L.append('  </worldbody>')
     L.append('  <actuator>')
     for j in model.joints:
-        L.append('    <position name="%s" joint="%s" class="openduck" ctrlrange="%s %s"/>'
-                 % (j["name"], j["name"], _f(math.radians(j["lower"])), _f(math.radians(j["upper"]))))
+        L.append('    <position name="%s" joint="%s" class="%s" ctrlrange="%s %s"/>'
+                 % (j["name"], j["name"], jclass[j["name"]], _f(math.radians(j["lower"])), _f(math.radians(j["upper"]))))
     L.append('  </actuator>')
     L.append('  <sensor>')
     L.append('    <gyro name="gyro" site="imu"/>')
