@@ -1,0 +1,2463 @@
+[
+ {
+  "area": "bus-servos",
+  "found": {
+   "area": "Serial bus / smart servos with position feedback and matching USB/UART bus adapters sold in Turkey (Feetech/Waveshare ST/SC/STS/SCS, Hiwonder/LewanSoul, ROBOTIS DYNAMIXEL, UBTECH, Kondo, DSServo)",
+   "summary": "I checked these on 2026-10-23. Stock comes from data embedded in each page: Tsoft PRODUCT_DATA quantity, schema.org JSON-LD availability, and the ikas \"Stok: N\" field. For robotistan, direnc, robotsepeti, motorobit, robolinkmarket, samm, robocombo, f1depo, elektrovadi, robotzade, komponentci, robitshop, hobidunya and ozdisan I also went through the full product sitemaps, so nothing should be missing for those shops.\n\n**Main result: there is no Feetech STS3215 / Waveshare ST3215 in stock anywhere in Turkey that I could check.**\n- All 5 ST3215 listings are out of stock: direnc 12V 30kg and ST3215-HS, Samm 7.4V and 12V, robotsepeti 12V.\n- ST3020 is out of stock at direnc and Samm.\n- The Feetech-branded STS3215, STS3032, STS3020, SCS0009, SCS15 and SM series are not listed at all.\n- Hiwonder/LewanSoul bus servos (LX-16A, LX-224, LX-225, HX-35HM, HTS-35H, HTD-45H), Kondo, DSServo bus servos and Waveshare SC09 are not listed in any Turkish shop. UBTECH appears only as kits, without prices.\n- DYNAMIXEL XL330-M288-T, XL330-M077-T, XL430-W250-T, XC330, XL-320 and single AX-12A are out of stock at robotsepeti, the ROBOTIS dealer.\n\n**Bus servos that are in stock:**\n- Samm: Waveshare SC15, 10 units, 1,318.85 TL. This is the cheapest in-stock bus servo, but it uses a potentiometer (1024 steps over 210°) and the SCS protocol.\n- Samm: Waveshare ST3025, 44 units, 6,564.41 TL each. 12V, 40 kg·cm, steel gears, 12-bit encoder.\n- Samm: Waveshare RSBL45 (RS485, 24V), 3 units, 8,295 TL.\n- robotsepeti DYNAMIXEL, all very expensive:\n  - AX-12A 6-pack: 1 pack, 27,765 TL, which is about 4,627 TL per servo.\n  - MX-28T: 26,759 TL. The page shows 997 units, which looks like supplier stock rather than units on the shelf.\n  - XM430-W350-T: 2 units, 27,765 TL.\n\n**Adapters and controllers that are in stock:**\n- Samm: Waveshare Bus Servo Adapter (A), 18 units, 328.22 TL. This is the cheapest option.\n- robocombo: Waveshare Bus Servo Driver HAT (A) with ESP32, \"Stok:18\", 1,255 TL.\n- Samm: the same HAT, 1 unit, 1,223.37 TL.\n- robotsepeti: U2D2 (5 units, 3,555.52 TL), U2D2 Power Hub Board (3 units, 2,051.76 TL), OpenRB-150 (10 units, 2,438.21 TL) and DYNAMIXEL Communication Bridge (4 units, 1,612.88 TL).\n- No Feetech FE-URT-1 or Hiwonder bus-servo board is listed in any Turkish shop.\n\n**What this means for a 15-DOF duck from Turkish stock today:**\n- Option 1 is 10× SC15 (about 13.2k TL) plus 5× ST3025 (about 32.8k TL). This needs two buses and two adapters, because Waveshare says not to mix ST and SC servos on one board (different protocol and voltage).\n- Option 2 is to wait for Samm or direnc to restock ST3215 at about 1,595–1,690 TL each.\n- Analog-feedback PWM servos are in stock if that route is wanted: Feetech FS90-FB at robotistan (23 units, 358 TL) and FT5335M-FB (16 units, 2,065 TL).\n\n**What I could not verify:**\n- Trendyol, Hepsiburada, n11, cimri, ciceksepeti, digikey.com.tr and mouser.com.tr all returned 403 or a bot check, and the Chrome extension was not connected. Their stock is unverified.\n- Akakce does index Hepsiburada and n11, and it showed no ST3215 or STS3215 listings. It did show one listing for \"Waveshare Serial Bus Servo Sürücü Kontrol Kartı\" at 2,019.43 TL.\n- Mouser's other regional sites show DFRobot SER0069 (the ST3215 7.4V) at about €20 with roughly 31 units, as an import. Stock for Turkey is unknown.\n\nRaw notes are in /private/tmp/claude-501/-Users-huseyinarslan-Desktop-ads-z-klas-r-2/8217cd75-2c54-4fa4-b47f-57c38ee96c2b/scratchpad/s6/research/bus_servos/notes.md, and the raw HTML is under the raw/ folder next to it.",
+   "items": [
+    {
+     "id": "bus-01",
+     "category": "bus_servo",
+     "product": "Waveshare SC15 17kg Serial Bus Servo (\"SC15 17kg Yüksek Torklu Programlanabilir Seri Haberleşmeli Servo Motor\"), SKU MP04070 / sup. 21568",
+     "shop": "market.samm.com (SAMM)",
+     "url": "https://market.samm.com/sc15-17kg-yuksek-torklu-programlanabilir-seri-haberlesmeli-servo-motor",
+     "price_try": 1318.85,
+     "price_note": "KDV dahil; 1099.04 TL + KDV; $26.52 shown",
+     "stock": "in_stock - \"Stok: 10\" (only 10 units)",
+     "seen_date": "2026-10-23",
+     "specs": "Stall 15 kg.cm (1.47 N.m) @6V, 17 kg.cm (1.67 N.m) @8.4V; 0.16 s/60° @6V, 0.18 s/60° @4.8V; 4.8-8.4V; metal (copper/steel) gears; 70 g; TTL half-duplex UART 38.4k-1Mbps; position+load+speed+voltage feedback; potentiometer 1024 steps over 210° (~0.2°), 360° motor mode; ID 0-253 daisy-chain; stall 1.5-1.7 A",
+     "notes": "Cheapest IN-STOCK bus servo in TR. Uses the SCS protocol (big-endian), not STS, so it should not share a bus/adapter with ST-series. A potentiometer gives more noise and deadband than a magnetic encoder. Only 10 units, so not enough for 14-15 DOF alone."
+    },
+    {
+     "id": "bus-02",
+     "category": "bus_servo",
+     "product": "Waveshare ST3025 40kg Serial Bus Servo (\"Serial Bus Yüksek Hassasiyetli Programlanabilir Servo Motor ST3025 - 40kg\"), SKU MP04110 / sup. 24702",
+     "shop": "market.samm.com (SAMM)",
+     "url": "https://market.samm.com/serial-bus-yuksek-hassasiyetli-programlanabilir-servo-motor-st3025-40kg-1",
+     "price_try": 6564.41,
+     "price_note": "KDV dahil; 5470.34 TL + KDV ($132); Waveshare list price is $79.99",
+     "stock": "in_stock - \"Stok: 44\"",
+     "seen_date": "2026-10-23",
+     "specs": "Stall 40 kg.cm (3.9 N.m) @12V; 0.117 s/60° (85 rpm) @12V; 6-12.6V (typ. 12V); high-precision steel gears; 124 g; 40x20x40 mm; UART/TTL serial bus 38.4k-1Mbps (default 1M); 12-bit magnetic encoder 4096/360° (0.088°); feedback: position, load, speed, voltage, current, temperature; ID 1-253; stall 4.4 A",
+     "notes": "Only magnetic-encoder ST-series servo in stock in Turkey, with 15-20 units available, but expensive (15 units = about 98.5k TL) and heavy for a duck under 1.6 kg. 12V supply needed (3S Li-ion)."
+    },
+    {
+     "id": "bus-03",
+     "category": "bus_servo",
+     "product": "Waveshare RSBL45 45kg RS485 brushless bus servo (\"RS485 Yüksek Hassasiyetli Programlanabilir Servo Motor RSBL45 - 45kg\"), SKU MP03296 / sup. 27162",
+     "shop": "market.samm.com (SAMM)",
+     "url": "https://market.samm.com/yuksek-torklu-rs485-servo-motor",
+     "price_try": 8295.03,
+     "price_note": "KDV dahil; 6912.53 TL + KDV",
+     "stock": "in_stock - \"Stok: 3\"",
+     "seen_date": "2026-10-23",
+     "specs": "45 kg.cm @24V; 70 rpm @24V; 9-24V; 24V brushless DC, 1:353 steel gears; 100 g; RS485 38.4k-1Mbps; 12-bit magnetic encoder 0.088°; full feedback incl. current/temp; stall 2.3 A",
+     "notes": "Only 3 units and RS485, so not usable for a full robot. Listed for completeness. Samm also has RSBL120-24 (17992.46 TL, 1 unit) and RSBL85 (OOS)."
+    },
+    {
+     "id": "bus-04",
+     "category": "bus_servo",
+     "product": "Waveshare ST3215 19.5kg 7.4V Serial Bus Servo (\"Serial Bus Yüksek Hassasiyetli Programlanabilir Servo Motor ST3215 - 19.5kg (7.4V)\")",
+     "shop": "market.samm.com (SAMM)",
+     "url": "https://market.samm.com/serial-bus-yuksek-hassasiyetli-programlanabilir-servo-motor-st3215-195kg-74v",
+     "price_try": 1595.35,
+     "price_note": "KDV dahil (JSON-LD); $32.08 + KDV",
+     "stock": "out_of_stock - JSON-LD OutOfStock, stockCount 0",
+     "seen_date": "2026-10-23",
+     "specs": "19.5 kg.cm (1.91 N.m) @7.4V; 0.192 s/60° (52 rpm) @7.4V; 4-7.4V; metal gears; 12-bit magnetic encoder 4096/360°; TTL half-duplex 38.4k-1Mbps; ID 0-253; stall 2.5 A",
+     "notes": "This is the Open Duck Mini v2 servo (= Feetech STS3215-C001 class). Cheapest ST3215 price in TR if it is restocked."
+    },
+    {
+     "id": "bus-05",
+     "category": "bus_servo",
+     "product": "Waveshare ST3215 30kg 12V Serial Bus Servo (\"Serial Bus Yüksek Hassasiyetli Programlanabilir Servo Motor - 30Kg\")",
+     "shop": "market.samm.com (SAMM)",
+     "url": "https://market.samm.com/serial-bus-yuksek-hassasiyetli-programlanabilir-servo-motor---30kg",
+     "price_try": 1685.86,
+     "price_note": "KDV dahil; $33.90 + KDV",
+     "stock": "out_of_stock - JSON-LD OutOfStock, stockCount 0",
+     "seen_date": "2026-10-23",
+     "specs": "30 kg.cm (2.94 N.m) @12V; 0.222 s/60° (45 rpm); 6-12.6V; 12-bit magnetic encoder; TTL bus; stall 2.7 A",
+     "notes": "12V variant (= Feetech STS3215-C018 class)."
+    },
+    {
+     "id": "bus-06",
+     "category": "bus_servo",
+     "product": "ST3215 Serial Bus Yüksek Hassasiyetli Programlanabilir Servo Motor - 30Kg (WaveShare WS22414)",
+     "shop": "direnc.net",
+     "url": "https://www.direnc.net/serial-bus-yuksek-hassasiyetli-programlanabilir-servo-motor-30kg",
+     "price_try": 1611.6,
+     "price_note": "KDV dahil; 1343.00 TL + KDV",
+     "stock": "out_of_stock - \"stokta yok\" / \"Gelince Haber Ver\", PRODUCT_DATA available=false qty=0, JSON-LD OutOfStock",
+     "seen_date": "2026-10-23",
+     "specs": "30 kg.cm @12V, 45 rpm, 6-12.6V, 12-bit magnetic encoder, TTL serial bus",
+     "notes": "Direnc's whole servo category (and product sitemap, 8431 URLs) has only 3 bus servos, all OOS."
+    },
+    {
+     "id": "bus-07",
+     "category": "bus_servo",
+     "product": "ST3215-HS 360 Derece Yüksek Hassasiyetli 106RPM Bus Servo Motor (WaveShare WS25127)",
+     "shop": "direnc.net",
+     "url": "https://www.direnc.net/st3215-hs-360-derece-yuksek-hassasiyetli-106prm-bus-servo-motor",
+     "price_try": 1611.69,
+     "price_note": "KDV dahil; 1343.07 TL + KDV",
+     "stock": "out_of_stock - \"stokta yok\", qty 0",
+     "seen_date": "2026-10-23",
+     "specs": "20 kg.cm @12V, 106 rpm (high-speed ST3215), 12-bit magnetic encoder, TTL bus",
+     "notes": "A fast variant that would suit RL locomotion, but OOS."
+    },
+    {
+     "id": "bus-08",
+     "category": "bus_servo",
+     "product": "ST3020 Programlanabilir 25kg.cm Yüksek Hassasiyetli Servo Motor (WaveShare WS24703)",
+     "shop": "direnc.net",
+     "url": "https://www.direnc.net/st3020-programlanabilir-25kgcm-yuksek-hassasiyetli-servo-motor",
+     "price_try": 1743.53,
+     "price_note": "KDV dahil; 1452.94 TL + KDV",
+     "stock": "out_of_stock - \"stokta yok\", qty 0",
+     "seen_date": "2026-10-23",
+     "specs": "25 kg.cm (2.45 N.m) @12V; 0.167 s/60° (60 rpm); 6-14V; 97 g; 12-bit magnetic encoder; TTL bus; stall 2.7 A",
+     "notes": "Also OOS at Samm (\"25kg.cm 360 Derece Manyetik Enkoderli Seri Haberleşmeli Servo Motor\", 1820.13 TL)."
+    },
+    {
+     "id": "bus-09",
+     "category": "bus_servo",
+     "product": "Waveshare ST3020 25kg (\"25kg.cm 360 Derece Manyetik Enkoderli Seri Haberleşmeli Servo Motor\")",
+     "shop": "market.samm.com (SAMM)",
+     "url": "https://market.samm.com/25kgcm-360-derece-manyetik-enkoderli-seri-haberlesmeli-servo-motor",
+     "price_try": 1820.13,
+     "price_note": "KDV dahil",
+     "stock": "out_of_stock - JSON-LD OutOfStock, stockCount 0",
+     "seen_date": "2026-10-23",
+     "specs": "25 kg.cm @12V, 60 rpm, 6-14V, 97 g, 12-bit magnetic encoder, TTL bus",
+     "notes": ""
+    },
+    {
+     "id": "bus-10",
+     "category": "bus_servo",
+     "product": "Waveshare ST3235 30kg metal-case Serial Bus Servo",
+     "shop": "market.samm.com (SAMM)",
+     "url": "https://market.samm.com/serial-bus-yuksek-hassasiyetli-programlanabilir-servo-motor-st3235-35kg",
+     "price_try": 3989.37,
+     "price_note": "KDV dahil",
+     "stock": "out_of_stock - JSON-LD OutOfStock, stockCount 0",
+     "seen_date": "2026-10-23",
+     "specs": "30 kg.cm class, 12V, metal case, 12-bit magnetic encoder, TTL bus",
+     "notes": ""
+    },
+    {
+     "id": "bus-11",
+     "category": "bus_servo",
+     "product": "ST3215 Yüksek Tork ve Hassasiyetli Akıllı Servo, 30kg-cm, 22414 (Waveshare)",
+     "shop": "robotsepeti.com",
+     "url": "https://www.robotsepeti.com/st3215-yuksek-tork-ve-hassasiyetli-servo",
+     "price_try": 1950.57,
+     "price_note": "KDV dahil",
+     "stock": "out_of_stock - PRODUCT_DATA available=false qty=0, JSON-LD OutOfStock",
+     "seen_date": "2026-10-23",
+     "specs": "30 kg.cm @12V, 12-bit magnetic encoder, TTL bus",
+     "notes": ""
+    },
+    {
+     "id": "bus-12",
+     "category": "bus_servo",
+     "product": "Waveshare CF35-12 35kg 360 Derece BUS Servo Motor",
+     "shop": "robocombo.com",
+     "url": "https://robocombo.com/waveshare-cf35-12-35kg-360-derece-bus-servo-motor-4776",
+     "price_try": 4064,
+     "price_note": "KDV dahil (JSON-LD)",
+     "stock": "out_of_stock - \"Stok:0\", \"Stoğa Gelince Haber Ver\"",
+     "seen_date": "2026-10-23",
+     "specs": "35 kg.cm @12V, 360° magnetic encoder, dual shaft, TTL serial bus",
+     "notes": "Also OOS at robotsepeti (4916.66 TL): https://www.robotsepeti.com/waveshare-cf35-12-35kg-enkoderli-servo-motor"
+    },
+    {
+     "id": "bus-13",
+     "category": "bus_servo",
+     "product": "Dynamixel-X XL330-M288-T Uygun Fiyatlı (Low Cost) Servo Motor | 0.52Nm, 5V",
+     "shop": "robotsepeti.com (ROBOTIS dealer)",
+     "url": "https://www.robotsepeti.com/dynamixel-x-xl330-m288-t-uygun-fiyatli-low-cost-servo-motor-052nm-5v",
+     "price_try": 2031.84,
+     "price_note": "KDV dahil",
+     "stock": "out_of_stock - available=false qty=0, JSON-LD OutOfStock",
+     "seen_date": "2026-10-23",
+     "specs": "0.52 N.m (5.3 kg.cm) stall @5V, 1.47 A; 103 rpm; 18 g; 20x34x26 mm; 288.4:1 plastic gears; 3.7-6V; 12-bit AS5601 contactless encoder; TTL half-duplex, Protocol 2.0, up to 4 Mbps",
+     "notes": "The reference Microduck servo. Not obtainable in TR today. XL330-M077-T is also OOS at the same price."
+    },
+    {
+     "id": "bus-14",
+     "category": "bus_servo",
+     "product": "Dynamixel-X XL430-W250-T Uygun Fiyatlı (Low Cost) Servo Motor | 1.4Nm 11.1V",
+     "shop": "robotsepeti.com",
+     "url": "https://www.robotsepeti.com/dynamixel-xl430-w250-t",
+     "price_try": 2950.24,
+     "price_note": "KDV dahil",
+     "stock": "out_of_stock - available=false qty=0, JSON-LD OutOfStock",
+     "seen_date": "2026-10-23",
+     "specs": "1.4 N.m (14.3 kg.cm) stall @11.1V; 6.5-12V; 12-bit contactless encoder; TTL Protocol 2.0",
+     "notes": "Also OOS: XC330-M288-T / M181 / T181 / T288 (9246.92 TL), XL-320 (2767.37 TL), 2XL430-W250-T (13349.22 TL)."
+    },
+    {
+     "id": "bus-15",
+     "category": "bus_servo",
+     "product": "Dynamixel AX-12A Smart Robot Actuator - Bulk Paket (6 adet)",
+     "shop": "robotsepeti.com",
+     "url": "https://www.robotsepeti.com/dynamixel-ax-12a-bulk-6-adet-servo-motor",
+     "price_try": 27765.15,
+     "price_note": "KDV dahil, per 6-pack (= 4627.5 TL per servo)",
+     "stock": "in_stock - PRODUCT_DATA qty=1 (one 6-pack), JSON-LD InStock",
+     "seen_date": "2026-10-23",
+     "specs": "1.5 N.m (15.3 kg.cm) stall @12V; 59 rpm; 9-12V; 54.6 g; potentiometer 1024 steps over 300° (0.29°); plastic gears; TTL half-duplex, Protocol 1.0, up to 1 Mbps",
+     "notes": "Single AX-12A is OOS (5132.44 TL): https://www.robotsepeti.com/dynamixel-ax-12a-servo-motor. Only 6 units obtainable, and known for gear backlash and deadband."
+    },
+    {
+     "id": "bus-16",
+     "category": "bus_servo",
+     "product": "Dynamixel MX-28T Akıllı Servo Aktüatör - 3.1Nm, 67rpm, TTL",
+     "shop": "robotsepeti.com",
+     "url": "https://www.robotsepeti.com/dynamixel-mx-28t-servo-motor",
+     "price_try": 26759.39,
+     "price_note": "KDV dahil, per unit",
+     "stock": "in_stock - PRODUCT_DATA qty=997, JSON-LD InStock (qty looks like supplier/virtual stock; verify lead time)",
+     "seen_date": "2026-10-23",
+     "specs": "3.1 N.m @14.8V (about 2.5 N.m @12V); 67 rpm; 72 g; metal gears; 12-bit magnetic encoder; TTL",
+     "notes": "Far too expensive (15 units = about 400k TL). MX-28AT 29807.15 TL (qty 6297); 6-pack bulk 135-153k TL; akakce also shows a pttavm 6-pack at 153,515.6 TL."
+    },
+    {
+     "id": "bus-17",
+     "category": "bus_servo",
+     "product": "Dynamixel-X XM430-W350-T Mid-Level PERF Servo Motor | 4.1Nm, 46rpm, TTL",
+     "shop": "robotsepeti.com",
+     "url": "https://www.robotsepeti.com/xm430-w350-t",
+     "price_try": 27765.15,
+     "price_note": "KDV dahil",
+     "stock": "in_stock - PRODUCT_DATA qty=2",
+     "seen_date": "2026-10-23",
+     "specs": "4.1 N.m @12V; 46 rpm; 82 g; 12-bit contactless encoder; current sensing; TTL Protocol 2.0",
+     "notes": "Only 2 units and very expensive. XH430-V350-R (RS485, 36999.88 TL) has qty 1."
+    },
+    {
+     "id": "bus-18",
+     "category": "bus_servo",
+     "product": "DFRobot SER0069 ST3215 Serial Bus Servo 19.5kg 7.4V (Mouser p/n 426-SER0069); also SER0070 12V 30kg",
+     "shop": "mouser.com.tr (import, ships from Mouser global stock)",
+     "url": "https://www.mouser.com.tr/ProductDetail/DFRobot/SER0069",
+     "price_note": "About €20.01 / £17.47 per unit on other Mouser regional sites (search snippets); TR price not read; import customs + KDV extra",
+     "stock": "unknown - mouser.com.tr returned a bot-block page; other Mouser regions showed 5-31 in stock (mouser.ie: 31 + 9 expected), not verified for TR",
+     "seen_date": "2026-10-23",
+     "specs": "Same as Waveshare ST3215-7.4V: 19.5 kg.cm @7.4V, 12-bit magnetic encoder, TTL bus",
+     "notes": "An import fallback only, not Turkish stock. digikey.com.tr was also blocked (Cloudflare)."
+    },
+    {
+     "id": "adp-01",
+     "category": "servo_driver",
+     "product": "Waveshare Bus Servo Adapter (A) (\"Seri Bus Servo Sürücü ve Kontrol Kartı\"), SKU MP03890 / sup. 25514",
+     "shop": "market.samm.com (SAMM)",
+     "url": "https://market.samm.com/seri-bus-servo-surucu-ve-kontrol-karti",
+     "price_try": 328.22,
+     "price_note": "KDV dahil; 273.52 TL + KDV ($6.60)",
+     "stock": "in_stock - \"Stok: 18\"",
+     "seen_date": "2026-10-23",
+     "specs": "USB Type-C (on-board USB-UART) or UART pin header, selected by jumper; DC5521 jack + screw terminal power pass-through, 9-12.6V (must match servo voltage); drives up to 253 ST/SC serial bus servos; reads angle/load/voltage/mode; 42x33 mm",
+     "notes": "Cheapest in-stock bus-servo adapter in TR. Use one adapter per bus (ST and SC must not be mixed). It works from a Raspberry Pi or PC over USB at 1 Mbps."
+    },
+    {
+     "id": "adp-02",
+     "category": "servo_driver",
+     "product": "Waveshare Serial BUS Servo Sürücü Kontrol Kartı (= Bus Servo Driver HAT (A) with ESP32), Ürün Kodu 2601292001",
+     "shop": "robocombo.com",
+     "url": "https://robocombo.com/waveshare-serial-bus-servo-surucu-kontrol-karti-4774",
+     "price_try": 1255,
+     "price_note": "KDV dahil (JSON-LD)",
+     "stock": "in_stock - \"Stok:18\"",
+     "seen_date": "2026-10-23",
+     "specs": "ESP32-WROOM-32 on board; drives ST/RSBL bus servos over TTL or RS485; 9-25V input (match servo voltage), XT60 + DC jack; 5V buck output for a Raspberry Pi; 2x USB-C; Wi-Fi",
+     "notes": "Can serve as the servo-bus side of a Pi-based controller. The same board is at Samm as \"ESP32 Servo Motor Kartı\" (1223.37 TL, Stok: 1)."
+    },
+    {
+     "id": "adp-03",
+     "category": "servo_driver",
+     "product": "ESP32 Servo Motor Kartı (\"ESP32 Tabanlı Seri Bus Servo Motor Sürücü Kartı - RS485 & TTL Destekli\" = Waveshare Bus Servo Driver HAT (A)), SKU MP03297 / sup. 27577",
+     "shop": "market.samm.com (SAMM)",
+     "url": "https://market.samm.com/esp32-servo-motor-karti",
+     "price_try": 1223.37,
+     "price_note": "KDV dahil; 1019.47 TL + KDV ($24.60)",
+     "stock": "low - \"Stok: 1\"",
+     "seen_date": "2026-10-23",
+     "specs": "ESP32-WROOM-32; 253 ST/RSBL bus servos via RS485 or TTL; 9-25V; XT60 + 5.5x2.5 DC; 2x USB-C; 65x57 mm",
+     "notes": ""
+    },
+    {
+     "id": "adp-04",
+     "category": "servo_driver",
+     "product": "ESP32 WiFi/Bluetooth Servo Sürücü Genişletme Kartı (Waveshare Servo Driver with ESP32 / Serial Bus Servo Driver Board)",
+     "shop": "market.samm.com (SAMM)",
+     "url": "https://market.samm.com/esp32-wifi-bluetooth-servo-surucu-genisletme-karti",
+     "price_try": 1092.08,
+     "price_note": "KDV dahil",
+     "stock": "out_of_stock - JSON-LD OutOfStock, stockCount 0",
+     "seen_date": "2026-10-23",
+     "specs": "ESP32 + ST/SC bus servo interface",
+     "notes": ""
+    },
+    {
+     "id": "adp-05",
+     "category": "servo_driver",
+     "product": "Waveshare Serial Bus Servo Sürücü Kontrol Kartı (akakce aggregated listing, Hepsiburada-hosted image)",
+     "shop": "akakce.com -> Hepsiburada seller (1 seller)",
+     "url": "https://www.akakce.com/arama/?q=bus+servo",
+     "price_try": 2019.43,
+     "price_note": "Akakce lowest price; product page link not exposed",
+     "stock": "unknown - Hepsiburada returns 403 to fetchers",
+     "seen_date": "2026-10-23",
+     "specs": "Waveshare serial-bus servo driver board (ST/SC)",
+     "notes": "The only bus-servo item found via marketplaces. It is probably the same board as robocombo's at a higher price."
+    },
+    {
+     "id": "adp-06",
+     "category": "servo_driver",
+     "product": "U2D2 Dynamixel Servo Haberleşme Modülü (ROBOTIS)",
+     "shop": "robotsepeti.com",
+     "url": "https://www.robotsepeti.com/robotis-u2d2",
+     "price_try": 3555.52,
+     "price_note": "KDV dahil",
+     "stock": "in_stock - PRODUCT_DATA qty=5, JSON-LD InStock",
+     "seen_date": "2026-10-23",
+     "specs": "USB to TTL (3-pin JST) / RS-485 / UART, FTDI-based, up to 4.5 Mbps; Dynamixel Protocol 1.0/2.0",
+     "notes": "U2D2 Power Hub Board 2051.76 TL qty 3: https://www.robotsepeti.com/u2d2-power-hub-board. It can also drive Feetech STS servos at 1 Mbps half-duplex TTL (protocol compatible at the physical layer)."
+    },
+    {
+     "id": "adp-07",
+     "category": "controller",
+     "product": "Robotis OpenRB-150: Açık Kaynak, Arduino Uyumlu, Dynamixel Kontrol Kartı",
+     "shop": "robotsepeti.com",
+     "url": "https://www.robotsepeti.com/robotis-openrb-150-acik-kaynak-arduino-uyumlu-gomulu-kontrol-karti",
+     "price_try": 2438.21,
+     "price_note": "KDV dahil",
+     "stock": "in_stock - PRODUCT_DATA qty=10, JSON-LD InStock",
+     "seen_date": "2026-10-23",
+     "specs": "SAMD21 (Arduino MKR compatible), 4x Dynamixel TTL ports, USB pass-through mode (acts as U2D2-like adapter)",
+     "notes": ""
+    },
+    {
+     "id": "adp-08",
+     "category": "servo_driver",
+     "product": "Dynamixel Communication Bridge, TTL/RS-485 Dönüştürücü - Repeater",
+     "shop": "robotsepeti.com",
+     "url": "https://www.robotsepeti.com/dynamixel-communication-bridge-ttl-rs485-donusturucu",
+     "price_try": 1612.88,
+     "price_note": "KDV dahil",
+     "stock": "in_stock - PRODUCT_DATA qty=4, JSON-LD InStock",
+     "seen_date": "2026-10-23",
+     "specs": "TTL to RS-485 bridge / repeater for Dynamixel bus",
+     "notes": "Not needed for ST/SC servos."
+    },
+    {
+     "id": "fb-01",
+     "category": "pwm_servo",
+     "product": "Feetech FS90-FB Mikro Servo Motor (Pozisyon Geri Bildirimli)",
+     "shop": "robotistan.com",
+     "url": "https://www.robotistan.com/feetech-fs90-fb-mikro-servo-motor-pozisyon-geri-bildirimli",
+     "price_try": 358.45,
+     "price_note": "KDV dahil",
+     "stock": "in_stock - PRODUCT_DATA quantity 23, JSON-LD InStock",
+     "seen_date": "2026-10-23",
+     "specs": "PWM control + analog position-feedback wire; 4.8-6V; 0.10 s/60°; about 1.5 kg.cm class; 13 g; plastic gears",
+     "notes": "Not a bus servo. The feedback is analog (needs ADC channels). Listed as the cheapest in-stock position-feedback alternative. Robotsepeti FS90-FB (500.44 TL) is OOS; Amazon TR has it at 653.42 TL (stock not read)."
+    },
+    {
+     "id": "fb-02",
+     "category": "pwm_servo",
+     "product": "FEETECH FT5335M-FB Ultra Yüksek Torklu - Yüksek Voltajlı Dijital Servo Motor (Pozisyon Geri Beslemeli)",
+     "shop": "robotistan.com",
+     "url": "https://www.robotistan.com/feetech-ft5335m-fb-ultra-yuksek-torklu-yuksek-voltajli-dijital-servo-motor-pozisyon-geri-beslemeli",
+     "price_try": 2064.87,
+     "price_note": "KDV dahil",
+     "stock": "in_stock - PRODUCT_DATA quantity 16, JSON-LD InStock",
+     "seen_date": "2026-10-23",
+     "specs": "PWM digital HV servo (about 35 kg.cm class, 6-8.4V) with analog position feedback",
+     "notes": "Not a bus servo. 16 units in stock."
+    },
+    {
+     "id": "fb-03",
+     "category": "pwm_servo",
+     "product": "DFRobot SER0046 Analog Geri Beslemeli 9g 270° Metal Servo Motor (1.5kg)",
+     "shop": "direnc.net",
+     "url": "https://www.direnc.net/analog-geri-beslemeli-9g-270-metal-servo-motor-1",
+     "price_try": 741.87,
+     "price_note": "KDV dahil; 618.23 TL + KDV",
+     "stock": "in_stock - PRODUCT_DATA available=true qty=4, \"SEPETE EKLE\" shown",
+     "seen_date": "2026-10-23",
+     "specs": "1.3 kg.cm @4.8V, 1.5 kg.cm @6V; 0.10 s @6V; 4.8-6V; 12 g; metal gears; analog 0-3.3V position feedback; ~270° (220° max movement); 22.9x12.2x32.5 mm",
+     "notes": "Not a bus servo; only 4 units."
+    }
+   ]
+  },
+  "verify": {
+   "checks": [
+    {
+     "id": "bus-01",
+     "reachable": true,
+     "price_try": 1318.85,
+     "stock": "in_stock - \"Stok : 10\" (1099.04 TL + KDV, $26.52)",
+     "matches_claim": true,
+     "note": "Matches exactly. Only 10 units."
+    },
+    {
+     "id": "bus-02",
+     "reachable": true,
+     "price_try": 6564.41,
+     "stock": "in_stock - \"Stok : 44\" (5470.34 TL + KDV, $132.00)",
+     "matches_claim": true,
+     "note": "Matches exactly."
+    },
+    {
+     "id": "bus-03",
+     "reachable": true,
+     "price_try": 8295.03,
+     "stock": "in_stock - \"Stok : 3\" (6912.53 TL + KDV, $166.80)",
+     "matches_claim": true,
+     "note": "Matches. On the SAMM servo category, RSBL120-24 shows 17992.46 TL with stock 1 and RSBL85-12/24 shows 13415.28 TL with stock 0, which agrees with the notes."
+    },
+    {
+     "id": "bus-04",
+     "reachable": true,
+     "price_try": 1595.35,
+     "stock": "out_of_stock - \"Stok : Stokta Yok\", JSON-LD OutOfStock (SKU MP04257, supplier code 33014)",
+     "matches_claim": true,
+     "note": "Matches. 1329.46 TL + KDV, $32.08."
+    },
+    {
+     "id": "bus-05",
+     "reachable": true,
+     "price_try": 1685.86,
+     "stock": "out_of_stock - \"Stokta Yok\" (SKU MP03422, supplier code 22414)",
+     "matches_claim": true,
+     "note": "Matches."
+    },
+    {
+     "id": "bus-06",
+     "reachable": true,
+     "price_try": 1611.6,
+     "stock": "out_of_stock - PRODUCT_DATA qty 0, available false, JSON-LD OutOfStock, \"Gelince Haber Ver\"",
+     "matches_claim": true,
+     "note": "Matches. Direnc's servo category and its 'bus servo' / 'st3215' searches list only ST3215-30kg, ST3215-HS and ST3020, all with qty 0."
+    },
+    {
+     "id": "bus-07",
+     "reachable": true,
+     "price_try": 1611.69,
+     "stock": "out_of_stock - qty 0, available false",
+     "matches_claim": true,
+     "note": "Matches."
+    },
+    {
+     "id": "bus-08",
+     "reachable": true,
+     "price_try": 1743.53,
+     "stock": "out_of_stock - qty 0, available false",
+     "matches_claim": true,
+     "note": "Matches."
+    },
+    {
+     "id": "bus-09",
+     "reachable": true,
+     "price_try": 1820.13,
+     "stock": "out_of_stock - \"Stokta Yok\" (SKU MP04076)",
+     "matches_claim": true,
+     "note": "Matches."
+    },
+    {
+     "id": "bus-10",
+     "reachable": true,
+     "price_try": 3989.37,
+     "stock": "out_of_stock - \"Stokta Yok\" (SKU MP03892)",
+     "matches_claim": true,
+     "note": "Matches. Samm names it 'ST3235 - 35kg' in the URL/title but 'ST3235 - 30kg' in the category list."
+    },
+    {
+     "id": "bus-11",
+     "reachable": true,
+     "price_try": 1950.57,
+     "stock": "out_of_stock - qty 0, available false",
+     "matches_claim": true,
+     "note": "Matches."
+    },
+    {
+     "id": "bus-12",
+     "reachable": true,
+     "price_try": 4064,
+     "stock": "out_of_stock - \"Stok : 0\", \"Stoğa Gelince Haber Ver\"",
+     "matches_claim": true,
+     "note": "Matches. The robotsepeti CF35-12 is also confirmed: 4916.66 TL, qty 0."
+    },
+    {
+     "id": "bus-13",
+     "reachable": true,
+     "price_try": 2031.84,
+     "stock": "out_of_stock - qty 0, available false",
+     "matches_claim": true,
+     "note": "Matches. 2031.84 is a discounted price (list price 2950.24). XL330-M077-T is also 2031.84 TL with qty 0."
+    },
+    {
+     "id": "bus-14",
+     "reachable": true,
+     "price_try": 2950.24,
+     "stock": "out_of_stock - qty 0",
+     "matches_claim": true,
+     "note": "Matches. Also confirmed with qty 0: XC330-M181/M288/T181/T288 at 9246.92 TL, XL-320 at 2767.37 TL, 2XL430-W250-T at 13349.22 TL."
+    },
+    {
+     "id": "bus-15",
+     "reachable": true,
+     "price_try": 27765.15,
+     "stock": "in_stock - qty 1 (one 6-pack), JSON-LD InStock",
+     "matches_claim": true,
+     "note": "Matches. Single AX-12A is 5132.44 TL with qty 0, confirmed."
+    },
+    {
+     "id": "bus-16",
+     "reachable": true,
+     "price_try": 26759.39,
+     "stock": "in_stock - qty 997, JSON-LD InStock; no lead-time text on the page",
+     "matches_claim": true,
+     "note": "Matches. The qty is very likely virtual: many Robotis items on robotsepeti show 992-6446 units (for example MX-28AT 29807.15 TL with qty 6297), so ask about lead time. Bulk 6-packs: MX-28T 135747.5 TL (qty 2), MX-28AT 147024.23 TL, MX-28AR 153241.67 TL."
+    },
+    {
+     "id": "bus-17",
+     "reachable": true,
+     "price_try": 27765.15,
+     "stock": "in_stock - qty 2",
+     "matches_claim": true,
+     "note": "Matches. XH430-V350-R is 36999.88 TL with qty 1. XH430-W350-R and XH430-W210-R are 36999.88 TL with qty 2 each."
+    },
+    {
+     "id": "bus-18",
+     "reachable": false,
+     "stock": "unknown - mouser.com.tr returns 'Access to this page has been denied' (bot block) to curl, and WebFetch timed out on both mouser.com.tr and mouser.com",
+     "matches_claim": true,
+     "note": "Could not be verified. This agrees with the claim, which already says stock is unknown and no TR price was read. Search snippets disagree between regions: mouser.ca/.cl show 31 in stock with 9 expected on 2026-10-07 (a date that has passed), while .fi/.ee/.dk show 7 in stock at €20.01. Treat this as an import with customs and KDV, not TR stock."
+    },
+    {
+     "id": "adp-01",
+     "reachable": true,
+     "price_try": 328.22,
+     "stock": "in_stock - \"Stok : 18\" (273.52 TL + KDV, $6.60)",
+     "matches_claim": true,
+     "note": "Matches. Caveat: the Samm text says '9 ~ 12.6V giriş voltajı' and that the input must match servo voltage. A 6-8.4 V bus for SC15 or ST3215-7.4V is below that stated range. Power passes straight through, but this is outside the stated spec, so a 12 V ST-series servo fits it best."
+    },
+    {
+     "id": "adp-02",
+     "reachable": true,
+     "price_try": 1255,
+     "stock": "in_stock - \"Stok : 18\" (KDV dahil)",
+     "matches_claim": true,
+     "note": "Matches."
+    },
+    {
+     "id": "adp-03",
+     "reachable": true,
+     "price_try": 1223.37,
+     "stock": "low - \"Stok : 1\" (1019.47 TL + KDV, $24.60)",
+     "matches_claim": true,
+     "note": "Matches."
+    },
+    {
+     "id": "adp-04",
+     "reachable": true,
+     "price_try": 1092.08,
+     "stock": "out_of_stock - \"Stokta Yok\" (SKU MP04071)",
+     "matches_claim": true,
+     "note": "Matches."
+    },
+    {
+     "id": "adp-05",
+     "reachable": false,
+     "stock": "unknown - akakce returns HTTP 429 Cloudflare 'Just a moment' to curl and 403 to WebFetch; hepsiburada, trendyol and n11 also return 403",
+     "matches_claim": false,
+     "note": "The 2019.43 TL price could not be verified and should not be used. Robocombo sells the same board in stock at 1255 TL (adp-02)."
+    },
+    {
+     "id": "adp-06",
+     "reachable": true,
+     "price_try": 3555.52,
+     "stock": "in_stock - qty 5",
+     "matches_claim": true,
+     "note": "Matches. U2D2 Power Hub Board is 2051.76 TL with qty 3, confirmed."
+    },
+    {
+     "id": "adp-07",
+     "reachable": true,
+     "price_try": 2438.21,
+     "stock": "in_stock - qty 10",
+     "matches_claim": true,
+     "note": "Matches."
+    },
+    {
+     "id": "adp-08",
+     "reachable": true,
+     "price_try": 1612.88,
+     "stock": "in_stock - qty 4",
+     "matches_claim": true,
+     "note": "Matches."
+    },
+    {
+     "id": "fb-01",
+     "reachable": true,
+     "price_try": 358.45,
+     "stock": "in_stock - qty 23",
+     "matches_claim": true,
+     "note": "Matches. Robotistan's Feetech brand page lists only FS90R (qty 122), FS90-FB (qty 23) and FS5103-FB (qty 0), so no Feetech bus servos there."
+    },
+    {
+     "id": "fb-02",
+     "reachable": true,
+     "price_try": 2064.87,
+     "stock": "in_stock - qty 16",
+     "matches_claim": true,
+     "note": "Matches."
+    },
+    {
+     "id": "fb-03",
+     "reachable": true,
+     "price_try": 741.87,
+     "stock": "in_stock - qty 4, available true",
+     "matches_claim": true,
+     "note": "Matches (618.23 TL + KDV)."
+    }
+   ],
+   "extra_findings": "No cheaper in-stock serial bus servo was found in Turkey. The researcher's picks hold: SC15 at SAMM (1318.85 TL, 10 units) is the cheapest, and ST3025 at SAMM (6564.41 TL, 44 units) is the only magnetic-encoder ST servo with 15-20 units in stock.\n\nMissed option, all at robotsepeti, a genuine in-stock Dynamixel-X route bought as Robotis kits:\n(1) Robotis Engineer Kit 1, 68445.51 TL, qty 1. Contains 6 x 2XL430-W250-T (2 DOF each, so 12 joints; 1.5 Nm @12V; 98.2 g; 12-bit encoder; Protocol 2.0). It is the kit for the 38 cm Max-E1 biped, about 5.7k TL per DOF. https://www.robotsepeti.com/robotis-engineer-kit1\n(2) Robotis Engineer Kit 2, 42668.72 TL, qty 4. Contains 5 x XL430-W250-T (1.5 Nm @12V, 57.2 g) plus a Raspberry Pi Zero and camera, about 8.5k TL per servo. https://www.robotsepeti.com/robotis-engineer-kit-2\nKit 1 plus one Kit 2 gives 17 DOF for about 111k TL. That costs more than 15 x ST3025 (about 98.5k TL), but the servos are much lighter (49-57 g per DOF vs 124 g), run on 12 V and work with the in-stock U2D2 / OpenRB-150.\n\nNot useful:\n- Bioloid STEM Standard (28927.95 TL, qty 2): contains only 2 x AX-12W wheel servos.\n- AX-12W (5132.44 TL, qty 992): wheel mode only.\n- AX-18A 6-pack (58578.06 TL, qty 1000, probably virtual stock).\n\nOther analog-feedback PWM options at robotsepeti:\n- Adafruit B2122 metal-gear analog-feedback servo, 1688.46 TL, qty 10: https://www.robotsepeti.com/adafruit-analog-pozisyon-geri-beslemeli-servo-motor-metal-disli\n- Parallax 360 feedback servo, 2986.81 TL, qty 15. It is continuous rotation, so not for joints.\n\nCheap high-stock PWM servos with no feedback, at motorobit:\n- DS3218MG 20 kg, 1302.90 TL, qty 105\n- RDS3235 35 kg, 2605.80 TL, qty 46\n- DS5160 60 kg, 2424 TL, qty 50\n\nAt robotistan: MG996R 234.53 TL (qty 775) and MG90S 125.73 TL (qty 542).\n\nShops with no bus servos found:\n- amazon.com.tr: no results for sts3215, st3215 or scs0009.\n- motorobit: servo category is PWM only.\n- robotistan: no bus servos.\n- robolinkmarket, f1depo, komponentci: search results load by JavaScript and returned nothing readable.\n- trendyol, n11, hepsiburada, akakce: blocked (403/429), so not checked.\n\nRaw notes and HTML: /private/tmp/claude-501/-Users-huseyinarslan-Desktop-ads-z-klas-r-2/8217cd75-2c54-4fa4-b47f-57c38ee96c2b/scratchpad/s6/research/bus-servos-verify/notes.md"
+  }
+ },
+ {
+  "area": "pwm-servos",
+  "found": {
+   "area": "CHEAP PWM HOBBY SERVOS (micro to standard, incl. feedback/270° variants) + PCA9685 16-ch PWM drivers sold in Turkey",
+   "summary": "Raw notes: /private/tmp/claude-501/-Users-huseyinarslan-Desktop-ads-z-klas-r-2/8217cd75-2c54-4fa4-b47f-57c38ee96c2b/scratchpad/s6/research/pwm_servos/notes.md. I checked about 120 listings on 2026-10-23. The 40 below are the best ones, mostly in stock, plus the cheapest in-stock source for each model.\n\nHOW STOCK WAS READ: from each page's own data. That means the schema.org availability field, hidden stock inputs, \"Stokta 100+ ürün\" text on Motorobit, the stockCount field in Robocombo and SAMM page data, and \"Stok: N\" on Ozdisan. Robotistan and Komponentci show in stock / out of stock but no quantity. Trendyol, Hepsiburada, n11 and Cimri returned 403 (Cloudflare) and Amazon.com.tr returned 503. Akakce worked once and then served a bot challenge. I did not try to get around any of these blocks, so marketplace rows come from search-result snippets and their stock is \"unknown\".\n\nCHEAPEST IN-STOCK PRICE PER MODEL (TL, KDV dahil):\n- SG90: Robocombo 54 (2491 pcs)\n- MG90S: Komponentci 101.59; Robocombo 108 (141 pcs); Motorobit 151.50 (100+)\n- SG92R: Komponentci 115.21\n- ES08MA II metal: Motorobit 424.20 (100+)\n- ES08MD II: Motorobit 606 (100+)\n- ES09MD: Robocombo 896.50 (31)\n- ES3054 (3.5 kg.cm): Robocombo 735.50 (76)\n- MG996R: Robocombo 200.50 (46)\n- MG995: Robocombo 200.50 (53)\n- DS3218MG: Robocombo 971.50 (53); Motorobit 1302.90 (100+)\n- DS3225: Robocombo 1031 (99)\n- TD-8120MG: Motorobit 969.60 (100+)\n- PCA9685: Robocombo 179.50 (99); Robotistan 245.41; Ozdisan 356.57 (25); Motorobit 393.90 (9)\n\nPOSITION FEEDBACK: only three PWM servos with a feedback wire are in stock in Turkey, and none of the pages shows a quantity:\n- DFRobot SER0046, 9 g, 270°, 1.5 kg.cm, 0-3.3 V analog output, centring ≤1°: Direnc 741.87\n- Feetech FS90-FB, 1.5 kg.cm: Robotistan 358.45\n- Feetech FT5335M-FB, 180 g, 35-40 kg.cm: Robotistan 2064.87, too big for this robot\nFeetech FS5103-FB on Robotistan shows 0,00 TL and stock 0. Before counting on 15-20 feedback servos, ask the shop for its stock.\n\nTORQUE: the strongest micro servos in stock are well below the XL330-M288 (about 0.52 N.m):\n- ES3054: 0.34 N.m @6 V\n- ES09MD: 0.25\n- MG90S: 0.22 (claimed; clones are often weaker)\n- ES08MA II / ES08MD II: 0.20\nFor a robot the size of Open Duck Mini, DS3218MG (2.1 N.m @6.8 V, 60 g, 3 µs deadband) or TD-8120MG (2.1 N.m @6 V) match the STS3215's torque, but they have no position feedback.\n\nNOT FOUND IN TURKISH STOCK: MG92B, Corona DS929MG/DS939MG, JX PDI-1109/1181/4409, KST and Savox micros, EMAX ES3352, Feetech FT5313M-FB, DS3218 270°/feedback versions. These are import-only.\n\nQUALITY PROBLEMS: Turkish shops say this on their own product pages:\n- Robotistan and SAMM: on their MG90S only the last gear stage is metal and the inner gears are plastic. Robotistan says the same of its MG996R.\n- Komponentci: gear material in SG90, MG90S and MG945 changes from batch to batch.\n- Robolink: labels its MG90S, MG995 and MG996R as \"KLON\". F1Depo labels an S3003 as a clone.\nThe Vorpal wiki reports these problems with counterfeit MG90S:\n- 10-15 % of gearboxes are bad out of the box\n- 2-90° drift as the servo warms up\n- chatter under load\n- less than half the rated torque\nA Tuya forum teardown found the motor gear and inner gears were plastic.\nAn SG90 test with default pulse limits was off by up to about 15°. Setting min/max to 600/2320 µs fixed most of it. So each servo needs its own calibration, and buying spares makes sense.\nNone of these servos lists a backlash figure. The Microduck work models ±1° of play even for XL330s.\n\nPCA9685 NOTES:\n- At 50 Hz each step is about 4.9 µs (about 0.44° per count), which is coarser than the 1-3 µs deadband of good digital servos. Raising the PWM frequency to around 200-330 Hz for digital servos gives finer steps.\n- The internal oscillator runs at roughly 23-27 MHz, so each board needs calibrating.\n- Servos need a separate 5-6 V supply. An MG996R stalls at 2.5 A each.\n\nF1Depo had almost everything out of stock except Feetech FT5320M/FT5330M. Direnc's MG90S, SG90, MG996 and its cheap PCA9685 were out of stock.",
+   "items": [
+    {
+     "id": "sg90-robocombo",
+     "category": "pwm_servo",
+     "product": "SG90 9g Servo Motor - Mini RC Servo Motor 180°",
+     "shop": "Robocombo",
+     "url": "https://robocombo.com/sg90-rc-servo-motor",
+     "price_try": 54,
+     "price_note": "KDV dahil sale price (list 69 TL)",
+     "stock": "in_stock - stockCount 2491 in page data",
+     "specs": "9 g, 23.1x12.2x29 mm, 4.8-6 V, stall 1.8 kg.cm (0.18 N.m) @6 V, 0.1 s/60° @4.8 V, plastic gears, PWM 500-2400 µs, 180°, no position feedback; SG90 datasheet deadband 10 µs",
+     "notes": "Cheapest SG90 and largest stock found. Plastic gears, so not suitable for leg joints. Use per-servo pulse calibration.",
+     "seen_date": "2026-10-23"
+    },
+    {
+     "id": "sg90-samm",
+     "category": "pwm_servo",
+     "product": "Tower Pro SG90 RC Mini Servo Motor 180 Derece",
+     "shop": "SAMM Market",
+     "url": "https://market.samm.com/tower-pro-sg90-rc-mini-servo-motor",
+     "price_try": 62.16,
+     "price_note": "KDV dahil (51,80 TL + KDV)",
+     "stock": "in_stock - stockCount 35",
+     "specs": "SG90 class: 9 g, 1.8 kg.cm (0.18 N.m), plastic gears, 180°, PWM, no feedback",
+     "notes": "Second-cheapest SG90 with 15-20+ units available.",
+     "seen_date": "2026-10-23"
+    },
+    {
+     "id": "sg90-komponentci",
+     "category": "pwm_servo",
+     "product": "SG90 RC Mini Servo Motor Micro Servo Motor SG90 9g 180°",
+     "shop": "Komponentci",
+     "url": "https://www.komponentci.net/sg90-rc-mini-servo-motor-micro-servo-motor-sg90-9g-180-pmu232",
+     "price_try": 65.74,
+     "price_note": "KDV dahil; listed as 1,10 USD + KDV",
+     "stock": "in_stock - 'Stok Durumu: Var' (no quantity)",
+     "specs": "4.8-6 V, 0.1 s/60° @4.8 V, 1.8 kg.cm @6 V, plastic gearbox, 500-2400 µs",
+     "notes": "Shop warns the internal gears vary between metal and plastic from batch to batch and asks buyers to contact it before purchase.",
+     "seen_date": "2026-10-23"
+    },
+    {
+     "id": "sg90-ozdisan",
+     "category": "pwm_servo",
+     "product": "OZD-ARDUINO SG90 9G 180C SERVO MOTOR",
+     "shop": "Ozdisan",
+     "url": "https://www.ozdisan.com/p/arduino-sensorleri-ve-modulleri-613/ozd-arduino-sg90-9g-servo-motor-536920",
+     "price_try": 84.53,
+     "price_note": "KDV dahil; 70,44 TRY ex-VAT (1,417 USD); 5+ pcs 67,62 TRY ex-VAT",
+     "stock": "in_stock - 'Stok: 81'",
+     "specs": "SG90 9 g 180°, plastic gears, PWM, no feedback",
+     "notes": "Distributor with an explicit stock count. Ozdisan MG90 is Stok: 0.",
+     "seen_date": "2026-10-23"
+    },
+    {
+     "id": "mg90s-komponentci",
+     "category": "pwm_servo",
+     "product": "MG90S Tower Pro Micro Servo Motor 180° (KSTK-6100, brand Komponentci)",
+     "shop": "Komponentci",
+     "url": "https://www.komponentci.net/mg90s-tower-pro-micro-servo-motor-180-pmu4394",
+     "price_try": 101.59,
+     "price_note": "KDV dahil; 1,70 USD + KDV",
+     "stock": "in_stock - 'Stok Durumu: Var' (no quantity)",
+     "specs": "analog, 1.8 kg.cm (0.18 N.m) @4.8 V / 2.2 kg.cm (0.22 N.m) @6 V, 0.1/0.08 s/60°, 180°, deadband 5 µs, 'copper metal gears, coreless, double bearing' (claimed), no feedback",
+     "notes": "Cheapest in-stock MG90S, but the page says gears may be metal or plastic depending on supplier batch, so this is almost certainly a clone. A second Komponentci SKU 'Tower Pro MG90S RC - 180' costs 178,08 TL and is also Var.",
+     "seen_date": "2026-10-23"
+    },
+    {
+     "id": "mg90s-robocombo",
+     "category": "pwm_servo",
+     "product": "MG90S 90 / 180 RC Micro Servo Motor",
+     "shop": "Robocombo",
+     "url": "https://robocombo.com/mg90-rc-servo-motor",
+     "price_try": 108,
+     "price_note": "KDV dahil",
+     "stock": "in_stock - stockCount 141",
+     "specs": "22.8x12.2x28.5 mm, 4.8-6 V, 1.8/2.2 kg.cm (0.18/0.22 N.m) @4.8/6 V, 0.1/0.08 s/60°, coreless motor, PWM, no feedback",
+     "notes": "Best MG90S option for buying 15-20+ units (verified quantity). Expect clone-quality gears.",
+     "seen_date": "2026-10-23"
+    },
+    {
+     "id": "mg90s-motorobit",
+     "category": "pwm_servo",
+     "product": "Tower Pro MG90S RC Servo Motor - 180 Derece",
+     "shop": "Motorobit",
+     "url": "https://www.motorobit.com/tower-pro-mg90s-rc-servo-motor",
+     "price_try": 151.5,
+     "price_note": "KDV dahil; 126,25 TL + KDV",
+     "stock": "in_stock - 'Stokta 100+ ürün'",
+     "specs": "13.4 g, 1.8/2.2 kg.cm @4.8/6 V, 0.1/0.08 s/60°, cable 175 mm, PWM, no feedback",
+     "notes": "Very large stock. Authenticity is not stated.",
+     "seen_date": "2026-10-23"
+    },
+    {
+     "id": "mg90s-robotistan",
+     "category": "pwm_servo",
+     "product": "MG90S Servo Motor - 180 Derece (brand field: Robotistan)",
+     "shop": "Robotistan",
+     "url": "https://www.robotistan.com/mg90s-servo-motor",
+     "price_try": 125.73,
+     "price_note": "KDV dahil; 104,77 TL + KDV",
+     "stock": "in_stock - schema.org InStock / hidden stock-status 1 (no quantity shown)",
+     "specs": "2 kg.cm, 0.11 s/60° @4.8 V, deadband 5 µs, analog, 23x12x29 mm",
+     "notes": "The shop states only the last gear stage is metal and the intermediate gears are plastic. This confirms clone construction.",
+     "seen_date": "2026-10-23"
+    },
+    {
+     "id": "sg92r-komponentci",
+     "category": "pwm_servo",
+     "product": "Tower Pro SG92R 2.5kg 4.8V Micro Servo Motor",
+     "shop": "Komponentci",
+     "url": "https://www.komponentci.net/tower-pro-sg92r-25kg-48v-micro-servo-motor-pmu12501",
+     "price_try": 115.21,
+     "price_note": "KDV dahil; 1,93 USD + KDV",
+     "stock": "in_stock - 'Stok Durumu: Var' (no quantity)",
+     "specs": "9 g, 23x12.2x27 mm, 2.5 kg.cm (0.25 N.m) @4.8 V, 0.1 s/60° @4.8 V, carbon-fibre/POM gears, deadband 1 µs (specs as listed on Robolink's SG92R page)",
+     "notes": "Robolink also sells SG92R for 190,50 TL (InStock, hidden stock field 21). Plastic (POM) gears.",
+     "seen_date": "2026-10-23"
+    },
+    {
+     "id": "es08maii-motorobit",
+     "category": "pwm_servo",
+     "product": "Emax ES08MA II Metal Dişli Analog Servo Motor",
+     "shop": "Motorobit",
+     "url": "https://www.motorobit.com/emax-es08ma-ii-metal-disli-analog-servo-motor-180",
+     "price_try": 424.2,
+     "price_note": "KDV dahil; 353,50 TL + KDV",
+     "stock": "in_stock - 'Stokta 100+ ürün'",
+     "specs": "12 g, 23x11.5x24 mm, 4.8-6 V, stall 1.5/1.8 kg.cm (0.15/0.18 N.m) @4.8/6 V (Motorobit text; EMAX/Robolink list 1.6/2.0 kg.cm), 0.12/0.10 s/60°, 200 mA running, deadband 1-2 µs, metal gears, analog PWM, no feedback",
+     "notes": "Branded (EMAX), metal-gear 9 g class servo with a large verified stock. Lower counterfeit risk than MG90S. The plastic-gear ES08MA II costs 363,60 TL (Stokta 10+).",
+     "seen_date": "2026-10-23"
+    },
+    {
+     "id": "es08maii-komponentci",
+     "category": "pwm_servo",
+     "product": "Emax ES08MA II Metal Dişli Analog Servo Motor",
+     "shop": "Komponentci",
+     "url": "https://www.komponentci.net/emax-es08ma-ii-metal-disli-analog-servo-motor-pmu43972",
+     "price_try": 498.4,
+     "price_note": "KDV dahil; 8,34 USD + KDV",
+     "stock": "in_stock - 'Stok Durumu: Var' (no quantity)",
+     "specs": "ES08MA II metal gear analog, ~12 g, 1.5-2.0 kg.cm",
+     "notes": "Alternative ES08MA II source.",
+     "seen_date": "2026-10-23"
+    },
+    {
+     "id": "es08maii-robolink",
+     "category": "pwm_servo",
+     "product": "ES08MAII 1.8kg 4.5V - 6V Metal Dişli Kutulu Servo Motor",
+     "shop": "Robolink Market",
+     "url": "https://www.robolinkmarket.com/es08maii-18kg-45v-6v-metal-disli-kutulu-servo-motor",
+     "price_try": 543,
+     "price_note": "KDV dahil",
+     "stock": "in_stock - schema InStock; hidden page stock field = 178 (not shown as text)",
+     "specs": "12 g, 23x11.5x24 mm, 4.8-6 V, 1.6 kg.cm @4.8 V / 2.0 kg.cm @6 V, 0.12/0.10 s/60°, deadband 1 µs, metal gears, JR plug",
+     "notes": "'Kutulu' (boxed), so probably genuine EMAX packaging.",
+     "seen_date": "2026-10-23"
+    },
+    {
+     "id": "es08mdii-motorobit",
+     "category": "pwm_servo",
+     "product": "Emax ES08MD II Metal Dişli Dijital Servo Motor 180 Derece",
+     "shop": "Motorobit",
+     "url": "https://www.motorobit.com/emax-es08md-ii-metal-disli-dijital-servo-motor-180",
+     "price_try": 606,
+     "price_note": "KDV dahil; 505,00 TL + KDV",
+     "stock": "in_stock - 'Stokta 100+ ürün'",
+     "specs": "digital, metal gears, 13.4 g, 23.1x12x29 mm, 1.6/2.0 kg.cm (0.16/0.20 N.m) @4.8/6 V, 0.12/0.10 s/60° (specs from Robocombo listing; Motorobit page text is copied from ES08MA II)",
+     "notes": "Cheapest digital EMAX 9 g servo with large stock.",
+     "seen_date": "2026-10-23"
+    },
+    {
+     "id": "es08mdii-robocombo",
+     "category": "pwm_servo",
+     "product": "Emax ES08MD II 13g Mini Metal Digital Servo Motor",
+     "shop": "Robocombo",
+     "url": "https://robocombo.com/emax-es08md-ii-13g-mini-metal-digital-servo-motor-4496",
+     "price_try": 783,
+     "price_note": "KDV dahil sale (list 795)",
+     "stock": "in_stock - stockCount 237",
+     "specs": "13.4 g, 23.1x12.0x29.0 mm, metal gears, 4.8-6 V, 1.6 kg.cm @4.8 V / 2.0 kg.cm @6 V, 0.12/0.10 s/60°, 50 Hz PWM, 0-180°",
+     "notes": "Second source with a verified quantity.",
+     "seen_date": "2026-10-23"
+    },
+    {
+     "id": "es09md-robocombo",
+     "category": "pwm_servo",
+     "product": "Emax ES09MD DigitaL Servo Motor",
+     "shop": "Robocombo",
+     "url": "https://robocombo.com/emax-es09md-dijital-metal-disli-mikro-servo-motor-3517",
+     "price_try": 896.5,
+     "price_note": "KDV dahil",
+     "stock": "in_stock - stockCount 31",
+     "specs": "digital, metal gears, bearing, 4.8-6 V, stall 2.3 kg.cm (0.23 N.m) @4.8 V / 2.6 kg.cm (0.25 N.m) @6 V, 0.10/0.08 s/60°, 23x12x24.5 mm, 14.8 g, max travel 145°±10° (700-2300 µs), 23T spline",
+     "notes": "Fastest and strongest 9 g-size servo in TR stock, but only about half an XL330-M288's stall torque. Out of stock at Robotistan (894,01) and F1Depo.",
+     "seen_date": "2026-10-23"
+    },
+    {
+     "id": "es3054-robocombo",
+     "category": "pwm_servo",
+     "product": "EMAX ES3054 3.5kg Metal Dişli Dijital Mini Servo",
+     "shop": "Robocombo",
+     "url": "https://robocombo.com/emax-es3054-3-5kg-metal-disli-dijital-mini-servo-4300",
+     "price_try": 735.5,
+     "price_note": "KDV dahil sale (list 896,5)",
+     "stock": "in_stock - stockCount 76",
+     "specs": "digital, metal gears, 4.8-6 V, stall 3.0 kg.cm (0.29 N.m) @4.8 V / 3.5 kg.cm (0.34 N.m) @6 V, 0.15/0.13 s/60°, 28.5x13x27 mm, 20 g, max travel ~145°, 23T (specs from Robotistan ES3054 page)",
+     "notes": "Strongest mini PWM servo with verified 15-20+ stock. Komponentci 945,88 (Var), Motorobit 1.333,20 (Stokta 10+); out of stock at Robotistan and F1Depo.",
+     "seen_date": "2026-10-23"
+    },
+    {
+     "id": "es09ma-robotistan",
+     "category": "pwm_servo",
+     "product": "EMAX ES09MA Metal Dişli Analog Servo Motor",
+     "shop": "Robotistan",
+     "url": "https://www.robotistan.com/emax-es09ma-metal-disli-analog-servo-motor",
+     "price_try": 733.83,
+     "price_note": "KDV dahil; 611,52 TL + KDV",
+     "stock": "in_stock - schema InStock (no quantity)",
+     "specs": "specs not given on page (EMAX ES09MA analog metal-gear 9 g class)",
+     "notes": "Analog sibling of ES09MD. Check datasheet before use.",
+     "seen_date": "2026-10-23"
+    },
+    {
+     "id": "goteck-direnc",
+     "category": "pwm_servo",
+     "product": "Goteck Mikro Metal Dişli Servo Motor (2.5 Kg Kapasiteli)",
+     "shop": "Direnc.net",
+     "url": "https://www.direnc.net/servo-motor-mikro-metal-disli-goteck",
+     "price_try": 838.64,
+     "price_note": "KDV dahil; 698,86 TL + KDV",
+     "stock": "in_stock - data-stock-status 1 / schema InStock (no quantity)",
+     "specs": "4.8-6 V, stall 2.3 kg.cm @4.8 V / 2.5 kg.cm (0.25 N.m) @6 V, 0.11/0.10 s/60°, metal gears, 23x12.1x28.8 mm, 14.7 g, 180°",
+     "notes": "Branded micro metal-gear servo. Expensive for the torque.",
+     "seen_date": "2026-10-23"
+    },
+    {
+     "id": "dfrobot-ser0046-direnc",
+     "category": "pwm_servo",
+     "product": "Analog Geri Beslemeli 9g 270° Metal Servo Motor (1.5kg) - DFRobot SER0046",
+     "shop": "Direnc.net",
+     "url": "https://www.direnc.net/analog-geri-beslemeli-9g-270-metal-servo-motor-1",
+     "price_try": 741.87,
+     "price_note": "KDV dahil; 618,23 TL + KDV",
+     "stock": "in_stock - data-stock-status 1 / schema InStock (no quantity shown)",
+     "specs": "PWM 500-2500 µs (neutral 1500), 270°±5°, deadband ≤5 µs, 4.8-6 V, 0.12 s/60° @4.8 V, 0.10 @6 V, stall 1.3 kg.cm (0.13 N.m) @4.8 V / 1.5 kg.cm (0.15 N.m) @6 V, stall current ≤0.8 A @4.8 V / ≤1.1 A @6 V, centring deviation ≤1°, L/R travel deviation ≤3°, ANALOG POSITION FEEDBACK 0-3.3 V on extra wire, metal gears, 22.9x12.2x32.5 mm, 12 g",
+     "notes": "Only micro servo in TR stock with built-in position feedback and a published centring spec. Torque is low (about 0.15 N.m). The feedback needs ADC channels (e.g. ESP32 ADC or ADS1115). Confirm a 15-20 pcs quantity with Direnc.",
+     "seen_date": "2026-10-23"
+    },
+    {
+     "id": "fs90-fb-robotistan",
+     "category": "pwm_servo",
+     "product": "Feetech FS90-FB Mikro Servo Motor (Pozisyon Geri Bildirimli)",
+     "shop": "Robotistan",
+     "url": "https://www.robotistan.com/feetech-fs90-fb-mikro-servo-motor-pozisyon-geri-bildirimli",
+     "price_try": 358.45,
+     "price_note": "KDV dahil; 298,71 TL + KDV",
+     "stock": "in_stock - schema InStock / hidden stock-status 1 (no quantity)",
+     "specs": "analog, stall 1.3 kg.cm @4.8 V / 1.5 kg.cm (0.15 N.m) @6 V, 0.12/0.10 s/60°, no-load 200 mA, stall 600 mA @6 V, potentiometer wiper brought out on 4th wire (analog position feedback, swings 'a couple of volts' per Pololu); gear material not stated on page",
+     "notes": "Cheapest PWM servo with position feedback in TR. Weak (micro class). Feetech FS5103-FB on Robotistan shows price 0,00 and stock 0, so it is unavailable.",
+     "seen_date": "2026-10-23"
+    },
+    {
+     "id": "ft5335m-fb-robotistan",
+     "category": "pwm_servo",
+     "product": "FEETECH FT5335M-FB Ultra Yüksek Torklu - Yüksek Voltajlı Dijital Servo Motor (Pozisyon Geri Beslemeli)",
+     "shop": "Robotistan",
+     "url": "https://www.robotistan.com/feetech-ft5335m-fb-ultra-yuksek-torklu-yuksek-voltajli-dijital-servo-motor-pozisyon-geri-beslemeli",
+     "price_try": 2064.87,
+     "price_note": "KDV dahil; 1.720,72 TL + KDV",
+     "stock": "in_stock - schema InStock (no quantity)",
+     "specs": "digital, 35 kg.cm (3.4 N.m) @6 V / 40 kg.cm (3.9 N.m) @7.4 V, 0.20/0.18 s/60°, ~120° travel (900-2100 µs), 6-7.4 V, 62.8x32.5x55.9 mm, 180 g, 4th-wire pot feedback",
+     "notes": "Too large and heavy for either duck. Listed only to show that feedback servos are otherwise available in TR.",
+     "seen_date": "2026-10-23"
+    },
+    {
+     "id": "fs5103-fb-robotistan",
+     "category": "pwm_servo",
+     "product": "Feetech FS5103-FB Standart Servo Motor (Pozisyon Geri Bildirimli)",
+     "shop": "Robotistan",
+     "url": "https://www.robotistan.com/feetech-fs5103-fb-standart-servo-motor-pozisyon-geri-bildirimli",
+     "price_try": 0,
+     "price_note": "page shows 0,00 TL (no live price)",
+     "stock": "out_of_stock - hidden product-stock-status 0, no price",
+     "specs": "standard-size analog servo with 4th-wire position feedback (Feetech FS5103B-FB family)",
+     "notes": "Effectively unavailable. Ask Robotistan whether it can restock.",
+     "seen_date": "2026-10-23"
+    },
+    {
+     "id": "mg996r-robocombo",
+     "category": "pwm_servo",
+     "product": "Tower Pro MG996R Metal Dişli Dijital Servo Motor 180 Derece",
+     "shop": "Robocombo",
+     "url": "https://robocombo.com/tower-pro-mg996r-metal-disli-dijital-servo-motor-180-derece",
+     "price_try": 200.5,
+     "price_note": "KDV dahil sale (list 209,5)",
+     "stock": "in_stock - stockCount 46",
+     "specs": "55 g, 40.7x19.7x42.9 mm, stall 9.4 kg.cm (0.92 N.m) @4.8 V / 11 kg.cm (1.08 N.m) @6 V, 0.17/0.14 s/60°, 4.8-7.2 V, stall current 2.5 A @6 V, deadband 5 µs, double ball bearing (MG996R specs per Robotistan/Direnc pages), no feedback",
+     "notes": "Cheapest MG996R. Robotistan's MG996R page says only the output gear is metal and the internal gears are plastic. Known for jitter. Heavy for a small duck.",
+     "seen_date": "2026-10-23"
+    },
+    {
+     "id": "mg996r-motorobit",
+     "category": "pwm_servo",
+     "product": "MG996R Servo Motor 180 Derece",
+     "shop": "Motorobit",
+     "url": "https://www.motorobit.com/mg996r-metal-disli-servo-motor",
+     "price_try": 284.82,
+     "price_note": "KDV dahil; 237,35 TL + KDV",
+     "stock": "in_stock - 'Stokta 100+ ürün'",
+     "specs": "listing claims 13 kg.cm @4.8 V / 15 kg.cm @6 V, 0.13 s/60° @6 V, 4.8-7.2 V (higher than TowerPro datasheet 9.4/11 kg.cm, so treat as marketing)",
+     "notes": "Large stock. A second Motorobit SKU, 'MG996R Yüksek Torklu ... Metal', costs 454,50 TL (100+). Robotistan sells MG996R for 234,53 TL (InStock).",
+     "seen_date": "2026-10-23"
+    },
+    {
+     "id": "mg995-robocombo",
+     "category": "pwm_servo",
+     "product": "Tower Pro MG995 Metal Dişli Dijital Servo Motor 180 Derece",
+     "shop": "Robocombo",
+     "url": "https://robocombo.com/tower-pro-mg995-metal-disli-dijital-servo-motor-180-derece",
+     "price_try": 200.5,
+     "price_note": "KDV dahil sale (list 209,5)",
+     "stock": "in_stock - stockCount 53",
+     "specs": "55 g, 40.7x19.7x42.9 mm, 9.4/11 kg.cm (0.92/1.08 N.m) @4.8/6 V, 0.20/0.16 s/60°, 4.8-6.6 V, 'deadband 1 µs' (listing claim), metal gears (claimed)",
+     "notes": "Robotistan's MG995 page says final gear metal, inner gears plastic. Other sources: SAMM 208,87 (stock 69), Komponentci 204,98 (Var), Robotistan 210,36.",
+     "seen_date": "2026-10-23"
+    },
+    {
+     "id": "ds3218mg-robocombo",
+     "category": "pwm_servo",
+     "product": "DSSERVO DS3218 20kg Servo Motor - 180 Derece - Su Geçirmez",
+     "shop": "Robocombo",
+     "url": "https://robocombo.com/dsservo-ds3218-20kg-servo-motor-180-derece-su-4151",
+     "price_try": 971.5,
+     "price_note": "KDV dahil sale (list 1001)",
+     "stock": "in_stock - stockCount 53",
+     "specs": "DS3218MG digital, 4.8-6.8 V, stall 19 kg.cm (1.86 N.m) @5 V / 21.5 kg.cm (2.11 N.m) @6.8 V, 0.16/0.14 s/60° no-load, 60 g, 40.5x20x40.5 mm, deadband 3 µs (~0.27°), aluminium/copper gears, 1520 µs / 333 Hz, 180°, no feedback",
+     "notes": "Cheapest DS3218 and torque-comparable to STS3215 (about 1.9 N.m @7.4 V), but has no position feedback and the gear backlash is unspecified. 53 pcs is enough for 14-16 joints.",
+     "seen_date": "2026-10-23"
+    },
+    {
+     "id": "ds3218mg-motorobit",
+     "category": "pwm_servo",
+     "product": "DS3218MG 20KG Su Geçirmez Dijital Servo Motor (DSSERVO)",
+     "shop": "Motorobit",
+     "url": "https://www.motorobit.com/ds3218mg-20kg-su-gecirmez-dijital-servo-motor",
+     "price_try": 1302.9,
+     "price_note": "KDV dahil; 1.085,75 TL + KDV",
+     "stock": "in_stock - 'Stokta 100+ ürün'",
+     "specs": "19/21.5 kg.cm @5/6.8 V, 0.16/0.14 s/60°, 60 g, 40.5x40x20 mm, 1520 µs/333 Hz",
+     "notes": "Backup source with 100+ units. Robolink sells it for 1.618,50 (hidden stock 8); n11 listing about 1.291 TL (stock unknown).",
+     "seen_date": "2026-10-23"
+    },
+    {
+     "id": "ds3218mg-komponentci",
+     "category": "pwm_servo",
+     "product": "DSSERVO DS3218 20kg Servo Motor - 180 Derece - Su (RB-532)",
+     "shop": "Komponentci",
+     "url": "https://www.komponentci.net/dsservo-ds3218-20kg-servo-motor-180-derece-su-pmu12285",
+     "price_try": 1094.33,
+     "price_note": "KDV dahil; 18,31 USD + KDV",
+     "stock": "in_stock - 'Stok Durumu: Var' (no quantity)",
+     "specs": "DS3218MG, 4.8-6.8 V, 19/21.5 kg.cm @5/6.8 V, 0.16/0.14 s/60°, 60 g",
+     "notes": "Second-cheapest DS3218.",
+     "seen_date": "2026-10-23"
+    },
+    {
+     "id": "ds3225-robocombo",
+     "category": "pwm_servo",
+     "product": "DSSERVO DS3225 25kg Servo Motor - 180 Derece - Su Geçirmez",
+     "shop": "Robocombo",
+     "url": "https://robocombo.com/dsservo-ds3225-25kg-servo-motor-180-derece-su-4150",
+     "price_try": 1031,
+     "price_note": "KDV dahil sale (list 1076)",
+     "stock": "in_stock - stockCount 105, then 99 on refetch (live)",
+     "specs": "digital, 4.8-6.8 V, stall 21 kg.cm (2.06 N.m) @5 V / 24.5 kg.cm (2.40 N.m) @6.8 V, 0.15/0.13 s/60°, 60 g, 40x20x40.5 mm, copper+aluminium gears, 50-333 Hz (specs per Direnc DS3225 page)",
+     "notes": "Only about 60 TL more than DS3218 for more torque. Other sources: Komponentci 1.168,91 (Var), Direnc 1.278,59 (InStock). Out of stock at Motorobit and F1Depo.",
+     "seen_date": "2026-10-23"
+    },
+    {
+     "id": "td8120mg-motorobit",
+     "category": "pwm_servo",
+     "product": "TD-8120MG 20KG Su Geçirmez Dijital Servo Motor",
+     "shop": "Motorobit",
+     "url": "https://www.motorobit.com/td-8120mg-20kg-su-gecirmez-dijital-servo-motor",
+     "price_try": 969.6,
+     "price_note": "KDV dahil; 808,00 TL + KDV",
+     "stock": "in_stock - 'Stokta 100+ ürün'",
+     "specs": "digital, 4.8-7.2 V, 18.5 kg.cm (1.81 N.m) @4.8 V / 21.8 kg.cm (2.14 N.m) @6 V, 0.18/0.14 s/60°, deadband 4 µs, 65 g, 54.4x20x40.5 mm",
+     "notes": "DS3218-class alternative with 100+ stock, similar price. Komponentci 1.139,03 (Var).",
+     "seen_date": "2026-10-23"
+    },
+    {
+     "id": "fs5115m-robotistan",
+     "category": "pwm_servo",
+     "product": "FEETECH FS5115M 15kg/cm Metal Dişli Analog Servo Motor",
+     "shop": "Robotistan",
+     "url": "https://www.robotistan.com/feetech-fs5115m-15kg-cm-metal-disli-analog-servo-motor",
+     "price_try": 797.3,
+     "price_note": "KDV dahil; 664,41 TL + KDV",
+     "stock": "in_stock - schema InStock (no quantity)",
+     "specs": "analog, 4.8-6 V, stall 14 kg.cm (1.37 N.m) @4.8 V / 15.5 kg.cm (1.52 N.m) @6 V, 0.18/0.16 s/60°, 500-2500 µs 180°, 2BB, full metal gears, 56 g, 40.8x20.1x38 mm",
+     "notes": "Branded Feetech. A factory feedback version (FS5115M-FB) exists at Pololu but was not found in TR.",
+     "seen_date": "2026-10-23"
+    },
+    {
+     "id": "ft5320m-f1depo",
+     "category": "pwm_servo",
+     "product": "Feetech FT5320M 20 Kg Servo Motor Metal Dişli",
+     "shop": "F1Depo",
+     "url": "https://www.f1depo.com/urun/feetech-ft5320m-20-kg-servo-motor-metal-disli",
+     "price_try": 1320,
+     "price_note": "KDV dahil (1.100,00 TL + KDV)",
+     "stock": "in_stock - microdata availability InStock (no quantity)",
+     "specs": "Feetech digital standard servo, '20 kg' per title, metal gears; detailed specs not captured",
+     "notes": "One of the few F1Depo items in stock (FT5330M 35 kg also InStock at 1.680 TL). Nearly all other F1Depo servos were OutOfStock.",
+     "seen_date": "2026-10-23"
+    },
+    {
+     "id": "pca9685-robocombo",
+     "category": "servo_driver",
+     "product": "PCA9685 16 Kanal 12 Bit PWM Sürücü",
+     "shop": "Robocombo",
+     "url": "https://robocombo.com/pca9685-16-kanal-12-bit-pwm-servo-motor-surucusu",
+     "price_try": 179.5,
+     "price_note": "KDV dahil sale (list 203,5)",
+     "stock": "in_stock - stockCount 99",
+     "specs": "PCA9685, I2C, 16 ch, 12-bit, internal 25 MHz osc (needs calibration, real 23-27 MHz), up to 1.6 kHz PWM; at 50 Hz 1 count ≈ 4.9 µs",
+     "notes": "Cheapest PCA9685 in TR with a verified quantity. Two boards cover 16-20 servos (chain via address jumpers). Servo V+ needs an external 5-6 V BEC.",
+     "seen_date": "2026-10-23"
+    },
+    {
+     "id": "pca9685-robotistan",
+     "category": "servo_driver",
+     "product": "PCA9685 16 Kanal I2C PWM/Servo Sürücü Kartı (Klon)",
+     "shop": "Robotistan",
+     "url": "https://www.robotistan.com/pca9685-16-kanal-i2c-pwmservo-surucu-karti-klon",
+     "price_try": 245.41,
+     "price_note": "KDV dahil; 204,51 TL + KDV",
+     "stock": "in_stock - schema InStock (no quantity)",
+     "specs": "62.5x25.4x3 mm, 5.5 g, I2C 0x60-0x80, 12-bit, PWM to 1.6 kHz, push-pull/open-drain, OE pin, 220 Ω series resistors, power LED",
+     "notes": "Robotistan also sells a PCA9685 Shield at 281,68 TL (InStock). The 'Lehimsiz Klon' page shows no price.",
+     "seen_date": "2026-10-23"
+    },
+    {
+     "id": "pca9685-komponentci",
+     "category": "servo_driver",
+     "product": "PCA9685 16 Kanal I2C PWM / Servo Sürücü Kartı",
+     "shop": "Komponentci",
+     "url": "https://www.komponentci.net/16-kanal-i2c-pwm-servo-surucu-karti-pca9685-pmu50905",
+     "price_try": 276.09,
+     "price_note": "KDV dahil; 4,62 USD + KDV",
+     "stock": "in_stock - 'Stok Durumu: Var' (no quantity)",
+     "specs": "same clone board: I2C 0x60-0x80, 12-bit, 1.6 kHz max, OE, 220 Ω resistors",
+     "notes": "Alternative source.",
+     "seen_date": "2026-10-23"
+    },
+    {
+     "id": "pca9685-ozdisan",
+     "category": "servo_driver",
+     "product": "ARDUINO ACCES. 16CH PWM SERVO MODULE PCA9685",
+     "shop": "Ozdisan",
+     "url": "https://www.ozdisan.com/p/arduino-sensorleri-ve-modulleri-613/ozd-arduino-pwm-servo-control-module-536923",
+     "price_try": 356.57,
+     "price_note": "KDV dahil; 297,14 TRY ex-VAT (5,98 USD)",
+     "stock": "in_stock - 'Stok: 25'",
+     "specs": "PCA9685 16-ch 12-bit I2C module",
+     "notes": "Distributor stock count shown.",
+     "seen_date": "2026-10-23"
+    },
+    {
+     "id": "pca9685-motorobit",
+     "category": "servo_driver",
+     "product": "16 Kanal I2C PWM/Servo Sürücü Kartı PCA9685",
+     "shop": "Motorobit",
+     "url": "https://www.motorobit.com/16-kanal-i2c-pwmservo-surucu-karti-pca9685",
+     "price_try": 393.9,
+     "price_note": "KDV dahil; 328,25 TL + KDV",
+     "stock": "low - 'Stokta 9 ürün'",
+     "specs": "PCA9685 16-ch 12-bit I2C",
+     "notes": "Direnc's cheap PCA9685 (232,47 TL) and Adafruit PCA9685 (1.285,91 TL) were OutOfStock.",
+     "seen_date": "2026-10-23"
+    },
+    {
+     "id": "waveshare-servo-hat-b-samm",
+     "category": "servo_driver",
+     "product": "Raspberry Pi Servo Motor Sürücü HAT (B), 16 Kanall, 12-bit, I2C",
+     "shop": "SAMM Market",
+     "url": "https://market.samm.com/raspberry-pi-servo-motor-surucu-hat-b-16-kanall-12-bit-i2c",
+     "price_try": 650.47,
+     "price_note": "KDV dahil",
+     "stock": "in_stock - stockCount 28",
+     "specs": "PCA9685-based Pi HAT (Waveshare), 40-pin GPIO, I2C, 16 ch 12-bit, on-board 5 V regulator up to 3 A (per listing)",
+     "notes": "Useful if the controller is a Raspberry Pi. 3 A is not enough for many stalled servos, so use an external BEC. Non-B HAT costs 965,27 (stock 17); Direnc Waveshare HAT 966,58 (InStock).",
+     "seen_date": "2026-10-23"
+    },
+    {
+     "id": "mg90s-amazon-tr",
+     "category": "pwm_servo",
+     "product": "Mg90s Servo Motor 180 Derece",
+     "shop": "Amazon.com.tr",
+     "url": "https://www.amazon.com.tr/Mg90s-Servo-Motor-180-Derece/dp/B0FF3F2JB2",
+     "price_try": 160,
+     "price_note": "price from web-search snippet; page fetch returned 503",
+     "stock": "unknown - search snippet said in stock, not verified on page",
+     "specs": "4.8-6 V, 'metal gears in plastic housing' (snippet)",
+     "notes": "Marketplace reference only. A 2-pack MG90S for 349 TL ('Stokta sadece 20 adet kaldı') also appeared in snippets, URL not captured.",
+     "seen_date": "2026-10-23"
+    },
+    {
+     "id": "mg90s-trendyol-robotistan",
+     "category": "pwm_servo",
+     "product": "Robotistan Tower Pro MG90S Mikro Servo Motor 180-360 Derece",
+     "shop": "Trendyol (seller Robotistan)",
+     "url": "https://www.trendyol.com/pd/robotistan/tower-pro-mg90s-mikro-servo-motor-180-360-derece-p-327240435",
+     "price_try": 254.76,
+     "price_note": "price from web-search snippet; Trendyol returned 403 to direct fetch",
+     "stock": "unknown - snippet said '10 adetten fazla stok', not verified on page",
+     "specs": "MG90S 9 g class; listing combines 180° and 360° variants (choose 180°)",
+     "notes": "About twice Robotistan's own-site price (125,73). Other Trendyol MG90S listings cost 169-199 TL, and reviews report broken or non-metal gears. Hepsiburada 'Tower Pro MG90S Metal Servo' about 182,40 TL (stock unknown). Akakce min for MG90S 180 was 105,62 TL (7 offers).",
+     "seen_date": "2026-10-23"
+    }
+   ]
+  },
+  "verify": {
+   "checks": [
+    {
+     "id": "sg90-robocombo",
+     "reachable": true,
+     "price_try": 54,
+     "stock": "in_stock - visible 'Stok : 2491' (stockCount 2491); 'Fiyatlarımıza KDV dahildir'",
+     "matches_claim": true,
+     "note": "Sale price 54, list 69. Matches the claim."
+    },
+    {
+     "id": "sg90-samm",
+     "reachable": true,
+     "price_try": 62.16,
+     "stock": "in_stock - visible 'Stok : 35'",
+     "matches_claim": true,
+     "note": "Page shows $1.25 / 51,80 TL + KDV = 62,16 TL."
+    },
+    {
+     "id": "sg90-komponentci",
+     "reachable": true,
+     "price_try": 65.74,
+     "stock": "in_stock - 'Stok Durumu: Var' (no quantity)",
+     "matches_claim": true,
+     "note": "1,10 USD + KDV. Confirmed the warning that gears vary between metal and plastic by supplier batch and that buyers should contact the shop first."
+    },
+    {
+     "id": "sg90-ozdisan",
+     "reachable": true,
+     "price_try": 84.53,
+     "stock": "in_stock - 'Stok: 81'",
+     "matches_claim": true,
+     "note": "70.4415 TRY ex-VAT (1.417 USD); 5+ pcs 67.62 ex-VAT. The parametric 'Fonksiyon' field oddly says 'MG90 MG90S 180 Degree', but the title is SG90."
+    },
+    {
+     "id": "mg90s-komponentci",
+     "reachable": true,
+     "price_try": 101.59,
+     "stock": "in_stock - 'Stok Durumu: Var' (no quantity)",
+     "matches_claim": true,
+     "note": "1,70 USD + KDV. Confirmed the gear-batch warning. A Q&A answer on the page also mentions plastic gears."
+    },
+    {
+     "id": "mg90s-robocombo",
+     "reachable": true,
+     "price_try": 108,
+     "stock": "in_stock - stockCount 141",
+     "matches_claim": true,
+     "note": "No discount; list price is 108."
+    },
+    {
+     "id": "mg90s-motorobit",
+     "reachable": true,
+     "price_try": 151.5,
+     "stock": "in_stock - 'Stokta 100+ ürün' (embedded page data quantity 261)",
+     "matches_claim": true,
+     "note": "126,25 TL + KDV."
+    },
+    {
+     "id": "mg90s-robotistan",
+     "reachable": true,
+     "price_try": 125.73,
+     "stock": "in_stock - stock-status 1; embedded PRODUCT_DATA quantity 542 (not printed as text)",
+     "matches_claim": true,
+     "note": "104,77 + KDV. Confirmed the note that only the last gear stage is metal and the intermediate gears are plastic. With 542 units this is the largest MG90S stock found."
+    },
+    {
+     "id": "sg92r-komponentci",
+     "reachable": true,
+     "price_try": 115.21,
+     "stock": "in_stock - 'Stok Durumu: Var' (no quantity)",
+     "matches_claim": true,
+     "note": "1,93 USD + KDV. Robolink SG92R confirmed at 190,50 TL with embedded quantity 21."
+    },
+    {
+     "id": "es08maii-motorobit",
+     "reachable": true,
+     "price_try": 424.2,
+     "stock": "in_stock - 'Stokta 100+ ürün' (page data quantity 133)",
+     "matches_claim": true,
+     "note": "353,50 + KDV. The page text gives stall torque 1.5/1.8 kg.cm, as the researcher said. The plastic-gear ES08MA II is 363,60 TL with quantity 27."
+    },
+    {
+     "id": "es08maii-komponentci",
+     "reachable": true,
+     "price_try": 498.4,
+     "stock": "in_stock - 'Stok Durumu: Var' (no quantity)",
+     "matches_claim": true,
+     "note": "8,34 USD + KDV."
+    },
+    {
+     "id": "es08maii-robolink",
+     "reachable": true,
+     "price_try": 543,
+     "stock": "in_stock - schema InStock; product-stock-status / PRODUCT_DATA quantity 178",
+     "matches_claim": true,
+     "note": "452,5 TL + KDV = 543,00 TL."
+    },
+    {
+     "id": "es08mdii-motorobit",
+     "reachable": true,
+     "price_try": 606,
+     "stock": "in_stock - 'Stokta 100+ ürün' (page data quantity 164)",
+     "matches_claim": true,
+     "note": "505,00 + KDV. The first fetch returned a client-rendered page; a refetch showed the text."
+    },
+    {
+     "id": "es08mdii-robocombo",
+     "reachable": true,
+     "price_try": 783,
+     "stock": "in_stock - stockCount 237",
+     "matches_claim": true,
+     "note": "List price 795."
+    },
+    {
+     "id": "es09md-robocombo",
+     "reachable": true,
+     "price_try": 896.5,
+     "stock": "in_stock - stockCount 31",
+     "matches_claim": true,
+     "note": "Confirmed out of stock at Robotistan (quantity 0, 894,01)."
+    },
+    {
+     "id": "es3054-robocombo",
+     "reachable": true,
+     "price_try": 735.5,
+     "stock": "in_stock - stockCount 76",
+     "matches_claim": true,
+     "note": "List price 896,5. Robotistan ES3054 has quantity 0, which confirms it is out of stock there. Motorobit ES3054 costs 1.333,20 with page quantity 35, more than the '10+' the researcher noted."
+    },
+    {
+     "id": "es09ma-robotistan",
+     "reachable": true,
+     "price_try": 733.83,
+     "stock": "in_stock - schema InStock; embedded page quantity only 6",
+     "matches_claim": true,
+     "note": "Price and in-stock state match, but only 6 units are in stock, so 15-20 cannot be bought."
+    },
+    {
+     "id": "goteck-direnc",
+     "reachable": true,
+     "price_try": 838.64,
+     "stock": "in_stock - data-stock-status 1; embedded PRODUCT_DATA quantity only 5",
+     "matches_claim": true,
+     "note": "Price and in-stock state match, but only 5 units are in stock. The page lists 'Marka/Menşei: DFRobot' with stock code SER0011, not Goteck."
+    },
+    {
+     "id": "dfrobot-ser0046-direnc",
+     "reachable": true,
+     "price_try": 741.87,
+     "stock": "in_stock - data-stock-status 1; embedded PRODUCT_DATA quantity only 4",
+     "matches_claim": true,
+     "note": "Price and state match (618,23 + KDV), but only 4 units are in stock. The only TR micro servo with a published centring spec cannot supply 15-20 joints without a restock."
+    },
+    {
+     "id": "fs90-fb-robotistan",
+     "reachable": true,
+     "price_try": 358.45,
+     "stock": "in_stock - schema InStock; embedded PRODUCT_DATA quantity 23",
+     "matches_claim": true,
+     "note": "298,71 + KDV. With 23 units this is the only position-feedback micro servo in TR stock where 15-20 can be bought."
+    },
+    {
+     "id": "ft5335m-fb-robotistan",
+     "reachable": true,
+     "price_try": 2064.87,
+     "stock": "in_stock - schema InStock; embedded quantity 16",
+     "matches_claim": true,
+     "note": "1.720,72 + KDV."
+    },
+    {
+     "id": "fs5103-fb-robotistan",
+     "reachable": true,
+     "price_try": 0,
+     "stock": "out_of_stock - product-stock-status 0, PRODUCT_DATA quantity 0, price 0,00",
+     "matches_claim": true,
+     "note": "Unavailable, as the researcher said."
+    },
+    {
+     "id": "mg996r-robocombo",
+     "reachable": true,
+     "price_try": 200.5,
+     "stock": "in_stock - stockCount 46",
+     "matches_claim": true,
+     "note": "List price 209,5. The 360° MG996R variant at the same price has stock 521, but continuous rotation is not usable."
+    },
+    {
+     "id": "mg996r-motorobit",
+     "reachable": true,
+     "price_try": 284.82,
+     "stock": "in_stock - 'Stokta 100+ ürün' (page quantity 158)",
+     "matches_claim": true,
+     "note": "237,35 + KDV. The 'Yüksek Torklu' SKU costs 454,50 with quantity 146. Robotistan MG996R 180° costs 234,53 with quantity 775."
+    },
+    {
+     "id": "mg995-robocombo",
+     "reachable": true,
+     "price_try": 200.5,
+     "stock": "in_stock - stockCount 53",
+     "matches_claim": true,
+     "note": "Robotistan MG995 180° costs 210,36 with embedded quantity 1145. Komponentci MG995 shows 204,98 in its related-products list."
+    },
+    {
+     "id": "ds3218mg-robocombo",
+     "reachable": true,
+     "price_try": 971.5,
+     "stock": "in_stock - stockCount 53",
+     "matches_claim": true,
+     "note": "List price 1001."
+    },
+    {
+     "id": "ds3218mg-motorobit",
+     "reachable": true,
+     "price_try": 1302.9,
+     "stock": "in_stock - 'Stokta 100+ ürün' (page quantity 105)",
+     "matches_claim": true,
+     "note": "1.085,75 + KDV. Robolink DS3218MG confirmed at 1.618,50 with quantity 8."
+    },
+    {
+     "id": "ds3218mg-komponentci",
+     "reachable": true,
+     "price_try": 1094.33,
+     "stock": "in_stock - 'Stok Durumu: Var' (no quantity)",
+     "matches_claim": true,
+     "note": "18,31 USD + KDV."
+    },
+    {
+     "id": "ds3225-robocombo",
+     "reachable": true,
+     "price_try": 1031,
+     "stock": "in_stock - stockCount 99",
+     "matches_claim": true,
+     "note": "List price 1076. Direnc DS3225 costs 1.278,59 with only 18 units. Motorobit DS3225 has quantity 0, which confirms it is out of stock there."
+    },
+    {
+     "id": "td8120mg-motorobit",
+     "reachable": true,
+     "price_try": 969.6,
+     "stock": "in_stock - 'Stokta 100+ ürün' (page quantity 165)",
+     "matches_claim": true,
+     "note": "808,00 + KDV."
+    },
+    {
+     "id": "fs5115m-robotistan",
+     "reachable": true,
+     "price_try": 797.3,
+     "stock": "in_stock - schema InStock; embedded quantity only 7",
+     "matches_claim": true,
+     "note": "Price and state match, but only 7 units are in stock, so 15-20 cannot be bought."
+    },
+    {
+     "id": "ft5320m-f1depo",
+     "reachable": true,
+     "price_try": 1320,
+     "stock": "in_stock - microdata InStock (no quantity)",
+     "matches_claim": true,
+     "note": "Page shows 1.100,00 TL + KDV, KDV dahil 1.320,00, stock code S26."
+    },
+    {
+     "id": "pca9685-robocombo",
+     "reachable": true,
+     "price_try": 179.5,
+     "stock": "in_stock - stockCount 99",
+     "matches_claim": true,
+     "note": "List price 203,5."
+    },
+    {
+     "id": "pca9685-robotistan",
+     "reachable": true,
+     "price_try": 245.41,
+     "stock": "in_stock - schema InStock; embedded quantity 55",
+     "matches_claim": true,
+     "note": "204,51 + KDV."
+    },
+    {
+     "id": "pca9685-komponentci",
+     "reachable": true,
+     "price_try": 276.09,
+     "stock": "in_stock - 'Stok Durumu: Var' (no quantity)",
+     "matches_claim": true,
+     "note": "4,62 USD + KDV."
+    },
+    {
+     "id": "pca9685-ozdisan",
+     "reachable": true,
+     "price_try": 356.57,
+     "stock": "in_stock - 'Stok: 25'",
+     "matches_claim": true,
+     "note": "297.142 TRY ex-VAT (5.978 USD)."
+    },
+    {
+     "id": "pca9685-motorobit",
+     "reachable": true,
+     "price_try": 393.9,
+     "stock": "low - 'Stokta 9 ürün'",
+     "matches_claim": true,
+     "note": "328,25 + KDV."
+    },
+    {
+     "id": "waveshare-servo-hat-b-samm",
+     "reachable": true,
+     "price_try": 650.47,
+     "stock": "in_stock - stockCount 28",
+     "matches_claim": true,
+     "note": "Matches the claim."
+    },
+    {
+     "id": "mg90s-amazon-tr",
+     "reachable": true,
+     "stock": "out_of_stock - 'Şu anda mevcut değil. Bu ürünün tekrar stoklara girip girmeyeceğini bilmiyoruz.' (no price shown)",
+     "matches_claim": false,
+     "note": "The page loaded this time (HTTP 200). There is no buy box and no price, so the 160 TL snippet price is stale and the item is unavailable. The brand is 'Genel', made in China."
+    },
+    {
+     "id": "mg90s-trendyol-robotistan",
+     "reachable": false,
+     "stock": "unknown - Trendyol returned HTTP 403 (Cloudflare) to curl and WebFetch, including the API endpoints",
+     "matches_claim": false,
+     "note": "Could not verify. A web-search result snippet for the same URL now shows 356,45 TL (not checked on the page), not 254.76, so the claimed price is probably stale. Either way it costs well over Robotistan's own site (125,73, quantity 542)."
+    }
+   ],
+   "extra_findings": "Checked 2026-10-23. Quantities come from each shop's page source (ikas stockCount, or PRODUCT_DATA.quantity on Robotistan/Motorobit/Direnc/Robolink). Raw notes are in /private/tmp/claude-501/-Users-huseyinarslan-Desktop-ads-z-klas-r-2/8217cd75-2c54-4fa4-b47f-57c38ee96c2b/scratchpad/s6/research/pwm-servos-verify/notes.md and the HTML is in ./html.\n\nQUANTITY CORRECTIONS THAT MATTER: 1) DFRobot SER0046 feedback servo at Direnc: only 4 units. 2) Goteck micro metal servo at Direnc: only 5 (page brand DFRobot SER0011). 3) EMAX ES09MA at Robotistan: only 6. 4) Feetech FS5115M at Robotistan: only 7. None of these can supply 15-20 joints. The only position-feedback servos in TR with enough stock are Robotistan Feetech FS90-FB (358,45 TL, 23 units) and FT5335M-FB (2.064,87 TL, 16 units, too large). Direnc's ST3215 / ST3215-HS / ST3020 bus servos also have quantity 0.\n\nBETTER OR CHEAPER IN-STOCK ALTERNATIVES:\n(a) Robocombo DSSERVO DS3235 35 kg 180°: 1.171,50 TL (list 1.255), stockCount 134. https://robocombo.com/dsservo-ds3235-35kg-servo-motor-180-derece-su-4148. Same 40x20 mm DS-series size and about 200 TL more than the DS3218 (971,50) for the 35 kg class. Robocombo RDS3235 costs 1.246 (39 units).\n(b) Direnc DS3230MG: 1.046,12 TL, quantity 15. Page specs 27/32 kg.cm at 5/6.8 V, 0.16/0.12 s/60°, 65 g. https://www.direnc.net/ds3230mg-su-gecirmez-servo-motor. Only 15 units. Motorobit DS3230MG costs 1.939,20 (48 units).\n(c) Robotistan MG995 180°: 210,36 TL, quantity 1145 (https://www.robotistan.com/mg995-12-kg-servo-motor). Robotistan MG996R 180°: 234,53 TL, quantity 775 (https://www.robotistan.com/mg996-13-kg-servo-motor). Prices are about the same as Robocombo's 200,5, with roughly 15-25x the stock.\n(d) A second high-stock ES08MA II metal source: Robocombo 562 TL (list 598), stock 265. https://robocombo.com/es08ma-ii-metal-disli-analog-servo-motor-3926. Motorobit at 424,20 (133 units) is still the cheapest.\n(e) Robotistan SG90 180°: 82,21 TL, quantity 2793. Motorobit SG90: 106,05 TL, 98 units. Robolink SG90: 112,50 TL, 236 units. None is cheaper than Robocombo's 54.\n(f) Robolink MG946R 13 kg: 315 TL, 15 units. Robolink MG90S: 190,50 TL, 109 units. Motorobit Emax ES9051 digital mini: 575,70 TL, 58 units.\n\nOUT OF STOCK THAT THE RESEARCHER DID NOT MENTION: Direnc SG90 (104,61), MG90S (116,24), MG995 and MG996 all have quantity 0. Motorobit Tower Pro MG995 (224,22) has quantity 0.\n\nAkakce and Cimri returned 429/403 to automated fetches, so the price-comparison claims (e.g. 'Akakce min MG90S 105,62') could not be re-checked."
+  }
+ },
+ {
+  "area": "electronics-materials",
+  "found": {
+   "area": "CONTROLLER, SENSORS, POWER AND MATERIALS (Turkey, seen 2026-10-23)",
+   "summary": "Method: I used WebSearch, limited to Turkish shop domains, to find product URLs. For each page I then read the schema.org offers.availability field with curl, plus any visible stock text (\"Stok : N\", motorobit's \"10+ Product\", \"STOKTA\", \"Tükendi\"). The WebFetch text view is ambiguous on direnc, robotistan and robolink because those pages render both the \"Sepete Ekle\" and \"Tükendi\" buttons. Raw notes are in /private/tmp/claude-501/-Users-huseyinarslan-Desktop-ads-z-klas-r-2/8217cd75-2c54-4fa4-b47f-57c38ee96c2b/scratchpad/s6/research/controller-sensors-power-materials/notes.md. Prices are in TL including KDV unless a price_note says otherwise. KEY FINDINGS: (1) Every Raspberry Pi Zero 2 W and Pi 5 listing (1, 2 and 4 GB) is out of stock at robotistan, direnc, samm, robocombo, komponentci, motorobit and robolink. Every Orange Pi board (including Zero 3) is out of stock. Radxa Zero 3W has no Turkish seller. The Linux boards in stock are the Raspberry Pi 4 4GB (robotistan 6770 TL, robocombo 94 units, samm 7 units) and the Rock Pi 4B+ 2GB (5803 TL). Cheap microcontrollers are well stocked: ESP32-S3 N16R8 at 538-610 TL, Seeed XIAO ESP32S3 (8 MB PSRAM) at 567 TL with 78 units at SAMM, and the original Arduino Nano ESP32 at 1213 TL. (2) IMUs: a GY-BNO085 clone at motorobit costs 2000 TL with 10+ in stock. A DFRobot Gravity BNO055+BMP280 costs 1699 TL at robotistan. Cheap options are MPU6500 at 136 TL (10+) and MPU6050 at 154-242 TL (motorobit 100+). No Turkish shop stocks ICM-20948 or any LSM6DSOX/LSM6DSV board; ICM-20948 and the Adafruit BNO085 are available only as DigiKey US imports. f1depo's whole IMU category is out of stock. (3) Camera and ToF: an OV5647 clone costs 326 TL and the IMX219-160 costs 974 TL (both robotistan, in stock). VL53L0X costs 160 TL and VL53L1X 519-568 TL, all in stock. No VL53L5CX was found. (4) Power: one genuine-brand 18650 is in stock, the Samsung 25R (20 A) at pilpaketi for 183.90 TL. The Turkish-made Aspilsan A28 (14 A continuous / 25 A conditional) is 124.26 TL. Molicel P28A shows 506 TL with an add-to-cart button at elektrodepo but no stock text; it is out at pilpaketi and setapower, and akakce lists no current offers. A 2S holder costs 19.50 TL (1046 units), a 13 A 2S BMS 70 TL, and a Tinylab 2S 1300 mAh 40C LiPo 759 TL. The NP-F550 7.4 V battery is 999 TL with 10+ in stock; no electronics shop sells an NP-F holder, so it would have to be printed. Bucks: MP1584 5 V at 52 TL, XL4015 at 83 TL, LM2596-5V at 162 TL. XT30 pair 17 TL, XT60 41 TL. (5) Filament per kg: Kingroon PETG 450 TL at SAMM (only some colours, about 5 spools each), Elas PETG 520-550 TL, Elas PLA 650 TL, eSUN PLA Basic 669 TL, Creality CR-TPU 1072.50 TL (robolink). Porima TPU 98A is 989 TL, but Porima TPU 95A and eSUN eTPU-95A are out of stock. porima3d.com returned HTTP 429 every time, so only its PETG price was read (712.80 TL, \"Stoktan Teslim\"). (6) Hardware: the 693ZZ bearing (3x8x4) costs 89.33 TL with 55 in stock at rulmanal. No 692ZZ (2x6x3) was found; the nearest is MR62ZZ (2x6x2.5). Note that MR83ZZ is 3x8x3, not 3x8x4. Screw sets are in stock at robocombo and robolink. No electronics shop has brass heat-set inserts in stock; marketplace listings exist, such as Trendyol CEKSAN M3 100 pcs at 499.90 TL. (7) Limits: Trendyol, Hepsiburada, n11, akakce search and cimri returned 403 or Cloudflare blocks, and the Chrome extension was not connected, so I could not check any marketplace stock. A USD/TRY rate of about 49.8 is implied by komponentci's USD+KDV pricing.",
+   "items": [
+    {
+     "id": "ctl-pi4-4gb-robotistan",
+     "category": "controller",
+     "product": "Raspberry Pi 4 Model B 4GB",
+     "shop": "robotistan.com",
+     "url": "https://www.robotistan.com/raspberry-pi-4-4gb",
+     "price_try": 6770.06,
+     "price_note": "5641.72 TL + KDV; KDV dahil 6770.06; havale 6634.66; max 2 per order",
+     "stock": "in_stock (schema.org InStock; no quantity shown; 2-per-order limit)",
+     "specs": "BCM2711 4x Cortex-A72 1.5GHz, 4GB LPDDR4, WiFi 5 + BT5.0, GbE, 2-lane CSI camera port, 40-pin GPIO with UART/I2C/SPI, 5V 3A USB-C, 85x56 mm, ~46 g. Enough for a small ONNX MLP at 50 Hz with onnxruntime.",
+     "notes": "Cheapest in-stock Linux SBC found. Use this because the Pi 5 and Pi Zero 2 W are out of stock everywhere.",
+     "seen_date": "2026-10-23"
+    },
+    {
+     "id": "ctl-pi4-4gb-robocombo",
+     "category": "controller",
+     "product": "Raspberry Pi 4 - 4GB",
+     "shop": "robocombo.com",
+     "url": "https://www.robocombo.com/raspberry-pi-4-4gb",
+     "price_try": 8113.5,
+     "price_note": "KDV dahil (site: 'Fiyatlarımıza KDV dahildir')",
+     "stock": "in_stock (Stok : 94)",
+     "specs": "Same as Raspberry Pi 4 4GB",
+     "notes": "Largest stock quantity found for a Linux SBC",
+     "seen_date": "2026-10-23"
+    },
+    {
+     "id": "ctl-pi4-4gb-samm",
+     "category": "controller",
+     "product": "Raspberry Pi 4 4GB (SC0194)",
+     "shop": "market.samm.com",
+     "url": "https://market.samm.com/raspberry-pi-4-4gb",
+     "price_try": 6922.47,
+     "price_note": "schema price, KDV dahil (SAMM convention)",
+     "stock": "in_stock (Stok : 7)",
+     "specs": "Same as Raspberry Pi 4 4GB",
+     "notes": "SAMM is the Raspberry Pi main distributor",
+     "seen_date": "2026-10-23"
+    },
+    {
+     "id": "ctl-pizero2w-robotistan",
+     "category": "controller",
+     "product": "Raspberry Pi Zero 2 W",
+     "shop": "robotistan.com",
+     "url": "https://www.robotistan.com/raspberry-pi-zero-2-w",
+     "price_try": 959.29,
+     "price_note": "799.41 + KDV",
+     "stock": "out_of_stock (Tükendi, 'Gelince Haber Ver')",
+     "specs": "RP3A0 4x A53 1GHz, 512MB, WiFi4/BT4.2, CSI-2 (22-pin), 65x30 mm, ~11 g",
+     "notes": "Also out of stock: direnc 1232.09 TL (Tükendi), samm 1312.88 TL (Stokta Yok), robocombo (Stok:0), komponentci 1409.86 TL ('geçici olarak temin edilememektedir'), robolink (delisted). Unusable for a stock-guaranteed BOM.",
+     "seen_date": "2026-10-23"
+    },
+    {
+     "id": "ctl-pi5-4gb-robolink",
+     "category": "controller",
+     "product": "Raspberry Pi 5 - 4GB",
+     "shop": "robolinkmarket.com",
+     "url": "https://www.robolinkmarket.com/raspberry-pi-5-4gb",
+     "price_try": 6117,
+     "price_note": "5097.50 + KDV",
+     "stock": "out_of_stock (Tükendi)",
+     "specs": "BCM2712 4x A76 2.4GHz, 4GB LPDDR4X, 5V 5A",
+     "notes": "All Pi 5 variants are out of stock. 4GB: robotistan 7008.83, samm 7698.27, robocombo 8662 (Stok 0), motorobit, direnc. 2GB: direnc 4533.17, robotistan 5212.34, robocombo 5068, motorobit. 1GB: robotistan 2883.32, direnc 2930.09+KDV.",
+     "seen_date": "2026-10-23"
+    },
+    {
+     "id": "ctl-orangepi-zero3-2gb-direnc",
+     "category": "controller",
+     "product": "Orange Pi Zero 3 - 2GB",
+     "shop": "direnc.net",
+     "url": "https://www.direnc.net/orange-pi-zero-3-2gb",
+     "price_try": 2905.88,
+     "price_note": "2421.57 + KDV; 1GB 2092.23, 4GB 3428.94",
+     "stock": "out_of_stock (schema.org OutOfStock for 1GB/2GB/4GB)",
+     "specs": "Allwinner H618 4x A53 1.5GHz, LPDDR4, WiFi5 + BT5.0, GbE",
+     "notes": "Every Orange Pi at robotistan is also TÜKENDİ. The Orange Pi Zero 2W appears only in akakce/n11 search snippets (~2313 TL for 1GB), unverified. No Turkish seller of Radxa Zero 3W was found.",
+     "seen_date": "2026-10-23"
+    },
+    {
+     "id": "ctl-rockpi-4bplus-robotistan",
+     "category": "controller",
+     "product": "Rock Pi 4B+ Geliştirme Kartı - 2GB DDR4 16GB eMMC",
+     "shop": "robotistan.com",
+     "url": "https://www.robotistan.com/rock-pi-4b-gelistirme-karti-2gb",
+     "price_try": 5802.91,
+     "price_note": "discounted from 6890.35",
+     "stock": "in_stock (schema.org InStock)",
+     "specs": "Rockchip RK3399 (2x A72 + 4x A53), 2GB, 16GB eMMC, Pi-B form factor (85x54 mm), MIPI CSI",
+     "notes": "Alternative Linux SBC, cheaper than the Pi 4 but with weaker software support. Rock Pi 4C+ 4GB is 6898.82 TL, in stock.",
+     "seen_date": "2026-10-23"
+    },
+    {
+     "id": "ctl-esp32s3-devkitc-n16r8-komponentci",
+     "category": "controller",
+     "product": "ESP32-S3-DevKitC-1 N16R8 WiFi ve Bluetooth Geliştirme Kartı",
+     "shop": "komponentci.net",
+     "url": "https://www.komponentci.net/esp32-s3-devkitc-1-n16r8-wifi-ve-bluetooth-gelistirme-karti-pmu12351",
+     "price_try": 537.62,
+     "price_note": "9.00 USD + KDV = 537.62 TL KDV dahil",
+     "stock": "in_stock (Stok: Var; no quantity)",
+     "specs": "ESP32-S3-WROOM-1-N16R8: 2x Xtensa LX7 240MHz, 16MB flash, 8MB octal PSRAM, 512KB SRAM, WiFi4 + BLE5, 3 UARTs (one can drive a half-duplex servo bus with a buffer), Micro USB per listing",
+     "notes": "Cheapest in-stock MCU with PSRAM. Would run a tiny MLP policy via TFLite-Micro/ESP-DL (not onnxruntime). The listing is a clone DevKitC.",
+     "seen_date": "2026-10-23"
+    },
+    {
+     "id": "ctl-esp32s3-n16r8-direnc",
+     "category": "controller",
+     "product": "ESP32 S3 N16R8 WiFi Bluetooth Board",
+     "shop": "direnc.net",
+     "url": "https://www.direnc.net/esp32-s3-n16r8-wifi-bluetooth-modul",
+     "price_try": 610.23,
+     "price_note": "508.53 + KDV",
+     "stock": "in_stock (schema.org InStock; no quantity)",
+     "specs": "ESP32-S3 N16R8, 16MB flash, 8MB PSRAM, 2x USB-C (UART + native USB/JTAG), WS2812 LED, 45 GPIO",
+     "notes": "Robolink sells the same class of board at 699.00 TL, in stock.",
+     "seen_date": "2026-10-23"
+    },
+    {
+     "id": "ctl-xiao-esp32s3-samm",
+     "category": "controller",
+     "product": "Seeed Studio XIAO ESP32-S3 (113991114)",
+     "shop": "market.samm.com",
+     "url": "https://market.samm.com/seeed-studio-xiao-esp32s3",
+     "price_try": 566.93,
+     "price_note": "KDV dahil (schema)",
+     "stock": "in_stock (Stok : 78)",
+     "specs": "ESP32-S3R8, 8MB PSRAM, 8MB flash, 21x17.5 mm, ~3 g, onboard LiPo charger, USB-C",
+     "notes": "Smallest ESP32-S3 with PSRAM and good stock; suits the 27 cm microduck. Robotistan has it at 583.31 TL but out of stock.",
+     "seen_date": "2026-10-23"
+    },
+    {
+     "id": "ctl-arduino-nano-esp32-direnc",
+     "category": "controller",
+     "product": "Orjinal Arduino Nano ESP32",
+     "shop": "direnc.net",
+     "url": "https://www.direnc.net/orjinal-arduino-nano-esp32",
+     "price_try": 1212.76,
+     "price_note": "1010.64 + KDV",
+     "stock": "in_stock (schema.org InStock)",
+     "specs": "u-blox NORA-W106 (ESP32-S3), 16MB flash, 8MB PSRAM (per Arduino), 512KB SRAM, USB-C, 18x45 mm, 3.3V I/O, VIN 6-21V per listing",
+     "notes": "Original board, about twice the price of a clone ESP32-S3",
+     "seen_date": "2026-10-23"
+    },
+    {
+     "id": "ctl-esp32s3-supermini-robolink",
+     "category": "controller",
+     "product": "ESP32-S3 Süper Mini WiFi Bluetooth Modülü",
+     "shop": "robolinkmarket.com",
+     "url": "https://www.robolinkmarket.com/esp32-s3-super-mini-wifi-bluetooth-modulu",
+     "price_try": 358.5,
+     "stock": "in_stock (schema.org InStock)",
+     "specs": "ESP32-S3, 4MB flash, 22.5x18 mm; PSRAM 0-2MB depending on chip (FH4R2), not 8MB",
+     "notes": "Cheapest S3 board, but too little PSRAM for a comfortable policy. Motorobit has it at 393.90, in stock.",
+     "seen_date": "2026-10-23"
+    },
+    {
+     "id": "imu-bno085-motorobit",
+     "category": "imu",
+     "product": "GY-BNO080 BNO085 9-Axis High Precision Acceleration and Gyro Sensor",
+     "shop": "motorobit.com",
+     "url": "https://www.motorobit.com/gy-bno080-bno085-9-axis-high-precision-acceleration-and-gyro-sensor",
+     "price_try": 1999.8,
+     "price_note": "1666.50 TL + VAT = 1999.80",
+     "stock": "in_stock (10+ Product)",
+     "specs": "BNO085 9-axis with onboard Cortex-M0+ sensor fusion (game rotation vector), I2C up to 400kHz, SPI 3MHz, UART 3Mbps / UART-RVC; listing: game rotation vector dynamic error 2.5 deg, static 1.5 deg",
+     "notes": "Only in-stock BNO085 in Turkey (clone GY board; chip origin unverified). f1depo has it at 1680 TL, Tükendi. Adafruit BNO085 at robocombo 2497 TL, Stok 0.",
+     "seen_date": "2026-10-23"
+    },
+    {
+     "id": "imu-bno055-gravity-robotistan",
+     "category": "imu",
+     "product": "Gravity BNO055+BMP280 intelligent 10DOF AHRS (DFRobot SEN0253)",
+     "shop": "robotistan.com",
+     "url": "https://www.robotistan.com/gravity-bno055bmp280-intelligent-10dof-ahrs",
+     "price_try": 1699.17,
+     "stock": "in_stock (schema.org InStock)",
+     "specs": "Bosch BNO055 with onboard fusion (Euler/quaternion at 100Hz) + BMP280, I2C 0x28/0x29, 3.3-5V, Gravity connector",
+     "notes": "Robocombo has the same at 1912.50 (Stok : 2); motorobit 4040, in stock. Adafruit and Boardoza BNO055 are out of stock everywhere checked.",
+     "seen_date": "2026-10-23"
+    },
+    {
+     "id": "imu-mpu6050-komponentci",
+     "category": "imu",
+     "product": "MPU6050 Gyro Jiroskop Modül Arduino Uyumlu GY-521",
+     "shop": "komponentci.net",
+     "url": "https://www.komponentci.net/mpu6050-gyro-jiroskop-modul-arduino-uyumlu-gy-521-pmu254",
+     "price_try": 153.61,
+     "price_note": "~2.57 USD + KDV",
+     "stock": "in_stock (schema.org InStock)",
+     "specs": "6-axis, 16-bit, +/-2..16 g, +/-250..2000 dps, I2C 400kHz, DMP, 3-5V (GY-521)",
+     "notes": "Cheapest MPU6050. Motorobit has it at 242.40 with '100+ Product' if you need many; robotistan 193.43, in stock. No onboard fusion, so filter on the host.",
+     "seen_date": "2026-10-23"
+    },
+    {
+     "id": "imu-mpu6500-motorobit",
+     "category": "imu",
+     "product": "MPU6500 6 Axis Acceleration and Gyro Sensor - GY-6500",
+     "shop": "motorobit.com",
+     "url": "https://www.motorobit.com/mpu6500-6-axis-acceleration-and-gyro-sensor-gy-6500",
+     "price_try": 136.35,
+     "price_note": "113.63 TL + VAT",
+     "stock": "in_stock (10+ Product)",
+     "specs": "6-axis, SPI up to 20MHz or I2C, lower noise than MPU6050",
+     "notes": "Cheapest 6-axis IMU found; SPI allows fast reads at 50-200 Hz",
+     "seen_date": "2026-10-23"
+    },
+    {
+     "id": "imu-mpu9250-bmp280-robocombo",
+     "category": "imu",
+     "product": "MPU9250+BMP280 10DOF Sensör - Gyro, İvme ve Basınç",
+     "shop": "robocombo.com",
+     "url": "https://www.robocombo.com/mpu9250bmp280-10dof-sensor-gyro-ivme-ve-basin-3972",
+     "price_try": 448.2,
+     "stock": "in_stock (Stok : 49)",
+     "specs": "9-axis (accel/gyro/AK8963 mag) + BMP280 barometer, I2C/SPI",
+     "notes": "Genuine MPU9250 is EOL, so clones may carry an MPU6500 without a magnetometer. Plain MPU9250 boards are out of stock at motorobit (277.75) and robocombo.",
+     "seen_date": "2026-10-23"
+    },
+    {
+     "id": "imu-icm20948-digikey",
+     "category": "imu",
+     "product": "Pimoroni PIM448 ICM-20948 9DoF breakout",
+     "shop": "digikey.com (digikey.com.tr redirects here; US stock, import)",
+     "url": "https://www.digikey.com/en/products/detail/pimoroni-ltd/PIM448/10246391",
+     "price_note": "18.79 USD each (~936 TL at ~49.8 TRY/USD) before shipping and customs",
+     "stock": "in_stock (70 at DigiKey US; import, not Turkish stock)",
+     "specs": "ICM-20948 9-axis (with AK09916 magnetometer), I2C/SPI, 3-5V",
+     "notes": "No ICM-20948 is in stock at Turkish shops; the Waveshare Pico 10-DOF ICM20948 board at robotistan is OutOfStock. DigiKey also has Adafruit 4754 BNO085 at 29.50 USD with 6817 in stock. No LSM6DSOX/LSM6DSV breakout was found in Turkey.",
+     "seen_date": "2026-10-23"
+    },
+    {
+     "id": "cam-ov5647-robotistan",
+     "category": "camera",
+     "product": "Raspberry Pi 3 ve 4 Uyumlu Kamera Modülü V1.3 (OV5647)",
+     "shop": "robotistan.com",
+     "url": "https://www.robotistan.com/raspberry-pi-3-ve-4-uyumlu-kamera-modulu",
+     "price_try": 326.41,
+     "stock": "in_stock (schema.org InStock)",
+     "specs": "OV5647 5MP 2592x1944, 1080p30 / 720p60 / VGA90, fixed focus, ~54x41 deg FOV, 15-pin CSI (Pi Zero/Pi 5 need a 22-pin cable)",
+     "notes": "Cheapest Pi camera. Direnc has the equivalent at 411.67 + KDV, in stock.",
+     "seen_date": "2026-10-23"
+    },
+    {
+     "id": "cam-imx219-160-robotistan",
+     "category": "camera",
+     "product": "IMX219 Camera Module, 160 degree Angle of View (Waveshare)",
+     "shop": "robotistan.com",
+     "url": "https://www.robotistan.com/imx219-camera-module-160-degree-angle-of-view",
+     "price_try": 973.8,
+     "stock": "in_stock (schema.org InStock)",
+     "specs": "Sony IMX219 8MP 3280x2464, 160 deg FOV, CSI-2",
+     "notes": "Only in-stock IMX219 found. Out of stock: direnc IMX219-160 (837.38+KDV), robolink Pi Camera V2 (2394), SAMM IMX219 boards.",
+     "seen_date": "2026-10-23"
+    },
+    {
+     "id": "tof-vl53l0x-komponentci",
+     "category": "sensor",
+     "product": "GY-VL53L0XV2 Lazer Mesafe Ölçme Sensörü 940nm",
+     "shop": "komponentci.net",
+     "url": "https://www.komponentci.net/gy-vl53l0xv2-lazer-mesafe-olcme-sensoru-940nm-pmu9421",
+     "price_try": 159.95,
+     "stock": "in_stock (schema.org InStock)",
+     "specs": "ST VL53L0X ToF, 940nm, up to ~2 m, ~25 deg FOV, I2C (0x29 default), 2.6-5.5V module",
+     "notes": "Cheapest ToF. Robotistan VL53L0X I2C/PWM/Serial module costs 590.57, in stock.",
+     "seen_date": "2026-10-23"
+    },
+    {
+     "id": "tof-vl53l1x-komponentci",
+     "category": "sensor",
+     "product": "TOF400C VL53L1X Lazer Sensör Modülü",
+     "shop": "komponentci.net",
+     "url": "https://www.komponentci.net/tof400c-vl53l1x-lazer-sensor-modulu-pmu12314",
+     "price_try": 519.19,
+     "stock": "in_stock (schema.org InStock)",
+     "specs": "ST VL53L1X, up to 4 m (long mode) / 1.3 m (short), 27 deg FOV, I2C",
+     "notes": "Motorobit TOF400C costs 479.75 + VAT, in stock. VL53L5CX (8x8) was not found at any Turkish shop.",
+     "seen_date": "2026-10-23"
+    },
+    {
+     "id": "tof-vl53l1x-cjmcu-robotistan",
+     "category": "sensor",
+     "product": "CJMCU-531 VL53L1X 400cm Laser Distance Sensor",
+     "shop": "robotistan.com",
+     "url": "https://www.robotistan.com/cjmcu531-vl53l1x-laser-distance-sensor",
+     "price_try": 568.2,
+     "stock": "in_stock (schema.org InStock)",
+     "specs": "VL53L1X, up to 4 m, I2C",
+     "notes": "Robotistan also lists a VL53L1X breakout at 1442.87, in stock.",
+     "seen_date": "2026-10-23"
+    },
+    {
+     "id": "bat-18650-samsung25r-pilpaketi",
+     "category": "battery",
+     "product": "Samsung INR18650-25R 2500 mAh 3.7V Li-ion Şarjlı Pil",
+     "shop": "pilpaketi.com",
+     "url": "https://www.pilpaketi.com/samsung-inr18650-25r-2500-mah-3.7v-li-ion-sarjli-pil",
+     "price_try": 183.9,
+     "price_note": "KDV dahil; havale 178.38",
+     "stock": "in_stock (schema.org InStock; no quantity)",
+     "specs": "2500 mAh, 3.6/3.7V nominal, 4.2V max, 20A continuous, ~45 g, unprotected flat-top 18x65 mm",
+     "notes": "Only genuine-brand high-drain 18650 found in stock. Two cells in series make 7.4V, which suits STS3215 / 2S servos. Out of stock elsewhere: pilyurdu 25R 393.60, pilburada 30Q 220 and 35E 234, pilpaketi VTC6 378.15, pilpaketi Molicel P28A 426.51, setapower P28A 429.",
+     "seen_date": "2026-10-23"
+    },
+    {
+     "id": "bat-18650-aspilsan-a28-pilpaketi",
+     "category": "battery",
+     "product": "Aspilsan INR18650A28 2800 mAh Li-ion Şarjlı Pil",
+     "shop": "pilpaketi.com",
+     "url": "https://pilpaketi.com/urun/aspilsan-inr18650a28-3-7v-2900-mah-li-ion-sarjli-pil-25a/",
+     "price_try": 124.26,
+     "price_note": "KDV dahil; 100+ pcs = 120.22/pc",
+     "stock": "in_stock (schema.org InStock)",
+     "specs": "2800 mAh, 3.7V, 14A continuous / 25A conditional (SOC >70%, 80 C cutoff), 18650",
+     "notes": "Turkish manufacturer (Aspilsan), cheapest genuine cell. 14 A continuous is enough for 2S servo peaks of about 10 A.",
+     "seen_date": "2026-10-23"
+    },
+    {
+     "id": "bat-18650-molicel-p28a-elektrodepo",
+     "category": "battery",
+     "product": "Molicel INR-18650-P28A - 3.7V 2800 mAh Li-ion Şarjlı Pil -35A",
+     "shop": "elektrodepo.com",
+     "url": "https://www.elektrodepo.com/urun/molicel-inr-18650-p28a-3-7v-2800-mah-li-ion-sarjli-pil-35a",
+     "price_try": 506,
+     "price_note": "506.00 TL (Kdv Dahil)",
+     "stock": "unknown ('Sepete Ekle' shown, no stock text or schema)",
+     "specs": "2800 mAh, 35A continuous, 18650",
+     "notes": "Same page lists Molicel P30B at 687.50 and Murata VTC6 at 522.50, also without stock text. akakce's P28A page shows 'Fiyat bulunamadı' (0 offers).",
+     "seen_date": "2026-10-23"
+    },
+    {
+     "id": "bat-18650-orion-2000-15c-robotistan",
+     "category": "battery",
+     "product": "Orion pil li-ion 18650p 2000 mah 15c",
+     "shop": "robotistan.com",
+     "url": "https://www.robotistan.com/orion-pil-liion-18650p-2000mah-15c",
+     "price_try": 138.42,
+     "stock": "in_stock (schema.org InStock)",
+     "specs": "18650, 2000 mAh, 15C claimed (~30 A)",
+     "notes": "Rebranded cell of unknown origin; ratings unverified. Robotistan also sells SUPEX and ProFuse 2500-2600 mAh cells at 245-290 TL, but no Samsung, LG or Molicel.",
+     "seen_date": "2026-10-23"
+    },
+    {
+     "id": "bat-2s-lipo-1300-tinylab-robotistan",
+     "category": "battery",
+     "product": "Tinylab 7.4V 2S Lipo Batarya 1300mAh 40C",
+     "shop": "robotistan.com",
+     "url": "https://www.robotistan.com/tinylab-74v-2s-lipo-batarya-1300mah-40c",
+     "price_try": 759.21,
+     "price_note": "632.68 + KDV",
+     "stock": "in_stock (schema.org InStock)",
+     "specs": "2S 7.4V, 1300 mAh, 40C, 69.1 g, 71x35x14 mm, JST plug, 7.5 cm lead",
+     "notes": "Light pack for the 27 cm robot (swap the plug to XT30). Robotistan also has 850 mAh at 664.31 and ProFuse 2S 1800 40C at 1659.27.",
+     "seen_date": "2026-10-23"
+    },
+    {
+     "id": "bat-2s-lipo-2200-tinylab-robotistan",
+     "category": "battery",
+     "product": "Tinylab 7.4V 2S Lipo Batarya 2200mAh 40C",
+     "shop": "robotistan.com",
+     "url": "https://www.robotistan.com/tinylab-74v-2s-lipo-batarya-2200mah-40c",
+     "price_try": 1088.65,
+     "stock": "in_stock (schema.org InStock)",
+     "specs": "2S 7.4V, 2200 mAh, 40C",
+     "notes": "For the 47 cm robot. Out of stock elsewhere: motorobit Profuse 2200 40C (1169.07+VAT), robolink 2200 35C (1560), f1depo 2200 40C (1260).",
+     "seen_date": "2026-10-23"
+    },
+    {
+     "id": "bat-npf550-yongnuo",
+     "category": "battery",
+     "product": "NP-F550 2200 mAh Led Işık Bataryası (Yongnuo)",
+     "shop": "yongnuo.com.tr",
+     "url": "https://yongnuo.com.tr/aksesuarlar/batarya-sarj-cihazlari/prd-np-f550-2200-mah-led-isik-bataryasi",
+     "price_try": 999,
+     "stock": "in_stock (STOK: 10+)",
+     "specs": "NP-F550 form factor, 7.4V, 2200 mAh (seller notes it is for LED lights/monitors, not cameras)",
+     "notes": "No NP-F holder or plate is sold at electronics shops, so it would have to be 3D-printed with spring contacts. A 2x18650 pack is cheaper and lighter per Wh.",
+     "seen_date": "2026-10-23"
+    },
+    {
+     "id": "pwr-2s-bms-13a-komponentci",
+     "category": "power",
+     "product": "2S 13A BMS 18650 Lityum Pil Şarj Koruma Devresi",
+     "shop": "komponentci.net",
+     "url": "https://www.komponentci.net/2s-13a-bms-18650-lityum-pil-sarj-koruma-devresi-pmu6859",
+     "price_try": 70.1,
+     "stock": "in_stock (schema.org InStock)",
+     "specs": "2S Li-ion protection, 13A max working current, overcharge / overdischarge / short protection",
+     "notes": "Others in stock: komponentci 2S 10A BMS 84.06, motorobit 2S 7.5A balance BMS 70.70, robolink 2S 8A 64.50, komponentci 2S 5A 40.35.",
+     "seen_date": "2026-10-23"
+    },
+    {
+     "id": "pwr-2x18650-holder-robocombo",
+     "category": "power",
+     "product": "18650 2li Pil Yuvası - Kablolu",
+     "shop": "robocombo.com",
+     "url": "https://www.robocombo.com/18650-2li-pil-yuvasi-kablolu-3353",
+     "price_try": 19.5,
+     "stock": "in_stock (Stok : 1046)",
+     "specs": "2x18650, ABS, 74x46x17.5 mm, ~15 cm leads",
+     "notes": "Check the wiring is series (7.4V) before ordering. Komponentci has one at 21.52 and robolink at 27.00, both in stock.",
+     "seen_date": "2026-10-23"
+    },
+    {
+     "id": "pwr-mp1584-5v-komponentci",
+     "category": "power",
+     "product": "MP1584EN 5V 3A Ultra Küçük Boyutlu DC-DC Step-Down Voltaj Regülatör Modülü",
+     "shop": "komponentci.net",
+     "url": "https://www.komponentci.net/mp1584en-5v-3a-ultra-kucuk-boyutlu-dc-dc-step-down-voltaj-regulator-modulu-pmu61596",
+     "price_try": 51.87,
+     "stock": "in_stock (schema.org InStock)",
+     "specs": "MP1584EN fixed 5V out, 3A peak (~2A continuous recommended), input ~6-28V",
+     "notes": "Fine for an ESP32-S3 or sensors. A Pi 4 needs 3A continuous, so use the LM2596-5V or a 5A buck. Motorobit adjustable 3A mini buck is 60.60 with '100+ Product'; robolink MP1584 5V 79.50, in stock.",
+     "seen_date": "2026-10-23"
+    },
+    {
+     "id": "pwr-xl4015-komponentci",
+     "category": "power",
+     "product": "XL4015 5A Ayarlanabilir DC-DC Voltaj Düşürücü",
+     "shop": "komponentci.net",
+     "url": "https://www.komponentci.net/xl4015-5a-ayarlanabilir-dc-dc-voltaj-dusurucu-pmu3119",
+     "price_try": 83.39,
+     "stock": "in_stock (schema.org InStock)",
+     "specs": "XL4015 buck, 5A max (4.5A continuous recommended), in 4-38V, out 1.25-36V, up to 96% efficiency, no reverse-polarity protection, needs Vin >= Vout + 1.5V",
+     "notes": "Direnc has it at 82.33 + KDV, in stock. Out of stock: robotistan, robolink (85.50), motorobit CC/CV version (555.50+VAT).",
+     "seen_date": "2026-10-23"
+    },
+    {
+     "id": "pwr-lm2596-5v3a-robotistan",
+     "category": "power",
+     "product": "5 V 3 A Voltaj Regülatör Kartı - LM2596-5V",
+     "shop": "robotistan.com",
+     "url": "https://www.robotistan.com/5v-3a-voltaj-regulator-karti-lm2596-5v",
+     "price_try": 162,
+     "stock": "in_stock (schema.org InStock)",
+     "specs": "LM2596 fixed 5V, 3A, input 7-35V",
+     "notes": "Usable from 2S only above ~7V input, so marginal near the end of discharge. Komponentci UBEC 5V 3A FPV is 185.02, in stock. Motorobit HW468 5V 5A (252.50+VAT) is out of stock.",
+     "seen_date": "2026-10-23"
+    },
+    {
+     "id": "pwr-xt30-komponentci",
+     "category": "power",
+     "product": "XT30 Li-Po Pil Erkek Dişi Soket Takım Konnektör",
+     "shop": "komponentci.net",
+     "url": "https://www.komponentci.net/xt30-li-po-pil-erkek-disi-soket-takim-konnektor-pmu6847",
+     "price_try": 17.33,
+     "stock": "in_stock (schema.org InStock)",
+     "specs": "XT30 male + female pair, 30A continuous",
+     "notes": "Motorobit XT30 kit (21.21+VAT) is out of stock.",
+     "seen_date": "2026-10-23"
+    },
+    {
+     "id": "pwr-xt60-robotistan",
+     "category": "power",
+     "product": "XT60 Erkek Lipo Pil Konnektör",
+     "shop": "robotistan.com",
+     "url": "https://www.robotistan.com/xt60-erkek-lipo-pil-konnektor",
+     "price_try": 41.1,
+     "stock": "in_stock (schema.org InStock)",
+     "specs": "XT60 male, 60A",
+     "notes": "Direnc XT60 pair (21.50) is out of stock.",
+     "seen_date": "2026-10-23"
+    },
+    {
+     "id": "mat-petg-kingroon-samm",
+     "category": "material",
+     "product": "Kingroon PETG Basic Filament 1.75mm 1 Kg (several colours)",
+     "shop": "market.samm.com",
+     "url": "https://market.samm.com/en/petg-filament-eng",
+     "price_try": 450,
+     "price_note": "375.00 + KDV = 450.00",
+     "stock": "in_stock (10 colours InStock, e.g. Transparent Green 'Stok : 5'; Black OutOfStock)",
+     "specs": "PETG, 1.75 mm, 1 kg",
+     "notes": "Cheapest filament found per kg. Quantity per colour is low (~5), so mix colours.",
+     "seen_date": "2026-10-23"
+    },
+    {
+     "id": "mat-petg-elas-makarasiz",
+     "category": "material",
+     "product": "Elas Yeşil PET-G Makarasız Filament 1.75mm 1 KG",
+     "shop": "elas3d.com",
+     "url": "https://elas3d.com/elas-yesil-pet-g-makarasiz-filament-175mm-1-kg",
+     "price_try": 520,
+     "stock": "in_stock (schema.org InStock)",
+     "specs": "PETG, 1.75 mm, 1 kg, spool-less refill, ~240-260 C nozzle",
+     "notes": "Turkish maker. Black PET-G on a spool is 550 TL, in stock. porima3d.com Porima PETG 1 kg is 712.80 ('Stoktan Teslim'). eSUN PETG Basic at SAMM (726.56) is out of stock.",
+     "seen_date": "2026-10-23"
+    },
+    {
+     "id": "mat-pla-elas-premium",
+     "category": "material",
+     "product": "Elas PLA Premium 1.75mm 1 KG Filament (e.g. Antrasit)",
+     "shop": "elas3d.com",
+     "url": "https://elas3d.com/elas-antrasit-pla-premium-175mm-1-kg-filament",
+     "price_try": 650,
+     "stock": "in_stock (schema.org InStock; 10 colours)",
+     "specs": "PLA, 1.75 mm +/-0.03 mm, 1 kg, ~250 g spool, 200-225 C nozzle",
+     "notes": "SAMM eSUN PLA Basic Black is 668.87, in stock. Robotistan Porima 3D PLA is 813.97, in stock (several colours). Bambu Lab PLA Basic at SAMM is 900 ('Stok : 6').",
+     "seen_date": "2026-10-23"
+    },
+    {
+     "id": "mat-pla-esun-basic-samm",
+     "category": "material",
+     "product": "Esun PLA Basic Siyah Filament 1.75mm 1 KG",
+     "shop": "market.samm.com",
+     "url": "https://market.samm.com/en/esun-pla-basic-siyah-filament-175mm-1-kg",
+     "price_try": 668.87,
+     "stock": "in_stock (schema.org InStock)",
+     "specs": "PLA, 1.75 mm, 1 kg",
+     "notes": "eSUN PLA+ black is out of stock at robocombo (837), robolink (819) and robotistan (933.91).",
+     "seen_date": "2026-10-23"
+    },
+    {
+     "id": "mat-tpu-creality-robolink",
+     "category": "material",
+     "product": "Creality CR-TPU Siyah Filament 1.75mm 1000gr",
+     "shop": "robolinkmarket.com",
+     "url": "https://www.robolinkmarket.com/creality-cr-tpu-siyah-filament-175mm-1000gr",
+     "price_try": 1072.5,
+     "price_note": "discounted from 1921.50",
+     "stock": "in_stock (schema.org InStock; red, green and blue also in stock, white Tükendi)",
+     "specs": "TPU, 1.75 mm, 1 kg; hardness not stated on the listing (Creality markets CR-TPU as 95A; verify)",
+     "notes": "Only in-stock TPU near 95A found, for feet. Out of stock: eSUN eTPU-95A (SAMM 1243.76, robolink 1191), BASF Ultrafuse 95A (2790), Polymaker, Beta, Porima TPU 95A at robotistan.",
+     "seen_date": "2026-10-23"
+    },
+    {
+     "id": "mat-tpu98a-porima-robotistan",
+     "category": "material",
+     "product": "Porima 3D 1.75mm TPU 98A Filament - Beyaz",
+     "shop": "robotistan.com",
+     "url": "https://www.robotistan.com/porima3d-175mm-tpu98a-filament-beyaz",
+     "price_try": 988.6,
+     "stock": "in_stock (robotistan listing shows in stock; black TÜKENDİ)",
+     "specs": "TPU Shore 98A (stiffer than 95A), 1.75 mm",
+     "notes": "porima3d.com TPU Flex 95A is ~924.48 TL per search snippet only; the site rate-limited every fetch (HTTP 429), so stock is unverified.",
+     "seen_date": "2026-10-23"
+    },
+    {
+     "id": "mat-screws-m2-robocombo",
+     "category": "material",
+     "product": "M2 YSB Vida Seti 1375 Parça Kutulu",
+     "shop": "robocombo.com",
+     "url": "https://www.robocombo.com/m2-ysb-vida-seti-1375-parca-kutulu-4643",
+     "price_try": 870,
+     "stock": "in_stock (Stok : 75)",
+     "specs": "M2 cross-recess pan head (DIN7985) screws + nuts, boxed assortment, 1375 pcs",
+     "notes": "M2.5 YSB 1200-pc set is 780 ('Stok : 45') and M3 YSB 600-pc set 270 ('Stok : 11'), both robocombo.",
+     "seen_date": "2026-10-23"
+    },
+    {
+     "id": "mat-screws-m3-yhb-robolink",
+     "category": "material",
+     "product": "M3 YHB Vida Somun ve Pul Seti - 415 Parça",
+     "shop": "robolinkmarket.com",
+     "url": "https://www.robolinkmarket.com/m3-yhb-vida-somun-ve-pul-seti-415-parca",
+     "price_try": 469.5,
+     "stock": "in_stock (schema.org InStock)",
+     "specs": "M3 hex-socket (Allen) screws, nuts and washers, 415 pcs",
+     "notes": "Robolink M3 YSB 632-pc set is 582, in stock.",
+     "seen_date": "2026-10-23"
+    },
+    {
+     "id": "mat-insert-m3-robolink",
+     "category": "material",
+     "product": "M3x5.75mm Pirinç Insert - 10 Adet",
+     "shop": "robolinkmarket.com",
+     "url": "https://www.robolinkmarket.com/m3x575mm-pirinc-insert-10-adet",
+     "price_try": 72,
+     "stock": "out_of_stock (Tükendi)",
+     "specs": "M3 brass heat-set insert, 5.75 mm long, 10 pcs",
+     "notes": "Robolink M2x3 brass inserts (75 TL) are also out of stock. Direnc 'İnsert Somun M3' (18.40, steel) is out of stock. Marketplace-only alternatives, stock unverified because Trendyol/Hepsiburada return 403: Trendyol CEKSAN M3 brass insert 100 adet 499.90 TL, Robo90 M3x4 brass insert, Hepsiburada 460-pc M2-M6 insert set.",
+     "seen_date": "2026-10-23"
+    },
+    {
+     "id": "mat-bearing-693zz-rulmanal",
+     "category": "material",
+     "product": "693 ZZ KWC 3x8x4 Minyatür Rulman",
+     "shop": "rulmanal.com.tr",
+     "url": "https://www.rulmanal.com.tr/urun/693-zz-kwc-3-8-4-rulman",
+     "price_try": 89.33,
+     "price_note": "74.44 + KDV",
+     "stock": "in_stock (55 STOKTA)",
+     "specs": "693ZZ deep-groove, 3 mm bore x 8 mm OD x 4 mm, double metal shield",
+     "notes": "Enough for 15-20 joints. NMB 693ZZ is 334.23 (STOKTA). Rulmansepetim 693ZZ is 53.00 TL (0.89 USD + KDV), stock not stated. Note: MR83ZZ is 3x8x3, not 3x8x4.",
+     "seen_date": "2026-10-23"
+    },
+    {
+     "id": "mat-bearing-mr62zz-rulmansepetim",
+     "category": "material",
+     "product": "MR 62 ZZ 2x6x2,5 Rulman",
+     "shop": "rulmansepetim.com",
+     "url": "https://www.rulmansepetim.com/urun/mr-62-zz-2x6x2-5-rulman",
+     "price_try": 59.82,
+     "stock": "unknown (price shown, no stock text)",
+     "specs": "MR62ZZ, 2 mm bore x 6 mm OD x 2.5 mm",
+     "notes": "No 692ZZ (2x6x3) listing was found at Turkish bearing shops; MR62ZZ (2.5 mm wide) is the closest substitute. Rulmanal MR62ZZ KWC is 63.61 per search snippet.",
+     "seen_date": "2026-10-23"
+    },
+    {
+     "id": "other-usb-ttl-cp2102-robotistan",
+     "category": "other",
+     "product": "USB 2.0 to TTL UART Module 6 Pin Converter - CP2102",
+     "shop": "robotistan.com",
+     "url": "https://www.robotistan.com/usb-ttl-converter",
+     "price_try": 141.45,
+     "stock": "in_stock (schema.org InStock)",
+     "specs": "CP2102 USB-UART, 3.3V/5V, up to 1.5 Mbps (half-duplex servo bus needs an external buffer, e.g. 74HC126, or the servo maker's adapter)",
+     "notes": "Lets a Pi talk to TTL bus servos. Komponentci CP2102 (131.05) is out of stock.",
+     "seen_date": "2026-10-23"
+    }
+   ]
+  },
+  "verify": {
+   "checks": [
+    {
+     "id": "ctl-pi4-4gb-robotistan",
+     "reachable": true,
+     "price_try": 6770.06,
+     "stock": "in_stock (schema InStock, Tükendi box hidden; 'Satışlarımız 2 adetle sınırlandırılmıştır')",
+     "matches_claim": true,
+     "note": "5641.72+KDV, havale 6634.66, exactly as claimed"
+    },
+    {
+     "id": "ctl-pi4-4gb-robocombo",
+     "reachable": true,
+     "price_try": 8113.5,
+     "stock": "in_stock (Stok : 94)",
+     "matches_claim": true
+    },
+    {
+     "id": "ctl-pi4-4gb-samm",
+     "reachable": true,
+     "price_try": 6922.47,
+     "stock": "in_stock (Stok : 7)",
+     "matches_claim": true
+    },
+    {
+     "id": "ctl-pizero2w-robotistan",
+     "reachable": true,
+     "price_try": 959.29,
+     "stock": "out_of_stock (Tükendi box visible, schema OutOfStock)",
+     "matches_claim": true,
+     "note": "Re-checked: direnc 1026.74+KDV (=1232.09) OOS and SAMM 1312.88 OOS, so the side-note is correct too"
+    },
+    {
+     "id": "ctl-pi5-4gb-robolink",
+     "reachable": true,
+     "price_try": 6117,
+     "stock": "out_of_stock (schema OutOfStock)",
+     "matches_claim": true,
+     "note": "Re-checked: robotistan Pi 5 1GB 2883.32, 2GB 5212.34 and 4GB 7008.83 are all OOS; direnc Pi 5 2GB 3777.64+KDV is OOS"
+    },
+    {
+     "id": "ctl-orangepi-zero3-2gb-direnc",
+     "reachable": true,
+     "price_try": 2905.88,
+     "stock": "out_of_stock (schema OutOfStock, data-stock-status=0)",
+     "matches_claim": true,
+     "note": "2421.57+KDV"
+    },
+    {
+     "id": "ctl-rockpi-4bplus-robotistan",
+     "reachable": true,
+     "price_try": 5802.91,
+     "stock": "in_stock (schema InStock)",
+     "matches_claim": true,
+     "note": "Old price 6890.35 shown"
+    },
+    {
+     "id": "ctl-esp32s3-devkitc-n16r8-komponentci",
+     "reachable": true,
+     "price_try": 537.62,
+     "stock": "in_stock (Stok Durumu: Var)",
+     "matches_claim": true,
+     "note": "9.00 USD + KDV"
+    },
+    {
+     "id": "ctl-esp32s3-n16r8-direnc",
+     "reachable": true,
+     "price_try": 610.23,
+     "stock": "in_stock (schema InStock, data-stock-status=1)",
+     "matches_claim": true,
+     "note": "The URL now redirects to https://www.direnc.net/esp32-s3-n16r8-wifi-bluetooth-board (same product, 508.53+KDV)"
+    },
+    {
+     "id": "ctl-xiao-esp32s3-samm",
+     "reachable": true,
+     "price_try": 566.93,
+     "stock": "in_stock (Stok : 78)",
+     "matches_claim": true
+    },
+    {
+     "id": "ctl-arduino-nano-esp32-direnc",
+     "reachable": true,
+     "price_try": 1212.76,
+     "stock": "in_stock (schema InStock, data-stock-status=1)",
+     "matches_claim": true,
+     "note": "1010.64+KDV"
+    },
+    {
+     "id": "ctl-esp32s3-supermini-robolink",
+     "reachable": true,
+     "price_try": 358.5,
+     "stock": "in_stock (schema InStock, Tükendi box hidden)",
+     "matches_claim": true
+    },
+    {
+     "id": "imu-bno085-motorobit",
+     "reachable": true,
+     "price_try": 1999.8,
+     "stock": "in_stock ('10+ Product'; the page JSON holds STOCK=49)",
+     "matches_claim": true,
+     "note": "1666.50+VAT"
+    },
+    {
+     "id": "imu-bno055-gravity-robotistan",
+     "reachable": true,
+     "price_try": 1699.17,
+     "stock": "in_stock (schema InStock)",
+     "matches_claim": true
+    },
+    {
+     "id": "imu-mpu6050-komponentci",
+     "reachable": true,
+     "price_try": 153.61,
+     "stock": "in_stock (Stok Durumu: Var)",
+     "matches_claim": true,
+     "note": "2.57 USD + KDV"
+    },
+    {
+     "id": "imu-mpu6500-motorobit",
+     "reachable": true,
+     "price_try": 136.35,
+     "stock": "in_stock ('10+ Product'; the page JSON holds STOCK=75)",
+     "matches_claim": true,
+     "note": "113.63+VAT"
+    },
+    {
+     "id": "imu-mpu9250-bmp280-robocombo",
+     "reachable": true,
+     "price_try": 448.2,
+     "stock": "in_stock (Stok : 49)",
+     "matches_claim": true
+    },
+    {
+     "id": "imu-icm20948-digikey",
+     "reachable": true,
+     "stock": "in_stock (DigiKey US 'In-Stock: 70', import only; page says backorders are not accepted)",
+     "matches_claim": true,
+     "note": "18.79 USD each. curl got 403 (Cloudflare); checked with WebFetch. No TRY price on the page (~936 TL at 49.8 TRY/USD before shipping and customs)"
+    },
+    {
+     "id": "cam-ov5647-robotistan",
+     "reachable": true,
+     "price_try": 326.41,
+     "stock": "in_stock (schema InStock)",
+     "matches_claim": true
+    },
+    {
+     "id": "cam-imx219-160-robotistan",
+     "reachable": true,
+     "price_try": 973.8,
+     "stock": "in_stock (schema InStock)",
+     "matches_claim": true,
+     "note": "811.50 + VAT"
+    },
+    {
+     "id": "tof-vl53l0x-komponentci",
+     "reachable": true,
+     "price_try": 159.95,
+     "stock": "in_stock (Stok Durumu: Var)",
+     "matches_claim": true
+    },
+    {
+     "id": "tof-vl53l1x-komponentci",
+     "reachable": true,
+     "price_try": 519.19,
+     "stock": "in_stock (Stok Durumu: Var)",
+     "matches_claim": true
+    },
+    {
+     "id": "tof-vl53l1x-cjmcu-robotistan",
+     "reachable": true,
+     "price_try": 568.2,
+     "stock": "in_stock (schema InStock)",
+     "matches_claim": true
+    },
+    {
+     "id": "bat-18650-samsung25r-pilpaketi",
+     "reachable": true,
+     "price_try": 183.9,
+     "stock": "in_stock (schema InStock)",
+     "matches_claim": true,
+     "note": "havale 178.38"
+    },
+    {
+     "id": "bat-18650-aspilsan-a28-pilpaketi",
+     "reachable": true,
+     "price_try": 124.26,
+     "stock": "in_stock (schema InStock)",
+     "matches_claim": true,
+     "note": "The URL now redirects to https://www.pilpaketi.com/aspilsan-pil. Title: 'Aspilsan 18650 Pil - 2800 mAh - 14A Sürekli / 25A Koşullu Deşarj'. Havale 120.53; 100+ pcs 120.22/pc. The old slug said 2900 mAh, but the page says 2800 mAh"
+    },
+    {
+     "id": "bat-18650-molicel-p28a-elektrodepo",
+     "reachable": true,
+     "price_try": 506,
+     "stock": "unknown (only 'Sepete Ekle', no stock text or schema)",
+     "matches_claim": true
+    },
+    {
+     "id": "bat-18650-orion-2000-15c-robotistan",
+     "reachable": true,
+     "price_try": 138.42,
+     "stock": "in_stock (schema InStock)",
+     "matches_claim": true
+    },
+    {
+     "id": "bat-2s-lipo-1300-tinylab-robotistan",
+     "reachable": true,
+     "price_try": 759.21,
+     "stock": "in_stock (schema InStock)",
+     "matches_claim": true,
+     "note": "632.68+KDV. The side-note is wrong: the Tinylab 850 mAh is 846.86 TL, not 664.31"
+    },
+    {
+     "id": "bat-2s-lipo-2200-tinylab-robotistan",
+     "reachable": true,
+     "price_try": 1398.74,
+     "stock": "in_stock (schema InStock)",
+     "matches_claim": false,
+     "note": "Price is 1398.74 TL KDV dahil (1165.62+KDV, havale 1370.77), not 1088.65 (+28.5%). Stock state matches. Tinylab 2S 3300 mAh 40C is 1575.85, in stock, which is cheaper per mAh"
+    },
+    {
+     "id": "bat-npf550-yongnuo",
+     "reachable": true,
+     "price_try": 999,
+     "stock": "in_stock (STOK: 10+ ADET)",
+     "matches_claim": true,
+     "note": "havale 949.05"
+    },
+    {
+     "id": "pwr-2s-bms-13a-komponentci",
+     "reachable": true,
+     "price_try": 70.1,
+     "stock": "in_stock (Stok Durumu: Var)",
+     "matches_claim": true
+    },
+    {
+     "id": "pwr-2x18650-holder-robocombo",
+     "reachable": true,
+     "price_try": 19.5,
+     "stock": "in_stock (Stok : 1046)",
+     "matches_claim": true
+    },
+    {
+     "id": "pwr-mp1584-5v-komponentci",
+     "reachable": true,
+     "price_try": 51.87,
+     "stock": "in_stock (Stok Durumu: Var)",
+     "matches_claim": true
+    },
+    {
+     "id": "pwr-xl4015-komponentci",
+     "reachable": true,
+     "price_try": 83.39,
+     "stock": "in_stock (Stok Durumu: Var)",
+     "matches_claim": true
+    },
+    {
+     "id": "pwr-lm2596-5v3a-robotistan",
+     "reachable": true,
+     "price_try": 162,
+     "stock": "in_stock (schema InStock)",
+     "matches_claim": true
+    },
+    {
+     "id": "pwr-xt30-komponentci",
+     "reachable": true,
+     "price_try": 17.33,
+     "stock": "in_stock (Stok Durumu: Var)",
+     "matches_claim": true
+    },
+    {
+     "id": "pwr-xt60-robotistan",
+     "reachable": true,
+     "price_try": 41.1,
+     "stock": "in_stock (schema InStock)",
+     "matches_claim": true
+    },
+    {
+     "id": "mat-petg-kingroon-samm",
+     "reachable": true,
+     "price_try": 450,
+     "stock": "in_stock (10 Kingroon colours InStock on the category page; Black OutOfStock; the Transparent Green product page shows 'Stock : 5')",
+     "matches_claim": true
+    },
+    {
+     "id": "mat-petg-elas-makarasiz",
+     "reachable": true,
+     "price_try": 520,
+     "stock": "in_stock (schema InStock, stockCount 10)",
+     "matches_claim": true,
+     "note": "List price 583, discounted to 520"
+    },
+    {
+     "id": "mat-pla-elas-premium",
+     "reachable": true,
+     "price_try": 650,
+     "stock": "in_stock (schema InStock, stockCount 10)",
+     "matches_claim": true,
+     "note": "List price 670"
+    },
+    {
+     "id": "mat-pla-esun-basic-samm",
+     "reachable": true,
+     "price_try": 668.87,
+     "stock": "in_stock (Stock : 304)",
+     "matches_claim": true,
+     "note": "557.39+KDV. Large quantity available"
+    },
+    {
+     "id": "mat-tpu-creality-robolink",
+     "reachable": true,
+     "price_try": 1072.5,
+     "stock": "in_stock (schema InStock; black, green, blue and red in stock, white Tükendi)",
+     "matches_claim": true
+    },
+    {
+     "id": "mat-tpu98a-porima-robotistan",
+     "reachable": true,
+     "price_try": 988.6,
+     "stock": "in_stock (schema InStock)",
+     "matches_claim": true
+    },
+    {
+     "id": "mat-screws-m2-robocombo",
+     "reachable": true,
+     "price_try": 870,
+     "stock": "in_stock (Stok : 75)",
+     "matches_claim": true
+    },
+    {
+     "id": "mat-screws-m3-yhb-robolink",
+     "reachable": true,
+     "price_try": 469.5,
+     "stock": "in_stock (schema InStock)",
+     "matches_claim": true,
+     "note": "391.25+KDV"
+    },
+    {
+     "id": "mat-insert-m3-robolink",
+     "reachable": true,
+     "price_try": 72,
+     "stock": "out_of_stock (Tükendi)",
+     "matches_claim": true,
+     "note": "Robolink M2, M4 and M5 brass inserts are also OOS; only the M6x6.8 (211.50) is in stock. Direnc 'İnsert Somun M3' is 22.08 KDV dahil (=18.40+KDV), Tükendi. Motorobit search for 'insert' returns no products"
+    },
+    {
+     "id": "mat-bearing-693zz-rulmanal",
+     "reachable": true,
+     "price_try": 89.33,
+     "stock": "in_stock (55 STOKTA)",
+     "matches_claim": true,
+     "note": "74.44+KDV"
+    },
+    {
+     "id": "mat-bearing-mr62zz-rulmansepetim",
+     "reachable": true,
+     "price_try": 59.82,
+     "stock": "unknown (price shown as 1.00 USD + KDV, no stock text)",
+     "matches_claim": true
+    },
+    {
+     "id": "other-usb-ttl-cp2102-robotistan",
+     "reachable": true,
+     "price_try": 141.45,
+     "stock": "in_stock (schema InStock)",
+     "matches_claim": true
+    }
+   ],
+   "extra_findings": "48 of 49 items match: every URL loads, prices are within 5% and stock states agree. The one mismatch is the Tinylab 2S 2200 mAh at robotistan, now 1398.74 TL, not 1088.65 (still in stock). One side-note is also wrong: the Tinylab 2S 850 mAh is 846.86 TL, not 664.31. Two URLs redirect to the same product: the direnc ESP32-S3 page (now /esp32-s3-n16r8-wifi-bluetooth-board) and the pilpaketi Aspilsan page (now https://www.pilpaketi.com/aspilsan-pil).\n\nBetter or cheaper in-stock options the researcher missed:\n(1) Raspberry Pi 4 - 3GB at robotistan, https://www.robotistan.com/raspberry-pi-4-3gb-versiyon : 5342.91 TL KDV dahil (4452.43+KDV, havale 5236.05), InStock, max 2 per order. That is 1427 TL cheaper than the 4GB and has plenty of RAM for a 50 Hz ONNX MLP. SAMM's Pi 4 3GB (5824.43) is out of stock. Every Pi 4 2GB is out of stock (robotistan 4491.21, SAMM 4660.73, robolink 5490), as are the robolink Pi 4 4GB (7444.50) and robotistan Pi 3B+ (2565.98).\n(2) Elas colour-transition PETG 1 kg (spool colour varies), https://elas3d.com/elas-3d-renk-gecisi-petg-1-kg-koyu-gri-tonlarda : 300 TL (list 500), InStock, stockCount 10. Other gradient PETG and PLA Pro spools are 300 TL, and gradient PLA Premium is 370 TL. This is the cheapest filament per kg found, below Kingroon PETG at 450.\n(3) SAMM Fibromast PETG 1 kg (Turkish brand), 650 TL, in stock in many colours including black, listed on https://market.samm.com/en/petg-filament-eng . Kingroon black is out of stock.\n(4) eSUN PLA Basic black at SAMM shows Stock : 304, so bulk orders are safe.\n(5) Tinylab 7.4V 2S 3300 mAh 40C at robotistan, https://www.robotistan.com/tinylab-74v-2s-lipo-batarya-3300mah-40c : 1575.85 TL, InStock. It costs less per mAh than the 2200 at 1398.74. A 2S Aspilsan 18650 pack is still far cheaper: 2 x 124.26 cells + 19.50 holder + 70.10 BMS = about 338 TL.\n(6) Motorobit hides exact stock in its page JSON: the BNO085 shows STOCK=49 and the MPU6500 STOCK=75, both displayed as '10+'.\n\nNo in-stock M3 brass heat-set insert was found at robolink, direnc or motorobit, so this is still a BOM gap; plan on marketplaces or self-tapping screws into printed holes.\n\nRaw notes: /private/tmp/claude-501/-Users-huseyinarslan-Desktop-ads-z-klas-r-2/8217cd75-2c54-4fa4-b47f-57c38ee96c2b/scratchpad/s6/research/electronics-materials-verify/notes.md"
+  }
+ }
+]
