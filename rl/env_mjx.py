@@ -49,6 +49,12 @@ Notlar:
 - GPU: JAX, Ampere ve sonrasi GPU'larda float32 matris carpimlarini varsayilan olarak TF32 ile yapar
   (~1e-3 bagil hata). Ortamin reset/step izlemesi matmul_precision="highest" (varsayilan) altinda
   yapilir: fizik CPU'daki gibi tam float32; politika agi JAX varsayilaninda kalir.
+- Robot profili (robot=, varsayilan config.ROBOT_PROFILE / OPENDUCK_ROBOT): "xl330_27" yukaridaki her sey aynen.
+  "tr35_b2" (rl/actuators.py, rl/sensors.py; env_cpu ile ayni sira ve ayni rastgele sayi yerlesimi): alt adim
+  dongusunde gecikmeli hedef + olu bant + LEG ray CC olceklemesi (forcerange alt adim basina), her alt adimda pot/IMU
+  algilamasi; aktor gozlemi sensor modelinden, oduller/kritik gercek durumdan; genel OBS_NOISE kapali. Bolum
+  parametreleri info["tr"] (act/sens/pot/imu/met/ctrl_prev); yeni sayilar fold_in(k_n, 3) (bolum, aktuator +
+  sensor) ve fold_in(k_noise, 5) (alt adim gurultusu). backlash=True: DS bosluk eklemleri.
 """
 import contextlib
 import copy
@@ -59,11 +65,13 @@ import jax.numpy as jnp
 import mujoco
 from mujoco import mjx
 
+from . import actuators as ACT
 from . import config as C
 from . import pose_bank as PB
+from . import sensors as SENS
 from . import task_math as T
 from . import tasks as TK
-from .robot_model import RobotIndex, build_model
+from .robot_model import RobotIndex, build_model, expand_state
 
 try:
     from ml_collections import config_dict as _config_dict
@@ -278,13 +286,17 @@ class OpenDuckEnv(_EnvBase):
     def __init__(self, randomize=True, noise=True, head_random=True, push=True, fixed_command=None,
                  solver_iterations=4, ls_iterations=8, exact_setconst=True, c_semantics=True, scene_path=None,
                  matmul_precision="highest", task="walk", reset_probs=None, curriculum_steps=None,
-                 final_weights=False, random_initial_steps=False):
+                 final_weights=False, random_initial_steps=False, robot=None, backlash=None):
         cfg = dict(ctrl_dt=C.CTRL_DT, sim_dt=C.SIM_DT)
         self.matmul_precision = matmul_precision or None
         super().__init__(_config_dict.create(**cfg) if _pg is not None else cfg)
         self.spec = spec = TK.get_task(task)
         self.task = spec.name
-        mj_model = build_model(scene_path, variant=spec.model_variant)
+        self.robot = ACT.profile(robot)
+        self.tr35 = self.robot == ACT.TR35
+        self.backlash = bool(backlash)
+        self.dr = ACT.domain_rand(self.robot)          # xl330: config.DOMAIN_RAND
+        mj_model = build_model(scene_path, variant=spec.model_variant, robot=self.robot, backlash=self.backlash)
         if solver_iterations:
             mj_model.opt.iterations = int(solver_iterations)
         if ls_iterations:
@@ -300,8 +312,8 @@ class OpenDuckEnv(_EnvBase):
         self.idx = idx = RobotIndex(mj_model, spec.action_joints)
         self._xml_path = scene_path or C.SCENE_PATH
 
-        self.randomize = bool(randomize) and _DR["enabled"]
-        self.push = bool(push) and _DR["enabled"]
+        self.randomize = bool(randomize) and self.dr["enabled"]
+        self.push = bool(push) and self.dr["enabled"]
         self.noise = bool(noise)
         self.head_random = bool(head_random) and spec.head_mode != "policy"     # getup: bas politikada
         self.exact_setconst = bool(exact_setconst)
@@ -309,7 +321,7 @@ class OpenDuckEnv(_EnvBase):
             self.fixed_command = None if fixed_command is None else np.asarray(fixed_command, np.float32).reshape(3)
         else:                                  # main: 3 -> [vx, vy, wz, H_HOME, 0]; getup: ValueError
             self.fixed_command = np.asarray(TK.pad_command(spec, np.ravel(fixed_command)), np.float32)
-        self.K = int(_DR["action_delay_steps"][1]) if self.randomize else 0
+        self.K = int(self.dr["action_delay_steps"][1]) if self.randomize else 0
         self.max_episode_steps = spec.max_episode_steps
         self.rew_keys = list(spec.reward_weights)
         self.final_weights = bool(final_weights)
@@ -350,7 +362,82 @@ class OpenDuckEnv(_EnvBase):
         self.nominal = {k: getattr(self._mjx_model, k) for k in (
             "geom_friction", "body_mass", "body_inertia", "body_ipos", "actuator_gainprm",
             "actuator_biasprm", "dof_damping", "dof_frictionloss", "dof_armature")}
+        if self.tr35:
+            self._tr35_init()
         self._init_banks(reset_probs)
+
+    def _tr35_init(self):
+        """tr35 statik tablolari: aktuator/pot tablolari, RNG yerlesimi, ana eklemlerin limit satirlari (MJX efc)."""
+        idx, m = self.idx, self._mj_model
+        self.noise_vec = jnp.zeros_like(self.noise_vec)          # genel gozlem gurultusu yok (sensor modeli)
+        self._act, self._pot = idx.act, idx.pot
+        no = len(idx.obs_qpos_adr)
+        self.n_ue_act = ACT.n_uniform(m.nu)
+        self.n_ue = self.n_ue_act + SENS.n_episode(no)
+        self.n_tick = SENS.n_tick(no)
+        self.nominal["actuator_forcerange"] = self._mjx_model.actuator_forcerange
+        self.nominal["jnt_range"] = self._mjx_model.jnt_range
+        from mujoco.mjx._src.types import ConstraintType, JointType
+        et = np.asarray(self._data0._impl.efc_type)
+        rows = np.flatnonzero(et == ConstraintType.LIMIT_JOINT)
+        jt = np.asarray(m.jnt_type)
+        if np.any((jt == JointType.BALL) & (m.jnt_limited > 0)):
+            raise ValueError("tr35 limit metrigi sinirli ball eklemi varsaymaz")
+        jl = np.flatnonzero(np.isin(jt, (JointType.SLIDE, JointType.HINGE)) & (m.jnt_limited > 0))
+        assert len(rows) == len(jl), (len(rows), len(jl))
+        a = idx.act["jnt2act"][jl]
+        keep = a >= 0                                                  # bosluk eklemleri disarida
+        self._lim_rows, self._lim_dof, self._lim_act = rows[keep], np.asarray(m.jnt_dofadr[jl[keep]]), a[keep]
+
+    def _limit_torque(self, d):
+        """(nu,) ana aktuatorlu eklemlerin |limit kisit torku| (efc LIMIT_JOINT satirlari, J = +-1 aktifken)."""
+        f = d._impl.efc_force[self._lim_rows] * d._impl.efc_J[self._lim_rows, self._lim_dof]
+        return jnp.zeros(self._mj_model.nu, jnp.float32).at[self._lim_act].set(jnp.abs(f))
+
+    def _tr35_reset(self, key):
+        """Bolum parametreleri (fold_in(k_n, 3)): (aktuator ep {tau_s, db_half, delay}, tam ap, sensor ep)."""
+        ue = jax.random.uniform(key, (self.n_ue,))
+        ap = ACT.sample_params(jnp, ue[:self.n_ue_act], self._act, self.randomize)
+        ap = {k: (v.astype(jnp.int32) if k == "delay" else _f32(v)) for k, v in ap.items()}
+        sp = {k: _f32(v) for k, v in SENS.episode(jnp, ue[self.n_ue_act:], self._pot, self.noise).items()}
+        return {k: ap[k] for k in ("tau_s", "db_half", "delay")}, ap, sp
+
+    def _tr35_substeps(self, m, data, ctrl_new, tr, us):
+        """N_SUBSTEPS alt adim (actuators/sensors sirasi; env_cpu._tr35_substeps ile ayni). us (N_SUBSTEPS, n_tick)."""
+        idx, t, P = self.idx, self._act, self._pot
+        aq, ad, oq, oa = t["act_qadr"], t["act_dadr"], idx.obs_qpos_adr, idx.obs_act_id
+        no = len(oq)
+        gain, bp, damp = m.actuator_gainprm[:, 0], m.actuator_biasprm, m.dof_damping[ad]
+        ap, sp, prev = tr["act"], tr["sens"], tr["ctrl_prev"]
+        sub = physics_step if self.c_semantics else mjx.step
+        sg, sa = idx.s_gyro, idx.s_acc
+
+        def body(k, carry):
+            d, pot, imu, met = carry
+            q, qd = d.qpos[aq], d.qvel[ad]
+            c, frc, dem, sc = ACT.shape_substep(jnp, k, prev, ctrl_new, q, qd, ap, t, gain, bp[:, 0], bp[:, 1],
+                                                bp[:, 2], damp)
+            d = sub(m.replace(actuator_forcerange=jnp.stack([-frc, frc], axis=-1)), d.replace(ctrl=c))
+            tn, cur, rail = ACT.after_substep(jnp, d.actuator_force, qd, damp, ap, t)
+            u = us[k]
+            pot = SENS.pot_tick(jnp, pot, d.qpos[oq], cur[oa], rail, u[:no], sp, P, self.noise)
+            imu = SENS.imu_tick(jnp, imu, d.sensordata[sg], d.sensordata[sa], rail, u[no:], sp, self.noise)
+            met = {"tau_net": tn, "limit": jnp.maximum(met["limit"], self._limit_torque(d)),
+                   "rail": met["rail"] + dem, "rail_peak": jnp.maximum(met["rail_peak"], dem),
+                   "cc": jnp.minimum(met["cc"], sc)}
+            return d, pot, imu, met
+
+        met0 = ACT.metrics_init(jnp, jnp.zeros(self._mj_model.nu, jnp.float32))
+        d, pot, imu, met = jax.lax.fori_loop(0, C.N_SUBSTEPS, body, (data, tr["pot"], tr["imu"], met0))
+        met["rail"] = met["rail"] / C.N_SUBSTEPS
+        return d, dict(tr, pot=pot, imu=imu, met=met, ctrl_prev=_f32(ctrl_new))
+
+    def _tr35_state(self, tr):
+        """s'ye eklenen olcut kancalari (gozlem eklemleri sirasi; env_cpu._state ile ayni anahtarlar)."""
+        oa, met = self.idx.obs_act_id, tr["met"]
+        tn, ts = met["tau_net"][oa], tr["act"]["tau_s"][oa]
+        return {"tau_net": tn, "tau_s": ts, "tau_ratio": tn / ts, "limit_torque": met["limit"][oa],
+                "rail_demand": met["rail"], "rail_peak": met["rail_peak"], "cc_scale": met["cc"]}
 
     def _init_banks(self, reset_probs):
         """Sifirlama turleri ve poz bankalari (kurucuda bir kez, MuJoCo C; sifirlamada yalniz indeks secilir).
@@ -382,9 +469,10 @@ class OpenDuckEnv(_EnvBase):
             if self.reset_probs[k] > 0.0:
                 b = PB.bank(k)
                 PB.check_variant(b, spec.model_variant)
-                if b["qpos"].shape[1] != nq or b["qvel"].shape[1] != nv or b["ctrl"].shape[1] != nu:
+                bq, bv = expand_state(self._mj_model, b["qpos"], b["qvel"])        # bosluk eklemleri 0
+                if bq.shape[1] != nq or bv.shape[1] != nv or b["ctrl"].shape[1] != nu:
                     raise ValueError("%s bankasi bu modelle uyusmuyor (nq/nv/nu)" % k)
-                parts.append((b["qpos"], b["qvel"], b["ctrl"], b["label"]))
+                parts.append((bq, bv, b["ctrl"], b["label"]))
             else:
                 parts.append((idx.init_qpos[None], np.zeros((1, nv)), idx.init_ctrl[None], np.array([_NO_BANK])))
         self.bank_n = tuple(len(p[0]) for p in parts)
@@ -410,32 +498,46 @@ class OpenDuckEnv(_EnvBase):
         return self._mjx_model
 
     # -- alan rastgelelestirme
-    def sample_dr(self, key):
-        """Bir bolumun rastgele model parametreleri (NOMINAL degerlerden), mj_setConst ciktilari dahil."""
+    def sample_dr(self, key, ap=None):
+        """Bir bolumun rastgele model parametreleri (NOMINAL degerlerden), mj_setConst ciktilari dahil.
+        tr35: aktuator parametreleri ap'den (actuators.sample_params; None ise fold_in(key, 3)'ten cekilir)."""
         m, nom, tb = self._mjx_model, self.nominal, self.idx.trunk_body
         ks = jax.random.split(key, 9)
         nb, nad, nk = m.nbody - 1, len(self.act_dof), len(self.sts_act)
-        f = _uniform(ks[0], *_DR["friction"])
-        scale = jnp.ones(m.nbody).at[1:].set(_uniform(ks[1], *_DR["link_mass_scale"], (nb,)))
+        f = _uniform(ks[0], *self.dr["friction"])
+        scale = jnp.ones(m.nbody).at[1:].set(_uniform(ks[1], *self.dr["link_mass_scale"], (nb,)))
         mass = nom["body_mass"] * scale
         inertia = nom["body_inertia"] * scale[:, None]
-        new = mass[tb] + _uniform(ks[2], *_DR["trunk_added_mass"])
+        new = mass[tb] + _uniform(ks[2], *self.dr["trunk_added_mass"])
         inertia = inertia.at[tb].multiply(new / mass[tb])
         mass = mass.at[tb].set(new)
-        o = _DR["trunk_com_offset"]
+        o = self.dr["trunk_com_offset"]
         ipos = nom["body_ipos"].at[tb].add(_uniform(ks[3], -o, o, (3,)))
         gain0 = nom["actuator_gainprm"][:, 0]
-        kp = gain0.at[self.sts_act].multiply(_uniform(ks[4], *_DR["kp_scale"], (nk,)))
+        kp = gain0.at[self.sts_act].multiply(_uniform(ks[4], *self.dr["kp_scale"], (nk,)))
         ad = self.act_dof
         p = {
             "friction": f, "body_mass": mass, "body_inertia": inertia, "body_ipos": ipos, "kp": kp,
-            "dof_damping": nom["dof_damping"].at[ad].multiply(_uniform(ks[5], *_DR["damping_scale"], (nad,))),
+            "dof_damping": nom["dof_damping"].at[ad].multiply(_uniform(ks[5], *self.dr["damping_scale"], (nad,))),
             "dof_frictionloss": nom["dof_frictionloss"].at[ad].multiply(
-                _uniform(ks[6], *_DR["frictionloss_scale"], (nad,))),
-            "dof_armature": nom["dof_armature"].at[ad].multiply(_uniform(ks[7], *_DR["armature_scale"], (nad,))),
+                _uniform(ks[6], *self.dr["frictionloss_scale"], (nad,))),
+            "dof_armature": nom["dof_armature"].at[ad].multiply(_uniform(ks[7], *self.dr["armature_scale"], (nad,))),
         }
-        lo, hi = _DR["action_delay_steps"]
+        lo, hi = self.dr["action_delay_steps"]
         p["delay"] = jax.random.randint(ks[8], (), lo, hi + 1)
+        if self.tr35:                      # genel aktuator carpanlari 1; servo modeli DR'i (spec 4)
+            if ap is None:
+                u = jax.random.uniform(jax.random.fold_in(key, 3), (self.n_ue_act,))
+                ap = ACT.sample_params(jnp, u, self._act, True)
+            p["kp"] = ap["kp"]
+            p["forcerange"] = ap["tau_s"]
+            for fld, k in (("dof_damping", "damping"), ("dof_armature", "armature"),
+                           ("dof_frictionloss", "frictionloss")):
+                p[fld] = p[fld].at[ad].set(ap[k])
+            pj = self._act["play_jnt"] >= 0
+            if np.any(pj):
+                h = 0.5 * ap["backlash"][pj]
+                p["jnt_range"] = self.nominal["jnt_range"].at[self._act["play_jnt"][pj]].set(jnp.stack([-h, h], -1))
         if self.exact_setconst:
             p.update(self.set_const(self._apply(m, p)))
         return p
@@ -450,6 +552,10 @@ class OpenDuckEnv(_EnvBase):
             "dof_damping": p["dof_damping"], "dof_frictionloss": p["dof_frictionloss"],
             "dof_armature": p["dof_armature"],
         }
+        if "forcerange" in p:
+            rep["actuator_forcerange"] = jnp.stack([-p["forcerange"], p["forcerange"]], axis=-1)
+        if "jnt_range" in p:
+            rep["jnt_range"] = p["jnt_range"]
         for k in ("body_invweight0", "dof_invweight0", "dof_M0", "body_subtreemass"):
             if k in p:
                 rep[k] = p[k]
@@ -506,6 +612,8 @@ class OpenDuckEnv(_EnvBase):
                  "actuator_biasprm", "dof_damping", "dof_frictionloss", "dof_armature"]
         if self.exact_setconst:
             names += ["body_invweight0", "dof_invweight0", "dof_M0", "body_subtreemass", "stat.meaninertia"]
+        if self.tr35:
+            names += ["actuator_forcerange"] + (["jnt_range"] if "jnt_range" in p else [])
         in_axes = jax.tree_util.tree_map(lambda x: None, model)
         in_axes = in_axes.tree_replace({k: 0 for k in names})
         return mv, in_axes
@@ -538,15 +646,21 @@ class OpenDuckEnv(_EnvBase):
             return jnp.clip(gstep.astype(jnp.float32) / jnp.float32(self.curriculum_steps), 0.0, 1.0)
         return jnp.float32(0.0)
 
-    def _obs(self, s, key):
-        obs = T.observation(jnp, s, self.task)
-        if self.noise:
-            obs = obs + self.noise_vec * jax.random.uniform(key, obs.shape, minval=-1.0, maxval=1.0)
+    def _obs(self, s, key, tr=None):
+        if self.tr35:                      # aktor: sensor modeli ciktisi; kritik: gercek durum
+            so = SENS.obs_state(jnp, s, tr["pot"]["v"], tr["pot"]["qdf"], tr["imu"]["w"], tr["imu"]["g"])
+            obs = T.observation(jnp, so, self.task)
+        else:
+            obs = T.observation(jnp, s, self.task)
+            if self.noise:
+                obs = obs + self.noise_vec * jax.random.uniform(key, obs.shape, minval=-1.0, maxval=1.0)
         return {"state": obs, "privileged_state": T.critic_observation(jnp, s, self.task)}
 
     def _task_state(self, data, info, action, last_action, command=None, phase=None):
         s = extract_state(data, self.idx, self.task)
         s = {k: jnp.nan_to_num(v, nan=0.0, posinf=0.0, neginf=0.0) for k, v in s.items()}
+        if self.tr35:
+            s.update(self._tr35_state(info["tr"]))
         if self.task == "walk":
             s.update(action=action, last_action=last_action, command=command, phase=phase,
                      friction=self._friction(info), default_q=self.default_obs_q)
@@ -608,8 +722,10 @@ class OpenDuckEnv(_EnvBase):
         idx, task, spec = self.idx, self.task, self.spec
         rng, k_dr, k_q, k_yaw, k_v, k_ph, k_cmd, k_ht, k_pt, k_n = jax.random.split(rng, 10)
         info = {"rng": rng, "reset_key": k_n}
+        if self.tr35:
+            ep, ap, sp = self._tr35_reset(jax.random.fold_in(k_n, 3))
         if self.randomize:
-            info["dr"] = self.sample_dr(k_dr)
+            info["dr"] = self.sample_dr(k_dr, ap) if self.tr35 else self.sample_dr(k_dr)
         m = self._model(info)
 
         nj = len(idx.obs_qpos_adr)
@@ -624,6 +740,13 @@ class OpenDuckEnv(_EnvBase):
         if self.bank is not None:        # main/getup: banka turleri (yeni sayilar fold_in(k_n, 2) ile)
             kind, label, qpos, qvel, ctrl = self._bank_reset(jax.random.fold_in(k_n, 2), yaw, qpos, qvel)
         data = self._forward_obs(m, self._data0.replace(qpos=qpos, qvel=qvel, ctrl=ctrl))
+        if self.tr35:                      # sensor filtreleri oturmus, olcutler 0
+            sd = data.sensordata
+            pot = SENS.pot_reset(jnp, data.qpos[idx.obs_qpos_adr], data.qvel[idx.obs_dof_adr], sp, self._pot)
+            imu = SENS.imu_reset(jnp, sd[idx.s_quat], sd[idx.s_gyro], sp)
+            info["tr"] = {"act": ep, "sens": sp, "ctrl_prev": _f32(ctrl), "pot": {k: _f32(v) for k, v in pot.items()},
+                          "imu": {k: _f32(v) for k, v in imu.items()},
+                          "met": ACT.metrics_init(jnp, jnp.zeros(self._mj_model.nu, jnp.float32))}
 
         zero_a = jnp.zeros(spec.num_actions)
         info.update({
@@ -657,7 +780,7 @@ class OpenDuckEnv(_EnvBase):
             info["head_target"] = jnp.zeros(len(idx.head_act_id))
             info["head_timer"] = _uniform(k_ht, *_HR["resample_s"])
         if self.push:
-            info["push_timer"] = _uniform(k_pt, *_DR["push_interval_s"])
+            info["push_timer"] = _uniform(k_pt, *self.dr["push_interval_s"])
         if self.K > 0:
             info["abuf"] = jnp.zeros((self.K + 1, spec.num_actions))
 
@@ -666,7 +789,7 @@ class OpenDuckEnv(_EnvBase):
             info.update({k: _f32(v) for k, v in T.getup_memory(jnp, s).items()})
             info.update({"ev_" + k: _f32(v) for k, v in T.getup_events_init(jnp, s["trunk_z"]).items()})
             info.update(reset_kind=kind, bank_label=label, gstep=jnp.int32(0))
-        obs = self._obs(s, jax.random.fold_in(k_n, 1))
+        obs = self._obs(s, jax.random.fold_in(k_n, 1), info.get("tr"))
         metrics = {"rew_" + k: jnp.float32(0.0) for k in self.rew_keys}
         metrics.update({k: jnp.float32(0.0) for k in spec.episode_metrics})
         return State(data=data, obs=obs, reward=jnp.float32(0.0), done=jnp.float32(0.0), metrics=metrics, info=info)
@@ -719,6 +842,8 @@ class OpenDuckEnv(_EnvBase):
             ctrl = ctrl.at[idx.head_act_id].set(self.default_head + ref["head_offset"])
         ctrl = ctrl.at[idx.action_act_id].set(targets)
         ctrl = jnp.clip(ctrl, self.ctrl_lo, self.ctrl_hi)
+        if self.tr35:                      # PCA9685 adimi (kontrol adiminda bir kez)
+            ctrl = ACT.quantize_pwm(jnp, ctrl, self._act["pwm_res"], self.ctrl_lo, self.ctrl_hi)
 
         # 4. itme (main: zamanlayici walk gibi isler, hiz darbesi yalniz alpha < ALPHA_STAND_MAX iken)
         data = state.data
@@ -727,15 +852,19 @@ class OpenDuckEnv(_EnvBase):
             timer = info["push_timer"] - C.CTRL_DT
             pm = timer <= 0.0
             kick = (pm & (info["alpha"] < C.ALPHA_STAND_MAX)) if task == "main" else pm
-            dv = jnp.where(kick, (2.0 * u[:2] - 1.0) * _DR["push_vel"], 0.0)
-            lo, hi = _DR["push_interval_s"]
+            dv = jnp.where(kick, (2.0 * u[:2] - 1.0) * self.dr["push_vel"], 0.0)
+            lo, hi = self.dr["push_interval_s"]
             info["push_timer"] = jnp.where(pm, lo + (hi - lo) * u[2], timer)
             data = data.replace(qvel=data.qvel.at[self.dadr:self.dadr + 2].add(dv))
 
-        # 5. fizik
-        data = data.replace(ctrl=ctrl)
-        sub = physics_step if self.c_semantics else mjx.step
-        data = jax.lax.fori_loop(0, C.N_SUBSTEPS, lambda i, d: sub(m, d), data)
+        # 5. fizik (tr35: alt adim ctrl sekillendirmesi + algilama; gurultu fold_in(k_noise, 5))
+        if self.tr35:
+            us = jax.random.uniform(jax.random.fold_in(k_noise, 5), (C.N_SUBSTEPS, self.n_tick))
+            data, info["tr"] = self._tr35_substeps(m, data, ctrl, info["tr"], us)
+        else:
+            data = data.replace(ctrl=ctrl)
+            sub = physics_step if self.c_semantics else mjx.step
+            data = jax.lax.fori_loop(0, C.N_SUBSTEPS, lambda i, d: sub(m, d), data)
 
         # 6. (main: durus filtresi bu adimin komutuyla; getup: faz yok, mufredat sayaci)
         phase = None
@@ -826,7 +955,7 @@ class OpenDuckEnv(_EnvBase):
         s["last_action"] = a
         if task != "getup":
             s["command"] = command
-        obs = self._obs(s, k_noise)
+        obs = self._obs(s, k_noise, info.get("tr"))
         return State(data=data, obs=obs, reward=reward, done=done, metrics=metrics, info=info)
 
     def merge_reset(self, stepped, fresh):
