@@ -97,7 +97,8 @@ def validate(cfg):
     sm = cfg["servo_map"]
     if sorted(sm) != sorted(servos.JOINT_KEYS):
         raise ValueError("%s: servo_map tam olarak %s olmali; eksik %s, fazla %s" % (
-            name, servos.JOINT_KEYS, sorted(set(servos.JOINT_KEYS) - set(sm)), sorted(set(sm) - set(servos.JOINT_KEYS))))
+            name, servos.JOINT_KEYS, sorted(set(servos.JOINT_KEYS) - set(sm)),
+            sorted(set(sm) - set(servos.JOINT_KEYS))))
     for k in sm:
         servos.get(sm[k])
     for field in ("horn_offset_deg", "neutral_deg", "joint_limits_deg", "required_deg"):

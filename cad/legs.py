@@ -47,7 +47,8 @@ def _leg_items_xl330(m, sv):
     cr = front.fuse(side).removeSplitter()
     cr = fillet_axis(cr, 3.0, (0, 1, 0))
     cr = cr.cut(xcyl(1.4, 17.5, -17.5, 19.0, 25.0)).cut(ycyl(1.4, hp[0], hp[2], 36.0, 42.0))
-    cr = cr.cut(servos.horn_bolt_holes(sv["hip_roll"], roll_h, 19.0, 25.0) + servos.horn_bolt_holes(sv["hip_pitch"], pitch_h, 36.0, 42.0))
+    cr = cr.cut(servos.horn_bolt_holes(sv["hip_roll"], roll_h, 19.0, 25.0)
+                + servos.horn_bolt_holes(sv["hip_pitch"], pitch_h, 36.0, 42.0))
     out += [("hip_cradle", "hip_roll_horn", roll_h, "horn", m.horn_mass("hip_roll")),
             ("hip_cradle", "hip_cradle_bracket", cr, "bracket", None)]
 

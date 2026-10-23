@@ -180,7 +180,8 @@ def _default_lines(classes):
     L = ['  <default>', '    <default class="%s">' % root]
     if root in classes:
         L += _class_lines(classes[root], '      ')
-    L += ['      <default class="visual"><geom type="mesh" contype="0" conaffinity="0" group="2" density="0"/></default>',
+    L += ['      <default class="visual"><geom type="mesh" contype="0" conaffinity="0" group="2" density="0"/>'
+          '</default>',
           '      <default class="collision"><geom type="box" contype="0" conaffinity="1" group="3" density="0"'
           ' friction="0.9 0.02 0.01" rgba="1 0 0 0.3"/></default>']
     for name, a in classes.items():
@@ -256,7 +257,8 @@ def _write_mjcf(model, data, stand, base_z, path):
     L.append('  <actuator>')
     for j in model.joints:
         L.append('    <position name="%s" joint="%s" class="%s" ctrlrange="%s %s"/>'
-                 % (j["name"], j["name"], jclass[j["name"]], _f(math.radians(j["lower"])), _f(math.radians(j["upper"]))))
+                 % (j["name"], j["name"], jclass[j["name"]], _f(math.radians(j["lower"])),
+                    _f(math.radians(j["upper"]))))
     L.append('  </actuator>')
     L.append('  <sensor>')
     L.append('    <gyro name="gyro" site="imu"/>')
