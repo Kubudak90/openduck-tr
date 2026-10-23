@@ -144,6 +144,61 @@ def rotated(shape, center, axis, angle_deg):
     return s
 
 
+def tube(points, r):
+    """Kablo demeti: noktalar (mm) arasi r yaricapli silindirler + ara noktalarda kureler (tek kati)."""
+    parts = []
+    for a, b in zip(points, points[1:]):
+        d = V(*b) - V(*a)
+        if d.Length > 1e-6:
+            parts.append(Part.makeCylinder(r, d.Length, V(*a), d))
+    parts += [Part.makeSphere(r, V(*q)) for q in points[1:-1]]
+    return parts[0].fuse(parts[1:]).removeSplitter() if len(parts) > 1 else parts[0]
+
+
+def harness_paths(hcfg, key):
+    """Kablo demeti sozlesmesi (P2-0, p2-interface.md "Kablo demetleri"): hcfg = params.harness, key = eklem
+    anahtari. crossings[key] = {"d": cap, "bend_r": min bukulme yaricapi, "cross": eksen uzerindeki gecis noktasi,
+    "in": [parent link'teki noktalar ...], "out": [child link'teki noktalar ...]} (sol taraf, govde cercevesi, sifir
+    poz). Doner [("in"|"out", noktalar, cap, kutle_kg)]: in = in + [cross], out = [cross] + out. Kutle = boy x cap
+    alani x hcfg["g_per_mm3"] (doluluk dahil efektif). FreeCAD gerektirmez."""
+    hc = hcfg.get("crossings", {}).get(key)
+    if not hc:
+        return []
+    import math as _m
+    d = float(hc["d"])
+    k = hcfg["g_per_mm3"] * _m.pi * d * d / 4.0 / 1000.0
+    out = []
+    for part in ("in", "out"):
+        pts = [tuple(q) for q in hc[part]]
+        pts = pts + [tuple(hc["cross"])] if part == "in" else [tuple(hc["cross"])] + pts
+        L = sum(_m.dist(a, b) for a, b in zip(pts, pts[1:]))
+        out.append((part, pts, d, L * k))
+    return out
+
+
+def envelope_solid(prims):
+    """Modul zarfi (P2-0 arayuzu, params.iface.envelopes): ilkel listesi -> tek kati (sifir poz, govde cercevesi).
+      ["box", x0, x1, y0, y1, z0, z1]
+      ["cyl", eksen ("x"|"y"|"z"), c1, c2, r_ic, r_dis, a0, a1]   eksene paralel (ici bos olabilir) silindir;
+                                                                c1, c2 diger iki koordinat (x ekseni: y, z; y: x, z;
+                                                                z: x, y), a0..a1 eksen boyunca."""
+    parts = []
+    for p in prims:
+        if p[0] == "box":
+            parts.append(box(*p[1:7]))
+        elif p[0] == "cyl":
+            ax, c1, c2, ri, ro, a0, a1 = p[1:8]
+            mk = {"x": lambda r: xcyl(r, c1, c2, a0, a1), "y": lambda r: ycyl(r, c1, c2, a0, a1),
+                  "z": lambda r: zcyl(r, c1, c2, a0, a1)}[ax]
+            s = mk(ro)
+            if ri > 0:
+                s = s.cut(mk(ri))
+            parts.append(s)
+        else:
+            raise ValueError("zarf ilkeli %r" % (p[0],))
+    return parts[0].fuse(parts[1:]).removeSplitter() if len(parts) > 1 else parts[0]
+
+
 _MY = App.Matrix(1, 0, 0, 0, 0, -1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1)
 
 

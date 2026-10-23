@@ -11,7 +11,8 @@ turu kaydi (servos.SERVO_TYPES). Servo govdesi parcasinin adi "[left_|right_]<an
 import math
 
 import servos
-from geom import _at_z, _parallel, bar_y, box, fillet, fillet_axis, frame, moved, rbox, stadium_y, xcyl, ycyl, zcyl
+from geom import (V, _at_z, _parallel, bar_y, box, fillet, fillet_axis, frame, moved, rbox, shell_rbox, stadium_y,
+                  xcyl, ycyl, zcyl)
 
 HEAD_KEYS = ("neck_pitch", "head_pitch", "head_yaw", "head_roll", "mouth")
 
@@ -189,4 +190,59 @@ def build_xl330(m, sv):
     m._add("jaw", "lower_bill_pad", rbox(53.0, tip[0] - 1.0, -W2 + 2.0, W2 - 2.0, 101.6, 106.4, 4.0), "pad")
 
 
-GENERATORS = {"xl330_27": build_xl330}
+# ---------------------------------------------------------------------------
+# TR-35 yer tutucu (P2-0 arayuz dondurma; P2c bu bolumu boyun U-link'i, MG90S/SG90 cepleri, cene/alin tamponu ve
+# sabit etli kabuklarla degistirir)
+# ---------------------------------------------------------------------------
+HEAD_CHAIN = (("neck_pitch", "trunk", "neck", (0, -1, 0), 30), ("head_pitch", "neck", "head_tilt", (0, 1, 0), 31),
+              ("head_yaw", "head_tilt", "head_turn", (0, 0, 1), 32), ("head_roll", "head_turn", "head", (-1, 0, 0), 33),
+              ("mouth", "head", "jaw", (0, 1, 0), 34))
+# servo govdesi / horn link'i (isaret kurali +1): neck_pitch govde trunk (horn -y, neck'i surer), head_pitch govde
+# neck, head_yaw govde head_turn (cocuk), head_roll govde head (cocuk), mouth govde head
+HEAD_BODY_LINK = {"head_pitch": "neck", "head_yaw": "head_turn", "head_roll": "head", "mouth": "head"}
+HEAD_HORN_LINK = {"neck_pitch": "neck", "head_pitch": "head_tilt", "head_yaw": "head_tilt", "head_roll": "head_turn",
+                  "mouth": "jaw"}
+
+
+def build_tr35_stub(m, sv):
+    """TR-35 boyun + kafa, P2-0 yer tutucu: eklemler (ID 30-34), boyun DS horn'u + idler pimi (trunk'tan shared),
+    MG90S/SG90 govde ve horn zarflari, sabit etli kafa kabugu (kutu, boyun deligi), cene/alin tamponu (neck link'te,
+    carpisma kutulu "neck_bumper"), butce kutleli braket bloklari ve kablo demetleri."""
+    from geom import harness_paths, tube
+    servos.require(m, sv, ("neck_pitch",), "DS32XX", "head.tr35_b2")
+    servos.require(m, sv, ("head_pitch", "head_yaw", "head_roll"), "MG90S", "head.tr35_b2")
+    servos.require(m, sv, ("mouth",), "SG90", "head.tr35_b2")
+    p, H = m.p, m.p["head"]
+    for jn, parent, child, axis, sid in HEAD_CHAIN:
+        m._joint(jn, parent, child, p["j_" + jn], axis, m.limits[jn], m.home.get(jn, 0.0), sid)
+    m._add("neck", "neck_pitch_horn", m.shared["neck_pitch_horn"], "horn", m.horn_mass("neck_pitch"))
+    m._add("neck", "neck_pitch_idler_pin", m.shared["neck_pitch_idler_pin"], "metal", H["mass_g"]["idler_pin"] / 1000.0)
+    for key in ("head_pitch", "head_yaw", "head_roll", "mouth"):
+        sp = m.servo_parts(key, horn_toward=H["horn_toward"].get(key))
+        m._add(HEAD_BODY_LINK[key], key + "_servo", sp["body"], "servo", m.servo_mass(key))
+        m._add(HEAD_HORN_LINK[key], key + "_horn", sp["horn"], "horn", m.horn_mass(key))
+    # kafa kabugu: sabit etli kutu (PLA), altta boyun deligi; P2c gercek kaput/alt kabuk/gaga
+    hx0, hx1 = p["head_x"]
+    W2 = p["head_w"] / 2.0
+    zt, zb, w = p["head_top"], p["head_bot"], p["wall"]
+    shell = shell_rbox(hx0, hx1, -W2, W2, zb, zt, w, 18.0, 14.0, 6.0)
+    hy = p["j_head_yaw"]
+    shell = shell.cut(zcyl(H["neck_hole_r"], hy[0], hy[1], zb - 1.0, zb + w + 1.0))
+    m._add("head", "head_shell", shell, "shell", H["shell_mass_g"] / 1000.0)
+    # tampon (spec 3.1): kafa darbesini boyun U-link'ine aktarir; MJCF'de boyun govdesine bagli carpisma geomu
+    # (ad "neck_bumper"; "neck_collision" RL getup varyantinin ek geomudur, kullanilmaz). Disa aktarma P3.
+    bc, bh = H["bumper"]["center"], H["bumper"]["half"]
+    bump = box(bc[0] - bh[0], bc[0] + bh[0], bc[1] - bh[1], bc[1] + bh[1], bc[2] - bh[2], bc[2] + bh[2])
+    m._add("neck", "neck_bumper", bump, "pad", None, (V(*bc), tuple(bh), 0.0))
+    # alt gaga yer tutucusu (jaw) ve braket kutle bloklari
+    jb = H["jaw_block"]
+    m._add("jaw", "lower_bill", box(*jb), "trim", H["jaw_mass_g"] / 1000.0)
+    for link, (c, half, mass_g) in H["mass_blocks"].items():
+        blk = box(c[0] - half[0], c[0] + half[0], c[1] - half[1], c[1] + half[1], c[2] - half[2], c[2] + half[2])
+        m._add(link, link + "_bracket", blk, "bracket", mass_g / 1000.0)
+    for jn, parent, child, _, _ in HEAD_CHAIN:
+        for part, pts, d, mass in harness_paths(p["harness"], jn):
+            m._add(parent if part == "in" else child, "%s_harness_%s" % (jn, part), tube(pts, d / 2.0), "harness", mass)
+
+
+GENERATORS = {"xl330_27": build_xl330, "tr35_b2": build_tr35_stub}

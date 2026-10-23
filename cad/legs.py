@@ -177,4 +177,104 @@ def build_xl330(m, sv):
             m._add(S + link, S + name, shape, kind, mass, cbox)
 
 
-GENERATORS = {"xl330_27": build_xl330}
+# ---------------------------------------------------------------------------
+# TR-35 yer tutucu (P2-0 arayuz dondurma; P2a bu bolumu gercek besik/U-link/doner tabla/ayakla degistirir)
+# ---------------------------------------------------------------------------
+LEG_AXES = {"hip_yaw": (0, 0, -1), "hip_roll": (1, 0, 0), "hip_pitch": (0, 1, 0), "knee": (0, -1, 0),
+            "ankle": (0, 1, 0)}
+LEG_CHAIN = (("hip_yaw", "trunk", "hip"), ("hip_roll", "hip", "hip_cradle"), ("hip_pitch", "hip_cradle", "thigh"),
+             ("knee", "thigh", "shin"), ("ankle", "shin", "foot"))
+# servo govdesi hangi link'te (spec 3.2.1 isaret kurali +1; p2-interface.md): hip_yaw trunk, hip_roll hip,
+# hip_pitch thigh (cocuk), knee thigh, ankle shin. Horn ve idler pimi (rotor) diger link'te.
+LEG_BODY_LINK = {"hip_roll": "hip", "hip_pitch": "thigh", "knee": "thigh", "ankle": "shin"}
+LEG_HORN_LINK = {"hip_yaw": "hip", "hip_roll": "hip_cradle", "hip_pitch": "hip_cradle", "knee": "shin",
+                 "ankle": "foot"}
+
+
+def harness_items(m, key, parent, child):
+    """Eklem gecisi kablo demeti (P2-0 sozlesmesi, geom.harness_paths): params.harness.crossings[key] -> parent
+    link'te "<anahtar>_harness_in" (giris -> gecis noktasi) ve child link'te "<anahtar>_harness_out" (gecis noktasi
+    -> cikis) tupleri (Item kind "harness", cap d). Doner [(link, ad, sekil, kutle_kg)] (sol taraf)."""
+    from geom import harness_paths, tube
+    out = []
+    for part, pts, d, mass in harness_paths(m.p["harness"], key):
+        out.append((parent if part == "in" else child, "%s_harness_%s" % (key, part), tube(pts, d / 2.0), mass))
+    return out
+
+
+def build_tr35_stub(m, sv):
+    """TR-35 bacaklari, P2-0 yer tutucu: eklemler (sol ID 20-24, sag 10-14; eksen/isaret 27 cm ile ayni), servo/horn/
+    idler zarflari (servos.py), doner tabla mili + kaplin (kalca yaw), yerlesim kutulari yerine butceden kutleli
+    kucuk braket bloklari, ayak plakasi + TPU taban (carpisma kutusu) ve kablo demetleri. Bracket geometrisi P2a."""
+    servos.require(m, sv, ("hip_roll", "hip_pitch", "knee", "ankle"), "DS32XX", "legs.tr35_b2")
+    servos.require(m, sv, ("hip_yaw",), "ES3054", "legs.tr35_b2")
+    p, L = m.p, m.p["legs"]
+    lim = m.limits
+    tt = servos.turntable_stack(p["turntable"])
+    yaw_o = p["j_hip_yaw"]
+    items = []        # (link anahtari, ad, sekil, tur, kutle[, carpisma kutusu])
+
+    # hip: doner tabla mili (rotor) + pim/yarik kaplin surucusu + kalca plakasi + roll servosu (govde)
+    b = tt["bearing_rec"]
+    z0 = tt["z_mate"] - p["turntable"]["gap"]
+    items.append(("hip", "hip_yaw_shaft", zcyl(b["d"] / 2.0, yaw_o[0], yaw_o[1], z0, tt["shaft_top"]), "metal",
+                  L["mass_g"]["hip_yaw_shaft"] / 1000.0))
+    plate = zcyl(L["hip_plate"]["r"], yaw_o[0], yaw_o[1], z0 - p["plate_t"], z0)     # doner tabla flansi
+    items.append(("hip", "hip_plate", plate, "bracket", None))
+    for key in ("hip_roll", "hip_pitch", "knee", "ankle"):
+        sp = m.servo_parts(key, horn_toward=L["horn_toward"].get(key))
+        bl, hl = LEG_BODY_LINK[key], LEG_HORN_LINK[key]
+        items += [(bl, key + "_servo", sp["body"], "servo", m.servo_mass(key)),
+                  (bl, key + "_idler_seat", sp["idler_seat"], "bracket", None),
+                  (bl, key + "_idler_bearing", sp["idler_bearing"], "metal",
+                   servos.BEARINGS[p["idler"]["bearing"]]["mass_g"] / 1000.0),
+                  (hl, key + "_horn", sp["horn"], "horn", m.horn_mass(key)),
+                  (hl, key + "_idler_pin", sp["idler_pin"], "metal", L["mass_g"]["idler_pin"] / 1000.0)]
+    # yer tutucu braket bloklari: link basina butce kutlesi, carpismayan kucuk kutu (P2a gercek parcayla degistirir)
+    for link, (c, half, mass_g) in L["mass_blocks"].items():
+        blk = box(c[0] - half[0], c[0] + half[0], c[1] - half[1], c[1] + half[1], c[2] - half[2], c[2] + half[2])
+        items.append((link, link + "_bracket", blk, "bracket", mass_g / 1000.0))
+    # ayak: plaka (bilek U-link tabani) + TPU taban; taban carpisma kutusu (MJCF <ayak>_collision, RL sozlesmesi)
+    an = p["j_ankle"]
+    ft = L["foot"]
+    z_sole = an[2] - p["sole_below_ankle"]
+    fx0, fx1 = an[0] + p["foot_x"][0], an[0] + p["foot_x"][1]
+    fy0, fy1 = ft["yc"] - p["foot_w"] / 2.0, ft["yc"] + p["foot_w"] / 2.0
+    body = rbox(fx0, fx1, fy0, fy1, z_sole + p["sole_t"], z_sole + p["sole_t"] + ft["plate_t"], 9.0)
+    sole = rbox(fx0, fx1, fy0, fy1, z_sole, z_sole + p["sole_t"], 9.0, 0.0, 1.5)
+    c = (0.5 * (fx0 + fx1), ft["yc"], z_sole)
+    cant = p["sole_cant_deg"]
+    body, sole = rotated(body, c, (1, 0, 0), cant), rotated(sole, c, (1, 0, 0), cant)
+    ca = math.radians(cant)
+    cc = V(c[0], c[1] - 0.5 * p["sole_t"] * math.sin(ca), z_sole + 0.5 * p["sole_t"] * math.cos(ca))
+    items += [("foot", "foot_plate", body, "bracket", None),
+              ("foot", "sole", sole, "sole", None, (cc, ((fx1 - fx0) / 2, (fy1 - fy0) / 2, p["sole_t"] / 2), cant))]
+    # kablo demetleri (eklem gecisleri)
+    for jn, parent, child in LEG_CHAIN:
+        for link, name, shape, mass in harness_items(m, jn, parent, child):
+            items.append((link, name, shape, "harness", mass))
+
+    for side, sy, ids in (("left", 1, 20), ("right", -1, 10)):
+        S = side + "_"
+        for k, (jn, parent, child) in enumerate(LEG_CHAIN):
+            x, y, z = p["j_" + jn]
+            ax = LEG_AXES[jn]
+            lo, hi = lim[jn]
+            if sy < 0:   # sag bacak: Y'ye gore ayna; Y eksenli eklemlerin ekseni ters (27 cm ile ayni)
+                ax = (ax[0], -ax[1], ax[2])
+                lo, hi = -hi, -lo
+            pa = parent if parent == "trunk" else S + parent
+            m._joint(S + jn, pa, S + child, (x, sy * y, z), ax, (lo, hi), m.home.get(S + jn, 0.0), ids + k)
+        m._add(S + "hip", S + "hip_yaw_horn", m.shared["hip_yaw_horn"][side], "horn", m.horn_mass("hip_yaw"))
+        for entry in items:
+            link, name, shape, kind, mass = entry[:5]
+            cbox = entry[5] if len(entry) > 5 else None
+            lk = link if link == "trunk" else S + link
+            if sy < 0:
+                shape = mirror_y(shape)
+                if cbox is not None:
+                    cbox = (V(cbox[0].x, -cbox[0].y, cbox[0].z), cbox[1], -cbox[2])
+            m._add(lk, S + name, shape, kind, mass, cbox)
+
+
+GENERATORS = {"xl330_27": build_xl330, "tr35_b2": build_tr35_stub}

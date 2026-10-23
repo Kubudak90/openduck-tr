@@ -61,7 +61,7 @@ def test_pwm_envelope_consistency(name):
     assert t["cable"]["face"] == "near_end"   # dort PWM turunde kablo mil tarafi uc yuzunden cikar
     lo, hi = t["pwm_us"]
     assert lo < t["neutral_us"] < hi and t["neutral_us"] == 1500
-    assert t["geometry"] is None              # zarf geometrisi P2a'da
+    assert t["geometry"] == "pwm"             # P2-0: kanonik zarf (servos.canon), orijin horn dis yuzunde
 
 
 def test_xl330_matches_legacy_model():
@@ -172,5 +172,72 @@ def test_require_guard():
     sv["knee"] = servos.get("DS32XX")
     with pytest.raises(NotImplementedError, match="knee=DS32XX"):
         servos.require(M, sv, ("knee",), "XL330", "legs.xl330_27")
-    with pytest.raises(NotImplementedError, match="P2a"):
-        servos.horn_face_y(servos.get("DS32XX"))
+
+
+# ---------------------------------------------------------------------------
+# P2-0 kanonik zarf sozlesmesi (FreeCAD'siz kisim: datumlar, idler, doner tabla, horn delikleri)
+# ---------------------------------------------------------------------------
+@pytest.mark.parametrize("name", PWM)
+def test_pwm_origin_convention(name):
+    """Orijin horn dis yuzunde (horn_face_y = 0), taban (arka yuz) Y = -horn.h[1]; govde/kule/spline/horn sirasi
+    tabandan yukari tutarli; kulak deseni govde ortasinda (milden uzak uca body_center_z)."""
+    t = servos.get(name)
+    d = servos.datums(t)
+    assert servos.horn_face_y(t) == 0.0 == d["horn_face"]
+    assert d["rear_face"] == pytest.approx(-t["horn"]["h"][1]) == pytest.approx(servos.rear_face_y(t))
+    assert servos.face_h(t) == t["horn"]["h"][1]
+    assert d["rear_face"] < d["case_top"] <= d["tower_top"] < d["spline_top"] < d["horn_face"]
+    assert d["tower_top"] == pytest.approx(d["rear_face"] + t["body"]["h"])
+    assert d["rear_face"] + t["horn"]["h"][0] > d["tower_top"] + 0.3     # horn gobegi govdeye degmez
+    assert d["spline_top"] < d["horn_face"]
+    assert d["body_center_z"] == pytest.approx(t["body"]["l"] / 2 - t["shaft"]["near"])
+    z0, z1 = d["tab_z"]
+    assert z1 - z0 == pytest.approx(t["tabs"]["span"]) and (z0 + z1) / 2 == pytest.approx(d["body_center_z"])
+    assert d["tab"][0] == pytest.approx(d["rear_face"] + t["tabs"]["under_h"])
+    hz = sorted({z for _, z in d["tab_holes"]})
+    assert hz[1] - hz[0] == pytest.approx(t["holes"]["pitch_l"])
+    # X = 0 simetrisi (mirror_y gecerli): delikler, kablo cikisi, horn delikleri ortada / cift
+    assert sorted(x for x, _ in d["tab_holes"]) == sorted(-x for x, _ in d["tab_holes"])
+    assert d["cable_exit"][0][0] == 0.0 and d["cable_exit"][1] == (0.0, 0.0, -1.0)
+    assert all(x == 0.0 for x, _ in servos.horn_bolt_xz(t))
+    assert len(servos.horn_bolt_xz(t)) == t["horn"]["bolt_n"]
+
+
+def test_ds_idler_stack():
+    """DS arka idler (spec 3.1, servo-mechanics D2/D5): F623ZZ, besik plakasi tabandan 0.4..4.4, rulman -1.4..-5.4
+    (merkez -3.4, flans disarida), 0.5 calisma boslugu, U-link B kolu -5.9..-9.9; eksen mil ile es eksenli."""
+    t = servos.get("DS32XX")
+    st = servos.idler_stack(t)
+    yr = servos.rear_face_y(t)
+    assert yr == pytest.approx(-47.9)
+    assert st["seat"] == pytest.approx((yr - 4.4, yr - 0.4))
+    assert st["bearing"] == pytest.approx((yr - 5.4, yr - 1.4))
+    assert st["axis"] == pytest.approx(yr - 3.4)
+    assert st["leg"] == pytest.approx((yr - 9.9, yr - 5.9))
+    assert st["bearing_rec"] is servos.BEARINGS["F623ZZ"]
+    assert servos.datums(t)["idler_axis"] == (0.0, st["axis"], 0.0)
+    for n in ("ES3054", "MG90S", "SG90", "XL330"):
+        assert servos.idler_stack(servos.get(n)) is None
+
+
+def test_turntable_stack():
+    """hip_yaw doner tablasi: iki rulman, merkezler arasi >= 20 mm; ES3054 horn yuzu ust rulmanin ustunde; taban
+    rulmani degisse de horn yuzu ayni (dondurulmus arayuz)."""
+    tt = {"bearing": "6800ZZ", "spacing": 22.0, "z_mate": 0.0, "gap": 0.5, "nut_t": 2.5, "coupler_gap": 0.5,
+          "housing_wall": 3.0}
+    s = servos.turntable_stack(tt)
+    b = servos.BEARINGS["6800ZZ"]
+    assert s["lower"] == (0.0, b["B"]) and s["upper"] == (22.0, 22.0 + b["B"])
+    assert s["spacing"] >= 20.0
+    assert s["horn_face"] == pytest.approx(22.0 + b["B"] + 2.5 + 0.5)
+    assert s["housing_r"] == pytest.approx(b["D"] / 2 + 3.0)
+    s2 = servos.turntable_stack(tt, "608ZZ")
+    assert s2["horn_face"] == s["horn_face"] and s2["upper"][1] < s["horn_face"]
+
+
+def test_arm_angle():
+    assert servos.arm_angle_deg((0, 0, -1), (-1, 0, 0), (-1, 0, 0)) == pytest.approx(0.0)
+    assert abs(servos.arm_angle_deg((0, 0, -1), (-1, 0, 0), (1, 0, 0))) == pytest.approx(180.0)
+    # horn -y, uzak uc +z: kolu -z'ye cevirmek 180, +x'e cevirmek: -y etrafinda +z -> +x = -90
+    assert servos.arm_angle_deg((0, -1, 0), (0, 0, 1), (1, 0, 0)) == pytest.approx(-90.0)
+    assert servos.arm_angle_deg((1, 0, 0), (0, 0, -1), (0, 1, 0)) == pytest.approx(90.0)

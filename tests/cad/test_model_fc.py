@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """
 Model + disa aktarma (freecadcmd ile; yoksa atlanir): isaret kurali (+1, spec 3.2.1), eklem servo/aktuator
-alanlari, tr35_b2'nin eksik uretecleri adlandiran NotImplementedError'u, xl330 ureteclerinin olcek korumasi ve
+alanlari, eksik uretecleri adlandiran NotImplementedError, xl330/tr35 ureteclerinin olcek/servo korumasi ve
 sinif basina MJCF aktuator varsayilanlari (eklemlerin servo turu degistirilmis xl330 modeli MuJoCo'da yuklenir).
 
   pytest tests/cad -q -p no:cacheprovider          (~15 s)
@@ -34,7 +34,11 @@ res["joints"] = [{k: j[k] for k in ("name", "servo", "actuator", "effort", "velo
                  for j in m.joints]
 res["servo_label"] = m.meta["servo"]
 res["scale"] = m.p["scale"]
-for tag, cfg in (("tr35", "tr35_b2"), ("xl_scaled", dict(openduck.build_config.load("xl330_27"), scale=1.282))):
+tr = openduck.build_config.load("tr35_b2")
+for tag, cfg in (("tr35", "tr35_b2"), ("xl_scaled", dict(openduck.build_config.load("xl330_27"), scale=1.282)),
+                 ("missing", dict(tr, generators={"trunk": "yok", "legs": "yok", "head": "yok"})),
+                 ("tr35_on_xl", dict(openduck.build_config.load("xl330_27"),
+                                     generators={"trunk": "tr35_b2", "legs": "tr35_b2", "head": "tr35_b2"}))):
     try:
         openduck.OpenDuck(config=cfg)
         res[tag] = "hata yok"
@@ -84,13 +88,17 @@ def test_sign_rule_and_joint_fields(fc_run):
     assert r["servo_label"] == "DYNAMIXEL XL330-M288-T"
 
 
-def test_tr35_not_implemented_names_generators(fc_run):
+def test_generator_guards(fc_run):
+    """tr35_b2 P2-0 yer tutucularla kurulur; eksik uretec adi NotImplementedError'da adlandirilir; xl330 ureteci
+    olcek korumali, tr35 ureteci servo turu korumali."""
     _, r = fc_run
-    msg = r["tr35"]
+    assert r["tr35"] == "hata yok", r["tr35"]
+    msg = r["missing"]
     assert msg.startswith("NotImplementedError: konfig tr35_b2"), msg
     for stage in ("trunk", "legs", "head"):
-        assert "%s.GENERATORS['tr35_b2']" % stage in msg
+        assert "%s.GENERATORS['yok']" % stage in msg
     assert r["xl_scaled"].startswith("NotImplementedError: trunk.xl330_27 1 olcekli"), r["xl_scaled"]
+    assert r["tr35_on_xl"].startswith("NotImplementedError: trunk.tr35_b2 yalniz ES3054"), r["tr35_on_xl"]
 
 
 @pytest.mark.parametrize("tag", ["mixed", "tr35like"])

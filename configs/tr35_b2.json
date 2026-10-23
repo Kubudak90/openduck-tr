@@ -1,5 +1,5 @@
 {
-  "_note": "OpenDuck-TR ~35 cm, B2-ESP32 (spec v3 3.1). Geometri uretecleri: legs P2a, trunk P2b, head P2c; o zamana kadar OpenDuck(config='tr35_b2') NotImplementedError verir. params MUTLAK degerlerdir (mm, kg/mm3); verilmeyen yerlesim anahtarlari (openduck.LAYOUT_KEYS) 27 cm degeri x scale.",
+  "_note": "OpenDuck-TR ~35 cm, B2-ESP32 (spec v3 3.1). P2-0 arayuz dondurmasi: docs/workflow/openduck-tr/p2-interface.md. Uretecler: trunk P2b, legs P2a, head P2c (P2-0'da yer tutucular). params MUTLAK degerlerdir (mm, kg/mm3); verilmeyen yerlesim anahtarlari (openduck.LAYOUT_KEYS) 27 cm degeri x scale. j_*, servo_face, servo_dir, turntable, idler, harness ve home DONDURULDU (degisiklik = arayuz degisikligi); params.trunk / params.legs / params.head modul bolumleridir, her P2 adimi yalniz kendi bolumunu duzenler.",
   "name": "tr35_b2",
   "description": "OpenDuck-TR ~35 cm (s = 1.282), B2-ESP32: 9 x DS32xx, 2 x ES3054, 3 x MG90S, 1 x SG90",
   "robot": "OpenDuck-TR (35 cm, B2-ESP32)",
@@ -21,8 +21,32 @@
   "horn_offset_deg": {"hip_pitch": 14.4},
   "_neutral_deg": "servo orta darbesinde eklem acisi, geometriden: boyun notru -25 (spec 3.1; govde trunk'ta sabit, horn -y) -> hareket -115..+65",
   "neutral_deg": {"neck_pitch": -25.0},
-  "_joint_limits_deg": "spec 3.1'de sabitlenen sinirlar (sol); digerleri TR-35 CAD taramasindan turetilir (P2, spec 3.2.3)",
-  "joint_limits_deg": {"hip_pitch": [-70.0, 90.0], "head_yaw": [-80.0, 80.0]},
+  "_joint_limits_deg": "spec 3.1 sinirlari (hip_pitch -70..90, head_yaw +-80); digerleri P2-0'da gerekli araliga esit (A1: gerekli <= sinir). P2a/P2c CAD taramasiyla genisletebilir (servo hareketi icinde, check.py 0 carpisma)",
+  "joint_limits_deg": {
+    "hip_yaw": [-10.0, 10.0],
+    "hip_roll": [-20.0, 20.0],
+    "hip_pitch": [-70.0, 90.0],
+    "knee": [-37.0, 65.0],
+    "ankle": [-45.0, 57.0],
+    "neck_pitch": [-90.0, 40.0],
+    "head_pitch": [-20.0, 60.0],
+    "head_yaw": [-80.0, 80.0],
+    "head_roll": [-10.0, 10.0],
+    "mouth": [0.0, 30.0]
+  },
+  "_home_deg": "nominal stand keyframe (27 cm HOME, sagital olcekleme acilari korur; duz taban kosulu hp - kn + an = 0)",
+  "home_deg": {
+    "left_hip_roll": -5.0,
+    "left_hip_pitch": -26.237,
+    "left_knee": -0.283,
+    "left_ankle": 25.954,
+    "right_hip_roll": 5.0,
+    "right_hip_pitch": 26.237,
+    "right_knee": 0.283,
+    "right_ankle": -25.954,
+    "neck_pitch": 20.0,
+    "head_pitch": 20.0
+  },
   "_required_deg": "spec 3.1 birlesik gerekli eklem araliklari (walk + main + getup; sol bacak isareti), A1: gerekli araliklar eklem sinirlarinin icinde",
   "required_deg": {
     "hip_yaw": [-10.0, 10.0],
@@ -36,35 +60,265 @@
     "head_roll": [-10.0, 10.0],
     "mouth": [0.0, 30.0]
   },
+  "_check": "cad/check.py genisletilmis taramalar (A1): tek eklem (sinir), komsu cift izgarasi, bacak-bacak; range 'limits' ya da 'required'. pair_scope 'module': cift izgarasinda yalniz ciftin modulu icindeki carpismalar sayilir (bacak ciftleri: bacak link'leri, iki bacak dahil; kafa ciftleri: kafa modulu); govde/kafa <-> uzuv temaslari bilgi amacli listelenir (MJCF oz-carpisma ciftleri, spec 3.2.2). 'all': hepsi sayilir (p2-interface.md: gerekli araliklarin birlesik uclarinda govde hacmi kalmaz)",
+  "check": {
+    "pair_steps": 5,
+    "pair_range": "required",
+    "pair_scope": "module",
+    "leg_leg": true,
+    "leg_leg_range": "required",
+    "_contact_pairs": "spec 3.2.2 (v3.1 karari, p2-interface.md 'Kararlar'): birlesik uc pozlarda beklenen, MJCF'de oz-carpisma cifti olarak modellenen temaslar; 4) ve 5)'te sayilmaz, ayri listelenir. Tek eklem taramasinda (1) yine sayilir. Kablo demeti temaslari (contact_count_kinds) her zaman sayilir.",
+    "contact_pairs": [
+      {"links": ["foot", "foot"], "side": "cross", "sections": ["leg_leg"],
+       "why": "iki ayak, iki bacak ic uclarda one uzanirken (pitch -70, knee -37, roll/yaw ic): bacak<->bacak cifti"},
+      {"links": ["foot", "thigh"], "side": "same", "sections": ["pairs"],
+       "why": "knee +65 / ankle -45 katlanmasi: ayak kalca onune (ayni bacak ayak<->uyluk cifti)"},
+      {"links": ["foot", "hip_cradle"], "side": "same", "sections": ["pairs"],
+       "why": "knee +65 / ankle -45 katlanmasi: ayak kalca onune (ayni bacak ayak<->kalca besigi cifti)"}
+    ],
+    "contact_count_kinds": ["harness"]
+  },
   "targets": {
     "head_top_stand_mm": [340.0, 360.0],
     "mass_max_kg": 1.95,
     "mass_target_kg": 1.85,
     "mass_factor": 1.05,
     "bed_mm": [256.0, 256.0, 256.0],
-    "pla_heat_gap_mm": 5.0
+    "pla_heat_gap_mm": 5.0,
+    "bracket_clearance_mm": 5.0
   },
   "params": {
     "_wall": "kabuk et kalinligi: sabit (olceklenmez; kutle merdiveni 1). plate_t: DS besik/U-link kol kalinligi",
     "wall": 1.8,
     "plate_t": 4.0,
-    "_print": "baski ayarlari ve efektif yogunluk (kg/mm3) parca turu basina; asagidan yukari kutle (P3) ve kutle merdiveni 5 bunlari kullanir",
+    "_print": "baski ayarlari ve efektif yogunluk (kg/mm3) parca turu basina; Item.mass_kg ve asagidan yukari kutle (P3) bunlari kullanir",
     "print": {
       "line_w": 0.45,
       "layer_h": 0.2,
-      "density_solid": {"PLA": 1.24e-6, "PETG": 1.27e-6, "TPU 95A": 1.21e-6},
-      "bracket": {"material": "PETG", "perimeters": 4, "top_bottom": 5, "infill": 0.40, "density_eff": 1.0e-6},
-      "shell": {"material": "PLA", "perimeters": 4, "top_bottom": 4, "infill": 0.15, "density_eff": 1.2e-6},
-      "trim": {"material": "PLA", "perimeters": 4, "top_bottom": 4, "infill": 0.15, "density_eff": 1.2e-6},
-      "face": {"material": "PLA", "perimeters": 4, "top_bottom": 4, "infill": 0.15, "density_eff": 1.2e-6},
-      "sole": {"material": "TPU 95A", "perimeters": 3, "top_bottom": 4, "infill": 0.30, "density_eff": 0.85e-6},
-      "pad": {"material": "TPU 95A", "perimeters": 3, "top_bottom": 4, "infill": 0.30, "density_eff": 0.85e-6}
+      "density_solid": {"PLA": 1.24e-06, "PETG": 1.27e-06, "TPU 95A": 1.21e-06},
+      "bracket": {"material": "PETG", "perimeters": 4, "top_bottom": 5, "infill": 0.4, "density_eff": 1e-06},
+      "shell": {"material": "PLA", "perimeters": 4, "top_bottom": 4, "infill": 0.15, "density_eff": 1.2e-06},
+      "trim": {"material": "PLA", "perimeters": 4, "top_bottom": 4, "infill": 0.15, "density_eff": 1.2e-06},
+      "face": {"material": "PLA", "perimeters": 4, "top_bottom": 4, "infill": 0.15, "density_eff": 1.2e-06},
+      "sole": {"material": "TPU 95A", "perimeters": 3, "top_bottom": 4, "infill": 0.3, "density_eff": 8.5e-07},
+      "pad": {"material": "TPU 95A", "perimeters": 3, "top_bottom": 4, "infill": 0.3, "density_eff": 8.5e-07}
     },
     "_fit": "olceklenmeyen baglanti olculeri (spec 3.1: M3 somun yuvasi; isil ek yok)",
     "fit": {"screw": "M3", "clear_d": 3.4, "tap_d": 2.5, "nut_af": 5.7, "nut_t": 2.6, "clearance": 0.2},
-    "_idler": "DS eklemleri: eksenle hizali arka idler F623ZZ, M3 mil (spec 3.1)",
+    "_idler": "DS eklemleri: eksenle hizali arka idler F623ZZ, M3 mil (spec 3.1); duzlemler servos.idler_stack()",
     "idler": {"bearing": "F623ZZ", "d": 3.0, "D": 10.0, "B": 4.0, "flange_d": 11.5, "flange_t": 1.0, "seat_d": 10.1},
-    "_turntable": "hip_yaw iki rulmanli doner tabla, >= 20 mm aralik; 608ZZ ya da 6800ZZ (stok planda)",
-    "turntable": {"bearings": ["6800ZZ", "608ZZ"], "spacing_min": 20.0}
+    "sole_t": 5.0,
+    "j_hip_yaw": [7.692, 12.0, -3.0],
+    "j_hip_roll": [36.1, 26.0, -22.435],
+    "j_hip_pitch": [5.128, 51.0, -22.435],
+    "j_knee": [-40.768, 51.0, -50.639],
+    "j_ankle": [-40.768, 104.8, -104.483],
+    "j_neck_pitch": [33.332, 0.0, 41.537],
+    "j_head_pitch": [33.332, 0.0, 105.637],
+    "j_head_yaw": [33.332, 0.0, 129.61],
+    "j_head_roll": [10.384, 0.0, 148.199],
+    "j_mouth": [33.46, 35.896, 152.045],
+    "servo_face": {
+      "hip_yaw": [7.692, 12.0, 27.0],
+      "hip_roll": [36.1, 26.0, -22.435],
+      "hip_pitch": [5.128, 51.0, -22.435],
+      "knee": [-40.768, 51.0, -50.639],
+      "ankle": [-40.768, 104.8, -104.483],
+      "neck_pitch": [33.332, -26.9, 41.537],
+      "head_pitch": [33.332, 16.8, 105.637],
+      "head_yaw": [33.332, 0.0, 129.61],
+      "head_roll": [10.384, 0.0, 148.199],
+      "mouth": [33.46, 54.485, 152.045]
+    },
+    "servo_dir": {
+      "hip_yaw": [[0, 0, -1], [-1, 0, 0]],
+      "hip_roll": [[1, 0, 0], [0, 0, -1]],
+      "hip_pitch": [[0, -1, 0], [-1, 0, 0]],
+      "knee": [[0, -1, 0], [-0.259, 0, 0.966]],
+      "ankle": [[0, 1, 0], [-0.643, 0, 0.766]],
+      "neck_pitch": [[0, -1, 0], [0, 0, -1]],
+      "head_pitch": [[0, 1, 0], [0, 0, -1]],
+      "head_yaw": [[0, 0, -1], [0, -1, 0]],
+      "head_roll": [[1, 0, 0], [0, -1, 0]],
+      "mouth": [[0, 1, 0], [1, 0, 0]]
+    },
+    "foot_w": 64.0,
+    "turntable": {
+      "_note": "hip_yaw doner tablasi (spec 3.1): servos.turntable_stack(). 6800ZZ (ince kesit, kutle merdiveni 4 P2-0'da uygulandi): iki yaw ekseni y = +-12'de, yuvalar arasi 5 mm et; 608ZZ (D22) bu aralikta 2 mm et birakir, kullanilmaz",
+      "bearing": "6800ZZ",
+      "spacing": 22.0,
+      "spacing_min": 20.0,
+      "z_mate": -3.0,
+      "gap": 0.5,
+      "nut_t": 2.5,
+      "coupler_gap": 0.5,
+      "housing_wall": 3.0
+    },
+    "legs": {
+      "_note": "P2a bolumu (P2-0 yer tutucu degerleri; P2a kendi gercek parcalarina gore degistirir). horn_toward: horn kolunun sifir pozda bakacagi yon (sol taraf); hip_plate: doner tabla flansi yer tutucusu (z_mate - gap altinda disk); mass_blocks: link basina butce kutlesi (braket + vida + kablo payi, g) yer tutucu kupleri",
+      "horn_toward": {"hip_roll": [0, 1, 0], "hip_pitch": [1, 0, 0], "knee": [0, 0, -1], "ankle": [1, 0, 0]},
+      "hip_plate": {"r": 8.5},
+      "foot": {"yc": 77.9, "plate_t": 5.0},
+      "mass_g": {"hip_yaw_shaft": 8.0, "idler_pin": 1.8},
+      "mass_blocks": {
+        "hip": [[8.0, 26.0, -63.0], [3.0, 3.0, 3.0], 24.0],
+        "hip_cradle": [[38.0, 40.0, -40.0], [3.0, 3.0, 3.0], 24.0],
+        "thigh": [[-22.0, 80.0, -42.0], [3.0, 3.0, 3.0], 36.0],
+        "shin": [[-30.0, 80.0, -78.0], [3.0, 3.0, 3.0], 22.8]
+      }
+    },
+    "trunk": {
+      "_note": "P2b bolumu (P2-0 yer tutucu): electronics = cad/electronics.py parcasi -> [x, y, z_alt, rot_z, eksen sirasi] (kutu alt orta noktasi; 'xzy' kenar ustu, 'zyx' dik); P2-0 yerlesimi yalniz hacim fizibilitesidir, P2b yeniden planlar. mass_blocks: [merkez, yari olcu, g] sasi+kafes+kabuk+vida+kablo butcesi",
+      "hip_yaw_horn_toward": [-1, 0, 0],
+      "neck_horn_toward": [0, 0, 1],
+      "imu_item": "imu_mpu6500",
+      "electronics": {
+        "battery_4s_lipo": [-53.0, 0.0, -2.5, 0],
+        "buck_20a": [-58.0, 0.0, 31.0, 0],
+        "pca9685#1": [-26.75, 31.0, -2.5, 0, "xzy"],
+        "pca9685#2": [-26.75, -31.0, -2.5, 0, "xzy"],
+        "esp32_s3_devkitc": [-29.0, 0.0, 62.0, 90],
+        "xl4015": [-53.0, 0.0, -21.0, 90],
+        "servo_hub": [-37.0, 33.0, 25.0, 0, "xzy"],
+        "lipo_alarm": [-38.0, -32.5, 26.0, 0, "xzy"],
+        "bus_caps": [33.5, 10.0, -3.0, 0, "xzy"],
+        "power_latch": [33.5, -29.5, -3.0, 0],
+        "fuse_15a": [33.5, -29.5, 5.2, 0],
+        "main_switch": [33.5, 29.5, -2.5, 0],
+        "mp1584": [33.5, -12.5, -3.0, 0],
+        "ina226": [33.5, -13.0, 1.2, 0],
+        "xt30_pair": [-29.0, 36.0, 62.0, 0],
+        "ads1115#1": [20.9, -9.25, 33.0, 0, "zyx"],
+        "ads1115#2": [20.9, 9.25, 33.0, 0, "zyx"],
+        "imu_mpu6500": [-27.5, 0.0, 27.8, 0]
+      },
+      "mass_blocks": {
+        "trunk_bracket_front": [[2.0, 0.0, 46.0], [3.0, 3.0, 3.0], 136.4],
+        "trunk_bracket_rear": [[-75.0, 0.0, 61.0], [2.0, 2.0, 2.0], 68.0]
+      }
+    },
+    "head": {
+      "_note": "P2c bolumu (P2-0 yer tutucu): horn_toward bos -> kanonik kol yonu; shell_mass_g: sabit etli kafa kabugu butcesi; bumper: neck link'te carpisma kutulu tampon (MJCF geom adi 'neck_bumper', disa aktarma P3)",
+      "horn_toward": {},
+      "mass_g": {"idler_pin": 1.8},
+      "neck_hole_r": 36.0,
+      "shell_mass_g": 68.0,
+      "bumper": {"center": [55.0, 0.0, 95.0], "half": [3.0, 15.0, 6.0]},
+      "jaw_block": [28.0, 40.0, 54.8, 56.0, 148.0, 156.0],
+      "jaw_mass_g": 8.0,
+      "mass_blocks": {
+        "neck": [[33.332, 30.5, 90.0], [3.0, 3.0, 3.0], 24.0],
+        "head_tilt": [[33.332, 22.0, 112.0], [3.0, 3.0, 3.0], 8.0],
+        "head_turn": [[18.0, 14.0, 165.0], [3.0, 3.0, 2.5], 8.0],
+        "head": [[-10.0, 0.0, 135.0], [3.0, 3.0, 3.0], 23.1]
+      }
+    },
+    "harness": {
+      "_note": "kablo demeti sozlesmesi (geom.harness_paths): eklem basina d (cap), bend_r (min bukulme yaricapi = 4 d, dinamik), cross (eklem ekseninde gecis noktasi; hip_yaw: govde taban acikligi, eksenden 17.8 mm), in (parent link noktalari), out (child link noktalari); sol taraf, sifir poz. P2-0 kisa giris/cikis parcalari; link ici guzergah P2a/P2c, govde ici P2b",
+      "g_per_mm3": 0.0017,
+      "crossings": {
+        "hip_yaw": {
+          "d": 7.5,
+          "bend_r": 30.0,
+          "cross": [-9.5, 8.0, -6.5],
+          "in": [[-9.5, 8.0, 12.0]],
+          "out": [[-9.5, 8.0, -11.5], [-2.0, 10.5, -11.5]]
+        },
+        "hip_roll": {
+          "d": 6.5,
+          "bend_r": 26.0,
+          "cross": [-29.0, 26.0, -22.435],
+          "in": [[-29.0, 26.0, -8.0]],
+          "out": [[-29.0, 40.0, -22.435]]
+        },
+        "hip_pitch": {
+          "d": 6.5,
+          "bend_r": 26.0,
+          "cross": [5.128, 44.5, -22.435],
+          "in": [[5.128, 44.5, -10.0]],
+          "out": [[-5.0, 44.5, -30.0]]
+        },
+        "knee": {
+          "d": 4.0,
+          "bend_r": 16.0,
+          "cross": [-40.768, 44.5, -50.639],
+          "in": [[-30.0, 44.5, -42.0]],
+          "out": [[-45.0, 44.5, -64.0]]
+        },
+        "neck_pitch": {
+          "d": 5.0,
+          "bend_r": 20.0,
+          "cross": [33.332, -34.4, 41.537],
+          "in": [[33.332, -34.4, 18.0]],
+          "out": [[33.332, -34.4, 70.0]]
+        },
+        "head_pitch": {
+          "d": 4.5,
+          "bend_r": 18.0,
+          "cross": [33.332, -24.0, 105.637],
+          "in": [[33.332, -24.0, 90.0]],
+          "out": [[33.332, -24.0, 118.0]]
+        },
+        "head_yaw": {
+          "d": 3.5,
+          "bend_r": 14.0,
+          "cross": [33.332, 0.0, 122.0],
+          "in": [[33.332, -10.0, 115.0]],
+          "out": [[33.332, -20.0, 122.0], [33.332, -20.0, 135.0]]
+        },
+        "head_roll": {
+          "d": 3.5,
+          "bend_r": 14.0,
+          "cross": [18.0, 0.0, 148.199],
+          "in": [[18.0, -12.0, 140.0]],
+          "out": [[18.0, 12.0, 156.0]]
+        }
+      }
+    },
+    "iface": {
+      "_note": "DONMUS modul zarflari (P2-0; p2-interface.md). trunk: P2b parcalarinin izinli bolgesi (add - cut, govde cercevesi); neck/head_tilt/head_turn/head/jaw: P2c parcalarinin izinli bolgesi (link ile hareket eden kutular, sifir poz koordinati); bacaklar: bu iki bolgenin disi (tarama boyunca girmez). check.py bolum 6 dogrular: icerme (kablo demeti haric) + tek eklem/bacak-bacak taramasinda modul disi girisler",
+      "envelopes": {
+        "trunk": {
+          "add": [
+            ["box", -60.0, 46.0, -21.0, 21.0, -3.0, 62.0],
+            ["box", -60.0, 21.0, 21.0, 38.0, -3.0, 24.0],
+            ["box", -60.0, 21.0, -38.0, -21.0, -3.0, 24.0],
+            ["box", -60.0, -14.0, 21.0, 40.0, 24.0, 62.0],
+            ["box", -60.0, -14.0, -40.0, -21.0, 24.0, 62.0],
+            ["box", 21.0, 46.0, 21.0, 38.0, -3.0, 20.0],
+            ["box", 21.0, 46.0, -38.0, -21.0, -3.0, 20.0],
+            ["box", -92.0, -60.0, -30.0, 30.0, -3.0, 64.0],
+            ["box", -66.0, -40.0, -36.0, 36.0, -24.0, -3.0],
+            ["box", -42.0, -16.0, -40.0, 40.0, 62.0, 72.0],
+            ["box", 26.2, 40.5, 21.0, 26.65, 34.4, 48.7],
+            ["cyl", "y", 33.332, 41.537, 0.0, 3.0, -24.0, -21.0]
+          ],
+          "cut": [
+            ["cyl", "z", 7.692, 12.0, 0.0, 5.0, -4.0, 24.0],
+            ["cyl", "z", 7.692, 12.0, 0.0, 15.0, 24.0, 28.3],
+            ["cyl", "z", 7.692, 12.0, 2.95, 15.0, 28.3, 32.2],
+            ["box", -9.808, -2.308, 5.0, 19.0, 24.0, 32.2],
+            ["cyl", "z", 7.692, -12.0, 0.0, 5.0, -4.0, 24.0],
+            ["cyl", "z", 7.692, -12.0, 0.0, 15.0, 24.0, 28.3],
+            ["cyl", "z", 7.692, -12.0, 2.95, 15.0, 28.3, 32.2],
+            ["box", -9.808, -2.308, -19.0, -5.0, 24.0, 32.2]
+          ]
+        },
+        "neck": [
+          ["cyl", "y", 33.332, 41.537, 0.0, 16.0, -31.4, -24.0],
+          ["cyl", "y", 33.332, 41.537, 3.0, 16.0, -24.0, -21.1],
+          ["box", 21.332, 45.332, -31.4, -21.1, 44.586999999999996, 118.0],
+          ["cyl", "y", 33.332, 41.537, 0.0, 16.0, 26.75, 34.5],
+          ["box", 21.332, 45.332, 26.75, 34.5, 44.586999999999996, 118.0],
+          ["box", 21.332, 45.332, -31.4, 34.5, 84.0, 118.0],
+          ["box", 51.0, 59.0, -16.0, 16.0, 88.0, 102.0]
+        ],
+        "head_tilt": [["box", 21.332, 45.332, -27.0, 26.0, 88.0, 136.0]],
+        "head_turn": [["box", 3.0, 46.0, -24.0, 20.0, 118.0, 168.0]],
+        "head": [["box", -39.044, 118.329, -58.851, 58.851, 126.533, 201.787]],
+        "jaw": [["box", 15.0, 52.0, 50.0, 57.0, 140.0, 164.0]]
+      },
+      "scans": "single(limits) + leg_leg(required)"
+    }
   }
 }
