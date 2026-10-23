@@ -13,7 +13,7 @@ import MeshPart
 
 import openduck
 import servos
-from openduck import KINDS, PRINT_KINDS, V
+from openduck import PRINT_KINDS, V
 
 
 def _local(link, item):
@@ -120,7 +120,7 @@ def _write_urdf(model, data, path):
          '<!-- OpenDuck - cad/openduck.py tarafindan uretildi; elle duzenlemeyin. -->',
          '<robot name="openduck">',
          '  <mujoco><compiler meshdir="meshes" strippath="true" discardvisual="false" balanceinertia="true"/></mujoco>']
-    for kind, k in KINDS.items():
+    for kind, k in openduck.material_kinds(model):
         L.append('  <material name="%s"><color rgba="%s 1"/></material>' % (kind, " ".join(_f(c) for c in k["color"])))
     for name, link in model.links.items():
         d = data[name]
@@ -204,7 +204,7 @@ def _write_mjcf(model, data, stand, base_z, path):
          '  <option timestep="0.002" integrator="implicitfast"/>']
     L += _default_lines(classes)
     L.append('  <asset>')
-    for kind, k in KINDS.items():
+    for kind, k in openduck.material_kinds(model):
         L.append('    <material name="%s" rgba="%s 1"/>' % (kind, " ".join(_f(c) for c in k["color"])))
     for link in model.links.values():
         for it in link.items:

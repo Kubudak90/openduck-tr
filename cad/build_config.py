@@ -20,6 +20,9 @@ Alanlar ("_" ile baslayan anahtarlar aciklamadir, yok sayilir):
                                            anahtarlari (openduck.LAYOUT_KEYS) scale ile carpilir, sonra bunlar
                                            yazilir (sozluk degerleri anahtar anahtar birlesir)
   targets{...}, bom_buy[[adet, parca, not]]
+  check{...}                               cad/check.py genisletilmis taramalar (P2-0): pair_steps, pair_range
+                                           ("required" | "limits"), pair_scope ("module" | "all"), leg_leg,
+                                           leg_leg_range; bos -> yalniz 27 cm raporu (bayt-esit)
 """
 import copy
 import json
@@ -36,7 +39,7 @@ STAGES = ("trunk", "legs", "head")          # uretec sirasi: trunk -> legs -> he
 REQUIRED = ("name", "scale", "generators", "servo_map")
 OPTIONAL = {"description": "", "robot": "OpenDuck", "horn_offset_deg": {}, "neutral_deg": {},
             "joint_limits_deg": {}, "home_deg": {}, "required_deg": {}, "params": {}, "targets": {},
-            "bom_buy": []}
+            "bom_buy": [], "check": {}}
 
 
 def resolve_path(spec=None):

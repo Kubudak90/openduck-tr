@@ -124,8 +124,17 @@ HOME_POSE = {
 }
 STAND_POSE = HOME_POSE
 
+
+class _Kinds(dict):
+    """KINDS: yinelemede yalniz temel turler (27 cm MJCF/URDF malzeme listesi bayt-esit); EXTRA_KINDS'teki turler
+    KINDS[tur] ile okunur (renk/print yok -> baski parcasi degil)."""
+
+    def __missing__(self, key):
+        return EXTRA_KINDS[key]
+
+
 # Parca turleri: renk (GUI) ve baski malzemesi
-KINDS = {
+KINDS = _Kinds({
     "shell":   {"color": (0.93, 0.90, 0.84), "print": "PLA (krem)"},
     "trim":    {"color": (1.00, 0.50, 0.16), "print": "PLA (turuncu)"},
     "bracket": {"color": (0.62, 0.64, 0.67), "print": "PLA/PETG (gri)"},
@@ -142,8 +151,21 @@ KINDS = {
     "chip":    {"color": (0.08, 0.08, 0.08)},
     "battery": {"color": (0.18, 0.18, 0.20)},
     "metal":   {"color": (0.70, 0.70, 0.72)},
-}
+})
 PRINT_KINDS = tuple(k for k, v in KINDS.items() if "print" in v)
+# Yalniz kullanildiginda disa aktarilan turler (P2-0): kablo demeti (Item kind "harness"; cap ve bukulme yaricapi
+# konfig params.harness; check taramalarina dahil, ayni gecisin demetleri birbirine carpabilir)
+EXTRA_KINDS = {
+    "harness": {"color": (0.85, 0.20, 0.15)},
+}
+
+
+def material_kinds(model):
+    """Disa aktarilacak malzeme turleri: KINDS (hep) + modelde kullanilan EXTRA_KINDS (sirasiyla)."""
+    used = {it.kind for l in model.links.values() for it in l.items}
+    out = list(KINDS.items())
+    out += [(k, v) for k, v in EXTRA_KINDS.items() if k in used]
+    return out
 
 # Uretec asamalari (sira: trunk -> legs -> head; eklem sirasi: sol bacak, sag bacak, boyun, kafa x3, gaga)
 STAGES = (("trunk", trunk), ("legs", legs), ("head", head))
@@ -164,12 +186,13 @@ def joint_key(name):
 class Item(object):
     """Bir link'e bagli tek bir kati parca (dunya koordinatlarinda, sifir pozda)."""
 
-    def __init__(self, name, shape, kind, mass=None, collision_box=None):
+    def __init__(self, name, shape, kind, mass=None, collision_box=None, module=None):
         self.name = name
         self.shape = shape
         self.kind = kind
         self.mass = mass
         self.collision_box = collision_box   # (merkez V, yari olculer, App.Rotation) dunya, sifir poz
+        self.module = module                 # parcayi ekleyen uretec asamasi (trunk/legs/head)
 
     @property
     def part(self):
@@ -179,8 +202,13 @@ class Item(object):
         return self.name
 
     def mass_kg(self, p):
+        """Verilen kutle, yoksa hacim x yogunluk. Konfigde params.print[tur].density_eff varsa (TR-35: et/dolgu
+        efektif yogunlugu, kutle merdiveni 5) o, yoksa eski PLA/TPU yogunlugu (27 cm, bayt-esit)."""
         if self.mass is not None:
             return self.mass
+        pr = p.get("print")
+        if pr and isinstance(pr.get(self.kind), dict) and "density_eff" in pr[self.kind]:
+            return self.shape.Volume * pr[self.kind]["density_eff"]
         dens = p["tpu_density"] if self.kind in ("sole", "pad") else p["pla_density"]
         return self.shape.Volume * dens
 
@@ -214,15 +242,18 @@ class OpenDuck(object):
         self.meta = {}
         self.shared = {}             # uretecler arasi paylasilan sekiller (or. trunk -> legs kalca yaw horn'u)
         self._servo_cache = {}
+        self._stage = None           # o an calisan uretec asamasi (Item.module, link -> modul)
+        self.link_module = {}
         self._build()
 
     # -- kayit -----------------------------------------------------------------
     def _link(self, name, origin):
         self.links[name] = Link(name, V(*origin))
+        self.link_module[name] = self._stage or "trunk"
         return self.links[name]
 
     def _add(self, link, name, shape, kind, mass=None, collision_box=None):
-        self.links[link].items.append(Item(name, shape, kind, mass, collision_box))
+        self.links[link].items.append(Item(name, shape, kind, mass, collision_box, self._stage))
 
     def _joint(self, name, parent, child, origin, axis, limits, home=0.0, servo_id=None):
         """Eklem + cocuk link. Servo turu, aktuator sinifi, effort/velocity eklem anahtarinin turunden. Sinirlar
@@ -273,6 +304,31 @@ class OpenDuck(object):
         b, hn = moved(body, pl), moved(horn, pl)
         return (mirror_y(b), mirror_y(hn)) if mirror else (b, hn)
 
+    def servo_parts(self, key, mirror=False, horn_toward=None):
+        """key servosunun zarf parcalari dunya cercevesinde (sifir poz, sol taraf; mirror: sag): "body", "horn" ve
+        idler'li turde (DS) "idler_seat" (stator: govdeyle ayni link), "idler_bearing" (stator), "idler_pin"
+        (rotor: horn ile ayni link). horn_toward: horn kolunun bakacagi dunya yonu (None: kanonik +Z = uzak uc);
+        kol mil ekseni etrafinda dondurulur (P2-0 arayuzu: kol yonu link tasariminindir)."""
+        t = self.servo_map[key]
+        body, horn = self._servo(key)
+        o, h, f = self.servo_frame(key)
+        if horn_toward is not None:
+            a = servos.arm_angle_deg(h, f, horn_toward)
+            if abs(a) > 1e-9:
+                horn = rotated(horn, o, h, a)
+        out = OrderedDict([("body", body), ("horn", horn)])
+        bearing = (self.p.get("idler") or {}).get("bearing")
+        ck = ("idler", t["name"], bearing)
+        if ck not in self._servo_cache:
+            self._servo_cache[ck] = servos.idler_parts(t, bearing)
+        ip = self._servo_cache[ck]
+        if ip is not None:
+            pl = frame(o, h, f)
+            out["idler_seat"], out["idler_pin"], out["idler_bearing"] = [moved(s, pl) for s in ip]
+        if mirror:
+            out = OrderedDict((k, mirror_y(s)) for k, s in out.items())
+        return out
+
     def servo_signs(self):
         """Eklem basina servo isareti: eksen . horn yonu (sagda horn aynali), servo govdesi cocuk link'teyse -1 ile
         carpilir. Spec 3.2.1 kurali: hepsi +1 (pozitif aci = horn'a bakarken CCW). Govde parcasi
@@ -312,8 +368,10 @@ class OpenDuck(object):
             raise NotImplementedError("konfig %s: CAD geometri uretecleri henuz yok: %s"
                                       % (cfg["name"], "; ".join(missing)))
         self._link("trunk", (0, 0, 0))
-        for fn in gens:
+        for (stage, _), fn in zip(STAGES, gens):
+            self._stage = stage
             fn(self, self.servo_map)
+        self._stage = None
         names = list(self.links) + [it.name for l in self.links.values() for it in l.items]
         assert len(names) == len(set(names)), "link/parca adlari benzersiz olmali"
         bad = {n: s for n, s in self.servo_signs().items() if s != 1}
@@ -327,7 +385,9 @@ class OpenDuck(object):
                             "head_pitch": 35.0, "head_yaw": -30.0, "head_roll": -8.0, "mouth": 25.0},
             "collision_links": ["trunk", "head"],
             "bom_buy": [tuple(r) for r in cfg["bom_buy"]],
-        })
+        }, **{k: v for k, v in self.meta.items() if k in ("collision_links", "action_pose")})
+        self.meta["modules"] = OrderedDict((s, [ln for ln in self.links if self.link_module[ln] == s])
+                                           for s, _ in STAGES)
 
     # -- kinematik --------------------------------------------------------------
     def joint(self, name):
