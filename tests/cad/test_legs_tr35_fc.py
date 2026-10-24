@@ -189,11 +189,16 @@ def test_print_parts_one_solid_fit_bed(built):
     assert names <= set(built["print_notes"])
 
 
+# bacak butcesi (iki bacak): p2-interface.md 8'deki 913.2 g + dis tarafa alinan diz kablo guzergahi 3.3 g (dogrulama 2,
+# D1; trunk butcesinden, p2-entegrasyon.md 10)
+LEGS_BUDGET_G = 916.5
+
+
 def test_leg_mass_budget(built):
-    """p2-interface.md sec. 8: bacaklar (iki bacak) 913.2 g; baski 2 x 130 g; toplam x 1.05 <= 1.95 kg."""
+    """Bacaklar (iki bacak) <= LEGS_BUDGET_G; baski 2 x 130 g; toplam x 1.05 <= 1.95 kg."""
     r = built
     t = build_config.load("tr35_b2")["targets"]
-    assert r["legs_g"] <= 913.2 + 1e-6, r["legs_g"]
+    assert r["legs_g"] <= LEGS_BUDGET_G + 1e-6, r["legs_g"]
     printed = r["kind_g"]["bracket"] + r["kind_g"]["sole"]
     assert printed <= 2 * 130.0, printed
     assert r["total_g"] * t["mass_factor"] <= t["mass_max_kg"] * 1000.0

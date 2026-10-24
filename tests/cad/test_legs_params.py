@@ -92,7 +92,8 @@ def test_harness_routes_and_joins(cfg):
             continue
         assert key in hc
         for q in r.get("in", []) + r.get("out", []):
-            assert len(q) == 3
+            # [x, y, z] ya da [x, y, z, r]: r kose bukulme yaricapi (route.fillet; dogrulama 2, D1)
+            assert len(q) == 3 or (len(q) == 4 and q[3] > 0.0)
         if "out_d" in r:
             assert 0 < r["out_d"] <= hc[key]["d"]
         if r.get("gland"):
