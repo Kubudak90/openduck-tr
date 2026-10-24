@@ -5,7 +5,9 @@ discovery-critic). İnceleme: `review.md` (tur 1: 34 itiraz, tur 2: 20 itiraz; t
 kararıyla çözüldü). Sayıların kaynakları research'tedir; bu belge kararları verir.
 v3.1 (2026-10-23, P2-0 bulguları): öz-çarpışma çiftlerine kafa ↔ trunk ve ayak ↔ aynı bacağın uyluk/kalça beşiği
 eklendi; A1 komşu çift taraması modül içinde sayılır, modellenen temaslar ayrı listelenir (`p2-interface.md` §12).
-v3.2 (2026-10-24, P2 entegrasyonu): öz-çarpışma çiftlerine çene ↔ boyun/trunk eklendi (`p2-entegrasyon.md`).
+v3.2 (2026-10-24, P2 entegrasyonu ve doğrulama tur 2, `p2-entegrasyon.md` §2 ve §10): öz-çarpışma çiftlerine
+çene ↔ boyun/trunk ve kafa ↔ kalça/kalça beşiği eklendi; A1'de aynı geçişin iki kablo tüpü yalnız geçiş noktasının 2d
+çevresinde birbirine değebilir, komşu çift ızgarasında "yapı önce" kuralı, `check.py` sayılan çarpışmada çıkış kodu 1.
 
 ## 1. Problem ve hedef
 
@@ -107,7 +109,7 @@ yedeklerle ≤ 28.8k TL (kullanıcı; sesli komut eki K10 ile yükseltildi). Ses
 2. **Dışa aktarma** (`cad/export.py`, `cad/docs.py`):
    - Sınıf başına MJCF `position` aktüatörü (`ds32xx`, `es3054`, `mg90s`, `sg90`); ctrlrange = eklem sınırı.
    - Öz-çarpışma çiftleri: uyluk/incik ↔ trunk/kafa/çene, ayak ↔ kafa, bacak ↔ bacak, kafa ↔ trunk,
-     ayak ↔ aynı bacağın uyluk/kalça beşiği, çene ↔ boyun/trunk. Tampon geomu.
+     ayak ↔ aynı bacağın uyluk/kalça beşiği, çene ↔ boyun/trunk, kafa ↔ kalça/kalça beşiği. Tampon geomu.
    - BOM: Türkiye mağaza, TL, URL, stok, doğrulama tarihi ve yedek kaynak.
    - Baskı seti 256 mm kontrolüyle; teknik resimler.
    - Aşağıdan yukarı kütle (braket hacmi × efektif yoğunluk; vida, horn ve idler satırları).
@@ -215,14 +217,22 @@ Oran ölçütlerinde "nokta" örnek oranıdır. "W-alt" ve "W-üst" Wilson %95 s
   - §3.1 gerekli aralıklar ⊆ eklem sınırları. Komşu eklem çiftleri, bacak–bacak ve kablo demetleri birlikte
     taranır: 0 çarpışma. Tek eklem taramasında istisna yoktur. Komşu çift ızgarası hareket eden modülün içinde sayılır.
     Gövde/kafa ↔ uzuv ve `check.contact_pairs` temasları (iki ayak; ayak ↔ aynı bacağın uyluk/kalça beşiği) MJCF
-    öz-çarpışma çifti olarak modellenir ve ayrı listelenir. Kablo demeti temasları her zaman sayılır.
+    öz-çarpışma çifti olarak modellenir ve ayrı listelenir.
+  - Kablo demeti temasları sayılır. İki istisna vardır (v3.2):
+    - Aynı eklem geçişinin iki tüpü, geçiş noktasının 2d çevresinde (d: demet çapı) birbirine değebilir. Kesişimin
+      ayrık parçalarından kütle merkezi bu kürenin dışında kalanlar sayılır.
+    - Komşu çift ızgarasında, uzvun kendi yapısının da gövdeye/kafaya girdiği bir pozda, HOME → poz doğrusal eklem
+      yolunda (en büyük eklem değişiminin 1° adımlarıyla) ilk modül dışı temas yalnız yapıysa, o pozun kablo temasları
+      sayılmaz. Bunlar MJCF gövde ↔ uzuv çiftiyle birlikte ilk temas adımıyla listelenir ("yapı önce"). Yalnız kablonun
+      değdiği pozlar ve yolda kablonun önce değdiği pozlar sayılır.
+  - `cad/check.py`, sayılan herhangi bir çarpışmada çıkış kodu 1 verir; `tools/build.sh --check` başarısız olur.
   - Aynı link içi 0 çakışma (elektronik dahil). Baskı parçaları 256 mm küpe sığar.
   - Kafa üstü 350 ± 10 mm. Kütle ≤ 1.95 kg.
   - "Servo miline eğilme/eksenel yük yok" el hesabı.
   - xl330_27 regresyonu bayt-eşit.
 - **A2 BOM**:
   - Her satırda mağaza, TL, URL, stok, tarih ve yedek kaynak.
-  - Her DS adayı kombinasyonu için zorunlu ≤ 24.500 TL ve yedekli ≤ 27.500 TL.
+  - Her DS adayı kombinasyonu için zorunlu ≤ 25.800 TL ve yedekli ≤ 28.800 TL (ek K10; ses katmanı dahil).
 - **A3 Model**:
   - MuJoCo ve MJX'te yüklenir; 4 aktüatör sınıfı; öz-çarpışma çiftlerinin MJX adım maliyeti raporlanır.
   - Varyant sınırları ⊇ gerekli aralıklar ve +3° değişmezi testli.
