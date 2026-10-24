@@ -382,18 +382,36 @@ CRIT_A10 = {"s1_point": 0.85, "s1_w_lower": 0.80, "gel_p10": 0.7, "gel_p90": 1.3
             "s2_trans_fall_w_upper": 0.05, "s2_invariant_violations": 0, "cell_min": 20, "exposure_s": 20.0}
 
 
+LATENCY_PATH = os.path.join(C.ROOT, "configs", "ses_gecikme.json")
+
+
+def a10_latency(path=None):
+    """Tanima gecikmesi DR'i (spec eki K7, K8): G-SES-a olcumu varsa configs/ses_gecikme.json "uniform_s" ([p05, p95];
+    tools/bench/voice_report.py rapor yazar), yoksa varsayilan A10["lat"]. Yeni olcum yeniden egitim gerektirmez (K6.3).
+    Doner ((alt, ust) s, kaynak)."""
+    p = path or LATENCY_PATH
+    if os.path.isfile(p):
+        with open(p) as f:
+            u = json.load(f).get("uniform_s")
+        if u is not None and len(u) == 2 and 0.0 <= float(u[0]) <= float(u[1]):
+            return (float(u[0]), float(u[1])), "G-SES-a: " + os.path.relpath(p, C.ROOT)
+    return tuple(A10["lat"]), "varsayilan (spec eki K7)"
+
+
 class VoiceModule(object):
     """DF2301Q modeli (yalniz A10; spec eki K4/K7): uyanma kimligi tanininca 15 s'lik, gecerli komutla YENILENMEYEN
-    pencere; komut, bitisi pencere icindeyse kelime bitisinden U(lat) s sonra kimlik olayi; disindakiler duser."""
+    pencere; komut, bitisi pencere icindeyse kelime bitisinden U(lat) s sonra kimlik olayi; disindakiler duser.
+    lat: (alt, ust) s, a10_latency()."""
 
-    def __init__(self, rng, tab):
+    def __init__(self, rng, tab, lat=None):
         self.rng, self.tab = rng, tab
+        self.lat_range = tuple(lat or A10["lat"])
         self.wake_id = min(tab.wake)
         self.until, self.t_wake = -1e9, -1e9
         self.q, self.dropped = [], []
 
     def lat(self):
-        lo, hi = A10["lat"]
+        lo, hi = self.lat_range
         return float(lo + (hi - lo) * self.rng.random())
 
     def say(self, t_end, word):
@@ -482,7 +500,7 @@ class Speaker(object):
             self.failed, self.why = True, "%s uygulanmadi" % word
             return
         if word == "gel":                        # dur, gel uygulamasindan 8 s sonra; hemen once yeniden uyandirma
-            pre = A10["wake_word_s"] + A10["lat"][1] + A10["react_s"]
+            pre = A10["wake_word_s"] + self.m.lat_range[1] + A10["react_s"]
             self.dur_plan = (t + A10["s1_dur_s"] - pre, t + A10["s1_dur_s"])
             self.i, self.phase, self.t_wake_sent = self.i + 1, "dur_plan", None
             return
@@ -553,6 +571,7 @@ class Evaluator(object):
         self.t_knee = float(t_knee)
         self._tex, self._pidx, self._ms = None, None, None
         self.a10_seat, self._seat = "bank", None          # A10 oturmus baslangic: "bank" (oturus bankasi) | "exact"
+        self.a10_lat, self.a10_lat_src = a10_latency()   # tanima gecikmesi DR'i (G-SES-a olcumu ya da varsayilan)
 
     def _env(self, task, n, flags=None, **kw):
         kw.setdefault("seed", self.seed)
@@ -1329,7 +1348,7 @@ class Evaluator(object):
             leg_act = idx_g.action_act_id[:10]
             for i in range(n):
                 r = np.random.default_rng([self.seed, 11, seed_off, code, i])
-                vm = VoiceModule(r, tab)
+                vm = VoiceModule(r, tab, self.a10_lat)
                 if mode == "S1":
                     spk = Speaker("S1", S1_WORDS, r, vm, 1.0)
                 elif mode == "S2":
@@ -1666,7 +1685,8 @@ class Evaluator(object):
         b1 = self.a10_rollout(main, getup, "S1", self.n_s1, bias_u=A10["bias_u"], seed_off=100)
         b2 = self.a10_rollout(main, getup, "S2", self.n_s2, bias_u=A10["bias_u"], seed_off=100)
         t4 = time.time()
-        out = {"N": {"S1": self.n_s1, "S2": self.n_s2, "handover": self.n_ho}, "module": dict(A10),
+        out = {"N": {"S1": self.n_s1, "S2": self.n_s2, "handover": self.n_ho},
+               "module": dict(A10, lat=self.a10_lat, lat_source=self.a10_lat_src),
                "criteria_values": CRIT_A10, "S1": self._a10_s1_report(s1), "S2": self._a10_s2_report(s2),
                "handover": self._a10_ho_report(ho),
                "bias_sensitivity": {"gyro_bias_u": A10["bias_u"], "report_only": True,

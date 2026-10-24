@@ -200,7 +200,13 @@ def test_voice_sessions_end_to_end(tmp_path):
         assert vr.main(["tablo", str(out / "DF2301Q-1"), "--tablo", str(tab_path)]) == 0
         tab = vr.load_table(tab_path)
         assert tab["ids"] == {v: k for k, v in IDS.items()} and tab["wake"] == (1, 2)
-        assert json.loads(tab_path.read_text())["version"] == 1
+        # sema rl/commands.load_id_table ile ortak (spec eki K4): denetleyici bu dosyayi okur
+        doc = json.loads(tab_path.read_text())
+        assert doc["schema"] == 1 and doc["ornek"] is False and doc["uyanma"] == [1, 2]
+        commands = pytest.importorskip("rl.commands")
+        it = commands.load_id_table(str(tab_path))
+        assert it.wake == {1, 2} and not it.example and not it.missing()
+        assert {i: w for i, w in it.cmd.items()} == {v: k for k, v in IDS.items()}
         o = {"trial_s": 6, "grace_s": 0.5, "gap_s": 0.3, "uyku_dk": 2}
         for t in ("ses-olcu", "ses-d1", "ses-d2", "ses-d3", "ses-d4"):          # kilavuzdaki sira
             logger.run_voice(link, t, "DF2301Q-1", out, {}, dict(o), ask=_ask, table=tab, **quiet)
@@ -420,3 +426,17 @@ def test_df2301q_cpp_parser(tmp_path):
     ev = [ln for ln in out[3:] if ln]
     assert ev[:2] == ["J", "J"] and ev[2] == "F A0 91 1 5"
     assert "B k 10" in ev and "F A3 9A 1 177" in ev and "B l 4" in ev and ev[-1] == "F A0 91 1 5"
+
+
+def test_shared_files_with_controller(tmp_path):
+    """configs/komut_kimlik.json ve configs/ses_gecikme.json: G-SES-a yazar, denetleyici ve A10 okur (spec eki K4, K7,
+    K8). Depodaki P5k ornek tablosu ("ornek": true) olcum yerine kullanilmaz."""
+    assert vr.load_table(vr.TABLO) is None
+    commands = pytest.importorskip("rl.commands")
+    assert commands.load_id_table(str(vr.TABLO)).example
+    ev = pytest.importorskip("rl.eval_tasks")
+    gec = tmp_path / "ses_gecikme.json"
+    d = vr.gecikme_json([dict(set="ses-d1", i=i, word="gel", s=0.4 + 0.01 * i) for i in range(41)], gec, ["d1.wav"])
+    lat, src = ev.a10_latency(str(gec))
+    assert lat == tuple(d["uniform_s"]) and src.startswith("G-SES-a")
+    assert ev.a10_latency(str(tmp_path / "yok.json")) == (tuple(ev.A10["lat"]), "varsayilan (spec eki K7)")

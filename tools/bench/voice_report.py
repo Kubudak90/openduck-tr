@@ -64,19 +64,37 @@ def anahtar(w):
 
 
 # ---------------------------------------------------------------- kimlik tablosu
+# Tablo semasi rl/commands.load_id_table ile ortaktir (spec eki K4; sema 1): uyanma, komutlar {kimlik: kelime},
+# ogrenme_kimlikleri; depodaki dosya P5k'nin ORNEK tablosudur ("ornek": true) ve olcum icin yok sayilir.
+YAZIM = {"saga": "sağa dön", "sola": "sola dön", "egil": "eğil", "yuksel": "yüksel", "hayir": "hayır"}
+IKINCI = tuple(range(17, 22))          # ikinci sablonlar icin bos kimlikler
+
+
 def load_table(path=TABLO):
+    """Olculmus kimlik tablosu ya da None (dosya yok ya da P5k ornegi)."""
     p = Path(path)
     if not p.exists():
         return None
     d = json.loads(p.read_text(encoding="utf-8"))
-    return dict(ids={int(k): anahtar(v) for k, v in d.get("ids", {}).items()},
-                wake=tuple(int(x) for x in d.get("wake", WAKE)))
+    if d.get("schema") != 1:
+        raise SystemExit("%s: kimlik tablosu semasi %r (beklenen 1, rl/commands.load_id_table)" % (p, d.get("schema")))
+    if d.get("ornek"):
+        return None
+    return dict(ids={int(k): anahtar(v) for k, v in d.get("komutlar", {}).items()},
+                wake=tuple(int(x) for x in d.get("uyanma", WAKE)))
 
 
 def write_table(path, ids, wake=WAKE):
     p = Path(path)
     p.parent.mkdir(parents=True, exist_ok=True)
-    d = {"version": 1, "ids": {str(k): ids[k] for k in sorted(ids)}, "wake": [int(x) for x in wake]}
+    d = {"schema": 1, "ornek": False,
+         "not": "G-SES-a ogrenme adimindan (tools/bench/voice_report.py tablo, %s). Coktan bire; tabloda olmayan kimlik "
+                "yok sayilir; 200-208 ogrenme kipi uyarisi." % time.strftime("%Y-%m-%d"),
+         "uyanma": [int(x) for x in wake],
+         "komutlar": {str(k): ids[k] for k in sorted(ids)},
+         "kelimeler": dict([("uyanma", "ördek")] + [(k, YAZIM.get(k, k)) for k in ANAHTAR]),
+         "bos_kimlikler": [i for i in IKINCI if i not in ids],
+         "ogrenme_kimlikleri": list(OGRENME)}
     p.write_text(json.dumps(d, indent=1, ensure_ascii=False) + "\n", encoding="utf-8")
     return str(p)
 
