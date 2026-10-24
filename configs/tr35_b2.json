@@ -191,11 +191,13 @@
         "_hip_pitch_out": "uyluk: donmus parcadan sonra pitch kablosu ayrilir (out_d 4.5: diz + bilek). y 44.5 bandinda (iki servonun horn ic yuzu) orta yaricapta (pitch ekseninden r 15..40) cozum yok: roll -20 / pitch -70'te roll servosu, roll +20 / pitch 10..50'de trunk (dogrulama duzeltmesi). Bu yuzden pitch ekseninden r 15'te (hip_cradle pitch gobegi r 11 disinda) y 53'e (horn dis yuzu 51 ile servo ust yuzu 58.5 arasi bos katman) cikar, diz cevresinde incik A kolu supurmesinin (diz +77) ustunde (diz ekseninden r 16.5, 63 derece) diz girisine iner: inis pitch ekseninden r 40.7'de (hip_cradle kablosunun pitch supurmesi r <= 37.4 disinda)",
         "hip_yaw": {"out": [[-17.5, 10.5, -10.5]]},
         "hip_roll": {"in": [[-24.5, 20.0, -9.5]]},
+        "_knee": "dogrulama 2 (D1): diz demeti uylugun dis tarafinda. Uyluk kablosu y 53 katmanindan iki servo arasindaki bosluga (hip_pitch uzak ucu x -24.9 ile diz servosu +x yuzu arasi, kulak vidalarinin (y 65) ve servo ust yuzunun (y 58.5) arasinda y 61.75) tirmanir, uylugun ustunden (z 14) dis tarafa (y 114.5) gider, diz eksenine radyal iner. Incik: gecisten S1 penceresine (diz ekseninden r 25.6, ayak ve uyluk supurmeleri arasinda) radyal, asagi (-y), bilek servosu +g yuzune (g 12.6) ve rakora. 4. eleman: kose bukulme yaricapi (route.fillet): demet 16 = 4 d, S1 inisi 11 (dinamik gecis kollari >= 14.6 mm: diz sinirlarinda gecis yay yaricapi >= 16, route.crossing_bend)",
         "hip_pitch": {"in": [[-20.0, 44.5, -19.0], [-4.0, 44.5, -18.0], [3.0, 44.5, -17.5]],
-                      "out_d": 4.5, "out": [[-6.69, 46.0, -31.67], [-10.24, 53.0, -33.6], [-23.06, 53.0, -32.7],
-                              [-33.28, 53.0, -35.94]]},
-        "knee": {"in": [[-33.28, 44.5, -35.94]],
-                 "out": [[-47.0, 45.5, -68.5], [-49.64, 62.5, -74.32], [-20.19, 62.5, -109.40]], "gland": "ankle"},
+                      "out_d": 4.5, "out": [[-6.69, 46.0, -31.67], [-10.24, 53.0, -33.6], [-20.0, 54.0, -34.5],
+                              [-29.0, 57.0, -27.0], [-31.5, 61.75, -14.0], [-31.9, 61.75, -10.0]]},
+        "knee": {"in": [[-32.5, 61.75, -4.0, 16.0], [-33.0, 61.75, 14.0, 16.0], [-33.0, 114.5, 14.0, 16.0]],
+                 "out": [[-42.841, 114.5, -76.191, 11.0], [-42.841, 84.0, -76.191, 16.0],
+                         [-38.189, 62.5, -87.955, 16.0], [-20.185, 62.5, -109.403]], "gland": "ankle"},
         "joins": [["hip_yaw", "hip_roll", "mid"], ["hip_roll", "hip_pitch", "a"], ["hip_pitch", "knee", "mid"]]
       },
       "mass_g": {"fasteners": {"hip": 1.5, "hip_cradle": 2.5, "thigh": 0.5, "shin": 1.5, "foot": 2.0}},
@@ -353,11 +355,12 @@
           "out": [[-5.0, 44.5, -30.0]]
         },
         "knee": {
+          "_icr": "dogrulama 2 (orkestrator D1, ICR onayli): diz gecisi uylugun dis (idler) tarafinda, diz ekseninde idler M3 basinin (y 111.8) disinda; in/out noktalari bu duzlemde radyal (eski: cross y 44.5, in (-30, 44.5, -42), out (-45, 44.5, -64))",
           "d": 4.0,
           "bend_r": 16.0,
-          "cross": [-40.768, 44.5, -50.639],
-          "in": [[-30.0, 44.5, -42.0]],
-          "out": [[-45.0, 44.5, -64.0]]
+          "cross": [-40.768, 114.5, -50.639],
+          "in": [[-39.336, 114.5, -38.725]],
+          "out": [[-41.415, 114.5, -58.613]]
         },
         "neck_pitch": {
           "d": 5.0,
