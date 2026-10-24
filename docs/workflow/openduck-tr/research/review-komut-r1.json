@@ -1,0 +1,346 @@
+[
+ {
+  "id": "R1",
+  "sev": "critical",
+  "section": "K6.1 (jest şablonları) + K7 S1 (jest genliği ≥ %80)",
+  "objection": "K6.1 adds the gestures to the HEAD_RANDOM sampling, so they become head_target and pass through the existing first-order head filter (filter_tau 0.5 s at 50 Hz: TASK.md main step 2, and the tr35 HEAD_RANDOM in the core config). That filter cuts off at about 0.32 Hz; the templates run at 1.2–2 Hz. The commanded amplitude never reaches the joint, so S1's \"gesture amplitude ≥ 80 % of the command\" cannot pass. On the robot (the firmware copies the same pipeline) the nod would be barely visible.",
+  "scenario": "The discrete filter (a = 0.04 per step) passes 0.21 of the amplitude at 1.5 Hz (nod), 0.26 at 1.2 Hz (shake) and 0.16 at 2 Hz (beak, if filtered). Simulating the 2-cycle templates from rest gives peak head offsets of 0.064 rad (32 % of the ±0.2 rad nod) and 0.15 rad (38 % of the ±0.4 rad shake). All 256 S1 episodes fail the 80 % check even with perfect servos, and the user sees a ±3.7° nod. If an implementer bypasses the filter instead, the addendum does not say how a gesture starts from a non-zero random offset (head_yaw up to 0.5 rad) or how dur/otur cuts it off. Either case sends a position step of up to 0.5 rad to an MG90S (ω0 13.1 rad/s). Training never produces such steps: the filter limits head rates to 2·range/τ (head_yaw 2.0 rad/s, head_pitch 0.8 rad/s), and core asserts that limit.",
+  "suggestion": "Specify a separate gesture channel: ctrl[head] = default + filtered random offset + gesture(t). The gesture should start and end at zero with a raised-cosine envelope (no position or velocity step), have its peak rate ≤ 0.5·ω0 asserted like slew_max, and use the same alpha gate. Define the training draw explicitly, for example per resample: 0.3 gesture (random offset held at 0), 0.35 random, 0.35 zero. Measure S1 amplitude as the pot q peak-to-peak against the template peak-to-peak."
+ },
+ {
+  "id": "R2",
+  "sev": "major",
+  "section": "K5 (rl/commands.py, Testler) + K6.2 (denetleyici bölümleri)",
+  "objection": "K6.2 runs the supervisor inside main training, and main is trained on MJX/Brax (P7/P9). K5 defines rl/commands.py as a firmware-copied state machine (queue, timers, IMU yaw integral, random word and latency draws) with CPU-only unit tests. It requires no xp-generic code, no fixed RNG budget and no CPU==MJX parity. Meanwhile, almost everything K6.2 says it brings into the distribution is already produced by T.sample_segment.",
+  "scenario": "A Python if/elif state machine with a queue cannot be jit/vmap'ed over 8192 envs. A host callback would push every 50 Hz step of every env through the host, which stalls GPU training. A separate JAX rewrite breaks the single-definition rule. The TASK.md random-number contract (main uses 8 segment uniforms from k_cmd, with new draws through fold_in) has no slot for a variable number of word and latency draws, so CPU and MJX supervisor episodes diverge and the lockstep parity tests cannot cover them. Meanwhile sample_segment already produces walk→sit (a sit segment after walk), sit→walk with velocity during the stand-up ramp, stand→sit, and h changes between walk segments. The supervisor adds only command atoms (straight walking at 0.8·vx_max, in-place turns at ±0.8·wz_max lasting 4.45 s, holds up to 15 s, ΔH steps) and gestures, which K6.1 already covers.",
+  "suggestion": "Drop the K6.2 supervisor episodes. Add an xp-generic \"voice atom\" branch to T.sample_segment, either within the 8 uniforms or through fold_in. For example, 20 % of walk segments draw from {(+0.8·vx_max,0,0), (0.8·vx_min,0,0), (0,0,±0.8·wz_max)} with a duration of U(3.5, 15) s, and every sit is preceded by a stand segment of at least 1 s. Keep commands.py numpy-only for eval, play and firmware. If K6.2 stays, require commands.py to be xp-generic (state as float codes, jnp.where) with the word list drawn once at reset (a fixed count), and add a CPU==MJX lockstep test to A9."
+ },
+ {
+  "id": "R3",
+  "sev": "major",
+  "section": "K7 (S1/S2 eşikleri, N = 256)",
+  "objection": "S1 chains a seated stand-up, about 35 s of walking and turning, and a sit, yet it has the same threshold as one A5 transition (point ≥ 95 %, W-lower ≥ 90 %). S2 allows only 2 falls in 256 episodes of 20 random words. A policy that exactly meets A4 and A5 fails A10. A10 therefore tightens A4/A5 without saying so, and the only lever left is retraining. S2 also does not give the word spacing, so the fall rate has no defined exposure time.",
+  "scenario": "Take the limits: A5 stand-up and sit-down at 95 % each, and A4 falls at W-upper 3 % with n = 512 (point ≤ 7/512 = 1.4 % per 20 s). Then P(S1) ≈ 0.95·0.95·(1 − 0.014)^(35/20) ≈ 0.88, with a Wilson lower bound ≈ 0.84 at n = 256, so S1 fails both bounds. Counting falls alone (A5 transition falls ≈ 2 % point, 5/256) gives ≈ 0.94 < 0.95. Passing S1 needs about 98.3 % per transition. S2 at Wilson 95 % with n = 256: 2 falls give W-upper 2.8 %, 3 falls give 3.4 %. 20 random words produce about 2–3 sit/stand transitions per episode (otur, kalk, and the implicit kalk of rule 2). At A5's ≈ 2 % per transition that means about 4–6 % of episodes fall, roughly 10–15 falls against 2 allowed.",
+  "suggestion": "Either derive the A10 thresholds from the component criteria (for example S1 point ≥ 0.85, W-lower ≥ 0.80), or declare A10 the binding criterion and raise the A5/A4 targets before P9. Fix the S2 word spacing (for example U(1, 6) s) and report falls per transition and per minute next to the per-episode rate."
+ },
+ {
+  "id": "R4",
+  "sev": "major",
+  "section": "K4 (otur/kalk/eğil Bitiş) + K5 rules 2-3 + K7 S1 'tamamlanır'",
+  "objection": "\"main kalkış/oturuş bitince\" and \"rampa bitince\" are undefined. Read as the reference ramp (alpha reaching 0 or 1, h_ref reaching h_cmd), they finish on the command side in 2.83 s or 0.66 s whatever the body does. S1's \"every step completes\" then measures nothing, and rule 2 starts walking a robot that never stood up. The robot cannot measure trunk z, so the definition has to come from the IMU.",
+  "scenario": "From the seated bank (seat pitch −50° on the stub), the stand-up fails and the robot rocks back onto the seat. alpha still reaches 0 after STAND_RAMP_S = 2.83 s, so KALKIYOR→AYAKTA, and \"gel\" sets vx = 0.136 m/s. main_command passes velocities whenever sit = 0 and h ≥ H_MIN_WALK, so the policy is told to walk while seated. Training never shows that state: trunk_floor with alpha < 0.3 ends the episode as an unplanned sit. The gz-based fall detector does not fire either (seated gz ≈ −0.64 < −0.6). S1 still marks the step complete.",
+  "suggestion": "Define completion physically from IMU-observable signals. Stood: alpha = 0, gz_obs < stand_gz (−0.9) and |gyro_obs| < GETUP success gyro, held for ready_hold_s, within the A5 window (3.4 s). Seated: alpha = 1 and gz_obs < seat_gz within 4.0 s. On timeout, re-issue kalk/otur once, otherwise go to DÜŞMÜŞ. In A10, score each step with A5's success rules (standup_z, stand_gz, windows), and score eğil/yüksel by a measured Δz ≥ 0.5·ΔH."
+ },
+ {
+  "id": "R5",
+  "sev": "major",
+  "section": "K5 Girdi (düşme algılayıcısı) + rule 1",
+  "objection": "The fall detector (\"same threshold as TERMINATION_MAX_GRAVITY_Z, from the IMU observation\") is a third definition, next to C.SUPERVISOR (fall_gz −0.6, fall_steps 6 in tr35) and play.Supervisor. A6's handover is measured with play.Supervisor on the true quaternion (eval_tasks.tr35_handover). The new detector has no debounce and does not depend on the current state, while tr35 explicitly supports a pitched seat (SEAT_PITCH_DEG).",
+  "scenario": "With the committed stub derivation the seat is pitched −50°, so a seated robot has gz = −cos 50° = −0.643: only 0.043, or 3.1° of extra nose-up pitch, from the −0.6 threshold. The sensor model alone can use that margin up: IMU mount error U(±2°) per episode plus accelerometer bias ±0.2 m/s² (about 1.2° of tilt error) adds up to about 3.2°. Any seat that settles a few degrees further nose-up also does (the seated bank tilts ±5° before settling). gz_obs then stays above −0.6, a debounce does not help, and S1, which starts seated, clears the queue and launches getup on a sitting robot. A6's 80 % handover figure does not carry over, because A6 uses true-state detection.",
+  "suggestion": "Move play.Supervisor's logic into commands.py, have play and eval call it, and drive it from C.SUPERVISOR (fall_gz, fall_steps 6, ready_hold_s 0.6, handoff_zero_cmd_s) using gravity_obs and gyro_obs. In OTURUYOR, OTURMUŞ and KALKIYOR, judge a fall by the tilt away from the expected posture (pitch_ref(alpha)), for example more than 35°. Re-run A6's handover with this IMU-based detector. Tell P5b that main termination uses the same fixed −0.6 rule and needs the same fix."
+ },
+ {
+  "id": "R6",
+  "sev": "major",
+  "section": "K7 Koşullar (model varyantı) + K6 (forces retraining)",
+  "objection": "A10 needs the getup handover in the same rollout. The existing handover eval (tr35_handover) does this by running main on the getup model variant, where the EXTRA leg boxes collide with the floor (contype 0, conaffinity 1). main was trained on the main variant, where those boxes are pair-only. A10 names no variant, so main's sit/stand transitions would be judged under floor contacts the policy never trained with.",
+  "scenario": "I ran a kinematic check on the P2-0 stub with the committed rl/derived/tr35_b2.json (scratch scripts seat_boxes.py and crouch_boxes.py). At the crouch row h = 0.1017 m (hip_pitch 40, knee 59.5, ankle 22), which every sit and stand passes on the way to H_DEEP = 0.086, the shin EXTRA box is 1.0 mm below the sole plane. At h = 0.0953 it clears by 3.2 mm, and in the seat by 4.1 mm. On the getup variant, every S1/S2 transition pushes the shin boxes against the floor. A5 passes on the main variant, and A10 transitions then fail or behave differently for reasons unrelated to the voice layer.",
+  "suggestion": "Decide before P7. Either give the main training variant the same floor-active EXTRA boxes, so that A5, A10 and the handover share one contact model, or run A10 on the main variant and switch to a getup-variant env only when a fall is detected (state copy as in tr35_handover). Re-fit the EXTRA boxes on the final CAD so that no crouch row puts them into the floor."
+ },
+ {
+  "id": "R7",
+  "sev": "major",
+  "section": "K3 Yerleşim + K8 (Tutmazsa yerleşim/köpük) + K9 (P2d sırası)",
+  "objection": "The module's location and mass go into the MJCF. The addendum leaves placement to P2d without ordering it against G-CAD, P5b and P7, and it lets G-SES (a bench gate that runs after G-CAD) move the module (\"first try placement and foam\"). Any such change after G-CAD makes rl/derived/tr35_b2.json stale (derive check exit 3) and invalidates the trained walk, main and getup policies.",
+  "scenario": "The head is at 200.2 g against a 202 g budget (P2c). The DF2301Q (≤ 12 g estimated, never weighed) plus 4 wires through the neck gives about 213 g, ~5.5 % over budget. That reopens the MG90S static check and the HEAD_SIT/HEAD_TUCK derivation (static ratio on head_pitch in the seat is 0.152). If G-SES fails at G-BENCH (recognition < 90 % at 1 m with servos running) and the fallback moves the module to the trunk rear top, the MJCF changes after the P7 pipeline training and possibly after P9. The policy meta's derived_source no longer matches, and another RunPod retraining cycle follows.",
+  "suggestion": "Make P2d a predecessor of P3/G-CAD and book the module mass in the chosen link now. Run G-SES's acoustic tests (module plus 6 DS servos on the bench, no robot needed) before G-CAD, so the placement is final when the MJCF freezes. Otherwise, state that relocation is DR-covered and needs no re-derivation. Per-body link_mass_scale 0.9–1.15 covers +12 g only if the head body weighs at least ~80 g, and only at the top edge of the range."
+ },
+ {
+  "id": "R8",
+  "sev": "minor",
+  "section": "K6.1 (last sentence: 'Politikalar kafa ve gaga hedeflerini gözlediği için')",
+  "objection": "The claim is false. The main actor observation (53 values) holds only the head joint q/qd measured by the pots, not the targets. The beak is neither measured nor observed: sensors.py says \"Gaga olculmez (gozlemde de yok)\", and P5a froze the obs/action sizes.",
+  "scenario": "The beak gestures (0↔25° at 2 Hz, the 12° wake tick) are unobserved disturbances. That is acceptable because the jaw weighs about 14 g. But an implementer who \"fixes\" the stated assumption by adding the mouth command to the observation turns main 53→54. That breaks export_c's obs_layout.h, the C-vs-ONNX checks, the frozen layout rule and every trained policy.",
+  "suggestion": "Reword: head gestures reach the policy only through the head pot q/qd; beak gestures are an unobserved disturbance that the training exposure covers. State explicitly that the observation layout stays unchanged."
+ },
+ {
+  "id": "R9",
+  "sev": "minor",
+  "section": "K4 (uyanma onayı) + K5 rule 6 (vak her durumda) + K6.1/K6.3",
+  "objection": "The wake tick fires on every \"ördek\", and vak is allowed in every state except DÜŞMÜŞ. Training moves the beak only in stand and walk segments (K6.1), and getup never sees beak motion.",
+  "scenario": "(a) \"ördek\" spoken while the robot is down: the tick runs during getup. Getup trained with the beak held at HOME, and when the robot is face down its jaw_collision floor box is touching the ground. (b) vak while seated: on the stub, HEAD_SIT has head_pitch 55.5°, and P2c measured jaw–neck contact from mouth ≥ 28° at head_pitch ≥ 55°. vak opens to 25°, a 3° margin before the SG90 deadband (0.9°, up to ×2 under DR) and overshoot. A10 does not include A8. (c) vak during the OTURUYOR/KALKIYOR transitions, where the stub seat's COM margin is 6.9 mm and training never moves the beak.",
+  "suggestion": "Suppress the tick and vak in DÜŞMÜŞ, OTURUYOR and KALKIYOR (use the module's LED as the wake acknowledgement). While seated, cap the mouth at ≤ 20°, or apply P2c's interlock (mouth ≤ 25° while head_pitch > 50°). Add A8 to the A10 criteria."
+ },
+ {
+  "id": "R10",
+  "sev": "minor",
+  "section": "K5 rule 5 + K4 (eğil/yüksel, ΔH)",
+  "objection": "\"h changes with main's existing 2.83 s ramp\" is wrong. 2.83 s is SIT/STAND_RAMP_S, the ramp for alpha. h_ref follows the command at H_RATE = 0.02 m/s, which tr35_constants does not rescale. One ΔH step is also about as large as the A5 height-tracking tolerance.",
+  "scenario": "On the stub, ΔH = (0.1522 − 0.1125)/3 = 13.2 mm, and the ramp takes 0.66 s, not 2.83 s. The supervisor's \"ramp done\" timing, and any test written against 2.83 s, is off by about 4×. A5 allows a height RMS of 1.3 cm, so one eğil can be indistinguishable in trunk z, and A10 has no height criterion at all.",
+  "suggestion": "Write \"h_ref follows at H_RATE (ΔH/H_RATE ≈ 0.66 s)\". Add an S1 criterion: measured trunk-height change ≥ 0.5·ΔH for each eğil/yüksel. Consider ΔH = (H_HOME − H_MIN_WALK)/2 so that one step is visible."
+ },
+ {
+  "id": "R11",
+  "sev": "minor",
+  "section": "K7 S1 (gel oranı p90 ∈ [0.7, 1.3], dönüş hatası p90 ≤ 20°)",
+  "objection": "A single p90 inside [0.7, 1.3] does not bound the low tail. The addendum also does not say when the turn error is measured, or whether \"distance\" means path length or displacement.",
+  "scenario": "Half of the episodes could cover only 0.3× the target (1.09 m at κ 0.5, so 0.33 m) and the check still passes with p90 = 1.0. If the turn error is taken at the moment the IMU integral reaches 90°, it contains only sensor error: bias ±0.01 rad/s over 4.45 s plus 2 % scale, at most ~4°. It misses the coast after the turn command stops.",
+  "suggestion": "Require p10 ≥ 0.7 and p90 ≤ 1.3 for the displacement along the heading the robot had when gel started. Measure the turn error 1 s after the turn command ends, as the true yaw change minus 90°."
+ },
+ {
+  "id": "R12",
+  "sev": "minor",
+  "section": "K5 Zamanlama + K6.2 (gecikme DR'ı açık) + K8 (ölçülen dağılım sim DR'ına)",
+  "objection": "Recognition latency only shifts when a command is applied. The policy never observes it, and no A10 metric depends on it: gel is timed and the turn ends on the IMU, both from the moment of application. So the DR tests nothing, yet the text ties G-SES's measured distribution to training.",
+  "scenario": "Suppose G-SES measures 0.6–2.0 s. K8 writes that into the sim DR, and K6.2 trains with the DR on, so readers will conclude that P7/P9 must be redone, although no learned weight can change. The one latency-critical behaviour goes unmeasured: the robot travels 1.5 s × 0.136 m/s = 0.20 m after \"dur\" before braking even starts.",
+  "suggestion": "Make the latency DR eval-only and state that a new G-SES latency never forces retraining. Add an A10 metric for the distance travelled from the end of the word \"dur\" to standstill, reported at p90 (for example ≤ 0.3 m)."
+ },
+ {
+  "id": "R13",
+  "sev": "minor",
+  "section": "K5 rule 8 (IMU gyro z integrali) + K7",
+  "objection": "The turn stops on the integral of the sensor-model gyro, whose bias is U(±0.01 rad/s) after power-on calibration. On the robot the IMU sits 1.8 mm in front of the buck (P2b) and warms up after boot, so the bias the sim validates is lower than the hardware will see.",
+  "scenario": "MPU6500-class datasheets give a zero-rate drift of about 0.24 °/s per °C (a typical datasheet value, not measured here). A +10 °C warm-up after the boot calibration then gives ~0.04 rad/s, four times the modelled bias. That adds about 10° per 90° turn (4.45 s at 0.353 rad/s), and the errors keep adding up over later turns, while the sim reports turn errors of only ~2–4° from the sensor.",
+  "suggestion": "Specify a zero-velocity bias update in commands.py: while AYAKTA or OTURMUŞ and still (|gyro| below a threshold for 1 s), re-estimate the gyro bias. Add an A10 sensitivity run with gyro bias U(±0.04 rad/s), and log the bias drift after warm-up in the G-SES/G-BENCH bench runs."
+ },
+ {
+  "id": "S1",
+  "sev": "major",
+  "objection": "Jest şablonları 'HEAD_RANDOM örneklemesine' eklenirse kafa hedefi env'deki birinci derece filtreden geçer (spec 3.2.5 ve tr35_constants: filter_tau 0.5 s; env_cpu: head_offset += (target − offset)·CTRL_DT/τ). Ayrık filtrenin kazancı 1.5 Hz'te 0.21, 1.2 Hz'te 0.26'dır. 2 çevrimlik jest kalıcı duruma da ulaşmaz. Bu yüzden A10'daki 'jest genliği komutun ≥ %80'i' ölçütü bu yolla tutamaz. Filtre atlanırsa da K6.1 metni, env ve firmware kopyası farklı yollar izler.\n\nK6.1'in gerekçesi de yanlış: politikalar kafa hedeflerini değil, yalnız 4 kafa ekleminin pot konumunu gözler. Gaga hiç gözlenmez (sensors.py: 'Gaga olculmez (gozlemde de yok)'; main gözlemi 53'te sabit). Gaga HEAD_RANDOM'un 4 ekleminde de yok, eğitimde keyframe ctrl ile tutuluyor; vak ve onay tıkı için ayrı bir kanal gerekir.\n\nJest rastgele hedefin üstüne eklenirse head_pitch 20° ± (11.5° + 11.5°) = −3…43° olur. Bu, §3.1'deki 1…38° gerekli aralığını aşar.",
+  "scenario": "\"evet\" komutunda head_pitch ±0.2 rad, 1.5 Hz ile sürülür. Filtre çıkışı ±0.042 rad (±2.4°) olur. A10 ölçümü yaklaşık %21 verir ve S1 her bölümde düşer.\n\nFirmware commands.py'yi kopyalayıp ±0.2 rad'ı doğrudan servoya verirse, gerçek robot eğitimde gördüğünün 4.7 katı kafa hareketiyle yürür.",
+  "suggestion": "- Jesti filtreyi atlayan ayrı bir kafa kanalı olarak tanımla; config'deki slew_max = 0.5·ω0 eğim sınırı uygulansın.\n- Jest rastgele hedefin yerine geçsin, üstüne toplanmasın; jest süresince HEAD_RANDOM zamanlayıcısı dursun.\n- Gaga için ayrı bir mouth kanalı ekle. Bu kanallar commands.py'de ve env'de tek bir yerde tanımlansın.\n- K6.1 gerekçesini \"politika kafa pot konumu ve IMU ile tepki verir; gaga gözlenmez\" diye düzelt.\n- A10 ölçütünü şöyle yaz: gerçek eklem açısının 2. çevrimdeki tepe-tepe genliği, şablonun tepe-tepe genliğinin ≥ 0.8'i.",
+  "section": "K6.1, K7 S1"
+ },
+ {
+  "id": "S2",
+  "sev": "major",
+  "objection": "Durum × komut tablosu eksik ve deterministik değil.\n- Kural 2 yalnız OTURMUŞ'u kapsıyor. OTURUYOR ve KALKIYOR'da gelen kalk, otur, gel, dön ve dur için davranış tanımsız: komut yok mu sayılır, kuyruğa mı girer, rampayı ters mi çevirir?\n- 'dur her şeyi keser' geçiş sırasında main komutuyla gerçeklenemez. sit ikili (0/1); posture_step alpha'yı sit'e sürer ve alpha ara bir değerde tutulamaz. Yani dur ya geçişi durdurmaz ya da ters çevirir.\n- AYAKTA ve YÜRÜYOR'da gelen kalk tanımsız: h'yi H_HOME'a mı çeker, yürüyüşü keser mi?\n- OTURMUŞ'ta gelen otur tanımsız.\n- Kuyruğa hangi komutların girdiği belirsiz; jestler giriyor mu?\n- Kural 3'teki '≥ 1 s yerleşme' deterministik değil.",
+  "scenario": "K6.2'de kelime aralığı U(1, 6) s, oturuş rampası 2.83 s. otur'dan sonraki kelimenin rampa içine düşme olasılığı (2.83 − 1)/5 ≈ %37; yani tanımsız hücre eğitimde sık görülür.\n\nÖrnek: YÜRÜYOR'da otur gelir, kural 3'e göre dur + 1 s yerleşme başlar. Bu arada \"evet\" gelir. Jest AYAKTA'da uygulanabilir, ama kuyruk derinliği 1 olduğu için evet bekleyen otur'un yerine geçerse robot hiç oturmaz. CPU ve MJX gerçeklemeleri bunu farklı çözebilir.",
+  "suggestion": "- K5'e eksiksiz bir 7 durum × 13 olay (12 komut + ördek) tablosu ekle. Her hücrede {uygula, kuyruğa al, yok say, kes}, sonraki durum ve çıktı yazsın.\n- Öneri: OTURUYOR/KALKIYOR'da gelen her komut kuyruğa girsin. dur kuyruğu temizlesin ve geçiş tamamlansın. Jestler kuyruğa girmesin. kalk yalnız OTURMUŞ/OTURUYOR'da geçerli olsun. Yerleşme tam 1.0 s olsun.\n- Birim testler tabloyu satır satır gezsin.",
+  "section": "K5 kurallar 2–4, 7"
+ },
+ {
+  "id": "S3",
+  "sev": "major",
+  "objection": "Düşme algılayıcısında dört sorun var.\n\n1. **Ayrı ve debounce'suz tanım.** 'TERMINATION_MAX_GRAVITY_Z ile aynı eşik' deniyor, ama ardışık adım beklemesi (debounce) yok. Mevcut çalışma zamanı süpervizörü (play.py Supervisor, meta[\"supervisor\"]) fall_gz −0.6 ile birlikte fall_steps (P5a core dalında tr35 için 6), ready_hold_s 0.6 ve handoff_zero_cmd_s 1.0 kullanıyor. commands.py ikinci ve farklı bir tanım olur: 'tek tanım' bozulur ve A6 devri ile A10 farklı eşiklerle koşar.\n2. **Durumdan habersiz.** Türetilmiş stub'da oturuş pitch'i −50° (burun yukarı), yani gz = −0.643. Eşik −0.6, bu da 53.1° eğim demek: yalnız 3.1° pay kalıyor. Oturuş bankası ±5° eğim taşıyor.\n3. **Getup başarısızlığı tanımsız.** A6 tabanında sırt modu %50; yani sırt düşüşlerinin yarısı 12 s'de kalkamaz. K5'te zaman aşımı, yeniden deneme ya da bekleme durumu yok, ve DÜŞMÜŞ'te dur dahil her komut yok sayılıyor.\n4. **Devir penceresi.** Devirden sonraki 1 s'lik sıfır komut penceresinde gelen komutların ne olacağı yazılmamış.",
+  "scenario": "Stub geometrisinde robot oturur; bankadan pitch −54° örneklenir ya da vak sarsıntısı gelir. gz −0.6'yı geçer, getup oturuş pozundan devreye girer. Getup bu pozdan hiç eğitilmedi.\n\nAyrı bir senaryo: robot sırtüstü düşer, getup 12 s'de kalkamaz. Denetleyici DÜŞMÜŞ'te kalır ve getup sınırsız döner; diz servosu T_diz'i aşacak kadar ısınır. Kullanıcının \"ördek, dur\" komutu yok sayılır.",
+  "suggestion": "- Düşme ve devir için tek kaynak C.SUPERVISOR + play.Supervisor olsun; commands.py onu çağırsın.\n- OTURUYOR/OTURMUŞ'ta düşme ölçütü oturuş pitch'ine göre olsun (|pitch − SEAT_PITCH_DEG| > X), ya da P5b'ye 'oturuşta düşme eşiğine ≥ 15° pay' kapısı eklensin.\n- DÜŞMÜŞ için: getup 12 s'de bitmezse en çok 2 deneme, sonra BEKLE durumu (HOME tutma ya da tork kesme). dur bu durumda getup'ı kessin.\n- Devir penceresinde gelen komutlar kuyruğa alınsın.",
+  "section": "K5 kural 1, K5 Girdi"
+ },
+ {
+  "id": "S4",
+  "sev": "major",
+  "objection": "S2'nin düşme eşiği (W-üst ≤ %3, N = 256) maruziyete göre A4 ve A5 ile çelişiyor.\n- **A4:** N = 512 ve 20 s'lik bölümlerde W-üst ≤ %3, en çok 7 düşmeye izin verir (bölüm başına %1.37).\n- **S2:** N = 256'da W-üst ≤ %3 ancak en çok 2 düşmeyle tutar (2/256 → W-üst %2.80; 3/256 → %3.39).\n\nS2 bölümü 20 kelime × U(1, 6) s ≈ 67 s, gecikmeyle 70–90 s sürer. İçinde yaklaşık 3.3 otur/kalk geçişi olur; A5 ise geçiş düşmesinde W-üst ≤ %5'e izin veriyor.\n\nYani S2, 20 s başına düşünüldüğünde A4'ten yaklaşık 7 kat sıkı ve A5 ile çelişiyor. Ayrıca düşüp getup ile kurtulan bir bölümün düşme sayılıp sayılmadığı belirsiz.",
+  "scenario": "A4'ü sınırda geçen politikanın 20 s'deki düşme oranı %1.37'dir. 80 s'lik bir S2 bölümünde düşme olasılığı 1 − (1 − 0.0137)^4 = %5.4 olur. Beklenen değer yaklaşık 14/256 düşmedir, eşik ise 2. Politika A4 ve A5'i geçer ama S2'de kesin düşer; A10 yapı gereği tutmaz.",
+  "suggestion": "- S2 eşiğini maruziyete bağla:\n  - ya düşme oranını 20 s başına normalize edip A4 eşiğiyle karşılaştır,\n  - ya da S2 bölümünü 20 s ve ≤ 6 kelimeye kısalt.\n- Geçiş düşmelerini ayrıca A5 eşiğiyle say.\n- 'Düşme + başarılı getup + devir' durumunu ayrı bir kategori olarak raporla.\n- S2'nin kelime aralığını ve kelime dağılımını açıkça yaz (K6.2 ile aynı mı?).",
+  "section": "K7 S2"
+ },
+ {
+  "id": "S5",
+  "sev": "major",
+  "objection": "S1 ölçütleri test edilemez ya da tekrarlanamaz.\n\n(a) **Zaman çizelgesi yok.** Kelimeler arası süre yazılmamış; yalnız 'gel (8 s)' var. Sonraki kelime önceki adım bitince mi, sabit aralıkla mı verilir? 8 s kelimeden mi, uygulamadan mı sayılır?\n\n(b) **gel mesafe ölçütü bozuk.** 'Gerçek/hedef oranı p90 ∈ [0.7, 1.3]' iki yönden sorunlu: gel'in hedef mesafesi yok (açık uçlu: dur ya da 15 s), ve tek yönlü bir p90 bir aralıkta olamaz. Mesafe başlangıç yönündeki izdüşüm mü, yol uzunluğu mu? Duruştan kalkıştaki ivmelenme de belirsizlik ekliyor; A4 bu yüzden [5, 20] s ortalamasını kullanıyor.\n\n(c) **Dönüş hatası ne zaman ölçülüyor?** wz = 0 anında mı, yerleşmeden sonra mı? 8 s zaman aşımıyla biten dönüş 'tamamlandı' sayılır mı?\n\n(d) **'Tamamlandı' tanımı yok.** Firmware'in gözlemleyebildiği tamamlanma mı (alpha, gyro integrali), yoksa fiziksel durum mu (z, temas)?\n\n(e) **Jest genliğinin ölçümü tanımsız.** Gerçek q mu, pot mu? Tepe-tepe mi? Hangi çevrim?\n\n(f) **S2'de de kelime aralığı yok.**",
+  "scenario": "İki uygulayıcı aynı politikayla S1'i koşar:\n- biri her kelimeyi önceki adım bitince 0.5 s sonra verir;\n- diğeri sabit 3 s aralıkla verir.\n\nİkincisinde \"sola dön\", ilk dönüş (4.45 s) bitmeden gelip onu keser. gel oranı ve dönüş hatası iki koşuda farklı çıkar; aynı politika birinde geçer, ötekinde düşer.",
+  "suggestion": "- **Zaman çizelgesi:** her kelime, denetleyici önceki komutu bitirdikten 1.0 s sonra verilsin; gecikme DR'ı açık olsun.\n- **gel:** hedef = 0.8·vx_max × (gel uygulaması → dur uygulaması) süresi. Ölçü başlangıç yönündeki yer değiştirme olsun. Ölçüt: bölümlerin ≥ %90'ında oran [0.7, 1.3] içinde.\n- **Dönüş:** hata, dönüş bittikten 1 s sonra ölçülen yaw değişimiyle hesaplansın.\n- **Tamamlanma:** denetleyicinin hedef durumuna ulaşması ve o adımda düşme olmaması.\n- **Jest:** gerçek q, 2. çevrimin tepe-tepe genliği.\n- **S2:** aralığı U(1, 6) s olarak yaz.",
+  "section": "K7 S1, S2"
+ },
+ {
+  "id": "S6",
+  "sev": "major",
+  "objection": "commands.py hem eğitime hem firmware'e 'tek tanım' olacak, ama ikisi için de eksik tanımlanmış.\n\n**Eğitim tarafı.** K6.2 denetleyiciyi main eğitimine sokuyor; P7/P9 eğitimi MJX + Brax PPO ile jit/vmap altında RunPod'da koşuyor. Python'da olay kuyruklu bir durum makinesi jit edilemez. Gerekenler:\n- task_math kuralında xp-genel, sabit şekilli bir sürüm (durum int, zamanlayıcılar, bekleyen komut, gyro integrali);\n- CPU↔MJX lockstep parity testi.\n\nK5 ise yalnız 'birim, CPU' testi istiyor. RNG yerleşimi de tanımsız: TASK.md'ye göre walk akışları ve main'in 8 segment uniform'u yer değiştirmemeli.\n\n**Firmware tarafı.** Girdiler firmware sinyalleriyle tanımlanmamış.\n- 'main oturuş/kalkış bitince': eğitimdeki başarı metrikleri z, temas ve standup_z kullanıyor; firmware bunları ölçemez.\n- Gyro integrali hangi hızda alınıyor: 200 Hz ham mı, CTRL_DT'de gyro_obs mu?\n- Tanıma gecikmesi DR'ı yalnız simde var; firmware'e girecek kısımdan ayrılmamış.",
+  "scenario": "P5b K5'i bir CPU sınıfı olarak yazar ve testler geçer. P7'de MJX eğitimine gelindiğinde %10'luk denetleyici bölümleri jit altında çalışmaz. İki sonuç olası:\n- K6.2 düşer ve eğitim dağılımı eksik kalır;\n- ya da MJX için ayrı bir yeniden yazım yapılır ve iki tanım ayrışır. Örneğin kural 3'teki yerleşme CPU'da ≥ 1 s, MJX'te ilk adımda biter.\n\nFirmware hangisini 'birebir' kopyalayacağını bilemez.",
+  "suggestion": "- K5'i 'xp-genel, toplu, sabit şekilli durum vektörü' olarak tanımla.\n- Geçişleri veri tablosu olarak sakla; CPU ve MJX aynı tabloyu kullansın.\n- CPU↔MJX lockstep testi ve firmware için altın izler (olay dizisi → çıktı dizisi) ekle.\n- Girdileri yalnız firmware'in ölçebildiği sinyallerle listele: gravity_obs (SUPERVISOR debounce ile), CTRL_DT'de gyro_obs z, posture_step'ten alpha/h_ref, getup_success_now(use_height=False).\n- Oturuş/kalkışın bitişi alpha ile tanımlansın.\n- Gecikme modeli env tarafında kalsın.",
+  "section": "K5 (başlık, Girdi, Testler), K6.2"
+ },
+ {
+  "id": "S7",
+  "sev": "major",
+  "objection": "**Ana spec ile çelişki.** Ana spec §2 'Kafa elektroniği (kamera, hoparlör, ToF)' öğesini kapsam dışı sayıyor. DF2301Q kafa kubbesine konursa kafa elektroniği olur, üstelik kartta bir hoparlör taşır. Ekin kendi kuralı 'Çelişki çıkarsa ana spec geçerlidir' diyor; yani tercih edilen yerleşim kendi kuralıyla geçersiz.\n\n**Sayılar da tutmuyor.**\n- P2c'de kafa 200.2 g, bütçe 202.0 g: yalnız 1.8 g pay kalıyor. Modül ≤ 12 g, teller 2–3 g eklerse kafa yaklaşık 214 g olur ve bütçeyi yaklaşık %6 aşar.\n- MG90S statik yük hesabı (p2c-tampon) ve HEAD_SIT türetmesi değişir; oturuşta head_pitch 55.5°, statik oran 0.152.\n\n**Kablo yolu yanlış tanımlanmış.** Kubbe head linkinde, yani head_roll'dan sonra. Bu yüzden 4 tel yalnız boyundan değil, 4 eklem geçişinden geçer: neck_pitch (d 5.0 mm), head_pitch (4.5), head_yaw (3.5) ve head_roll (3.5); ayrıca head_yaw ±80° burulur. Demet çapları mevcut tellere göre seçilmiş.\n\n**Gürültü kaynağı.** head linkinde head_roll MG90S ile gaga SG90 da duruyor: mikrofonun birkaç cm yanında iki servo.",
+  "scenario": "P2d ekin tercihine uyar ve modülü kubbeye koyar. Kafa 214 g'a çıkar ve 202 g bütçesini aşar. head_yaw ve head_roll geçişlerinde 3.5 mm'lik demete 4 tel daha eklenir; A1 kablo demeti taraması yeniden çarpışma verebilir.\n\nAna spec değişmediği için inceleme bu yerleşimi kapsam dışı sayıp reddeder ve P2d yeniden yapılır.",
+  "suggestion": "İki yoldan biri seçilmeli:\n- Ana spec §2 kullanıcı kararıyla açıkça değiştirilsin ('ses modülü kafada kapsamda') ve kafa kütle bütçesi yeniden dağıtılsın.\n- Ya da varsayılan yerleşim trunk olsun; kafa kubbesi yalnız G-SES'in kafa içi gürültü testi ve kütle payı kanıtlanırsa seçenek olarak kalsın.\n\nP2d'nin bitti ölçütlerine şunları ekle: 4 geçişin demet çapları, head_yaw ±80° burulma testi, kafa kütlesi ≤ bütçe.",
+  "section": "K3 Yerleşim; ana spec §2"
+ },
+ {
+  "id": "S8",
+  "sev": "major",
+  "objection": "**Robot kütlesinin sert sınırı hesaba katılmamış.**\n- P2c raporunda robot toplamı 1845.4 g (×1.05 = 1938 g). acik-konular.md'de 1847.9 g → 1940 g, 'sınırın 10 g altında'.\n- Modül 12 g, teller yaklaşık 2.5 g eklerse: (1845.4 + 14.5) × 1.05 = 1952.9 g > 1950 g.\n- Ek modülü yalnız kafa bütçesine bağlıyor; G-CAD'in 1.95 kg kapısına hiç bağlamıyor.\n\n**Trunk yedeği doğrulanmamış.**\n- P2b'ye göre K_T'deki boş hacim 178.6 cm³, ama parçalı. 40 × 25 × 11 mm'lik pil alarmı (11 cm³) bile 'fits no free slot of the frozen K_T'.\n- 50 × 32 × yaklaşık 12 mm'lik modül (19 cm³) içeri sığmaz; K_T dışına, kabuk üstüne çıkmalı, bu da arayüz değişiklik isteği (ICR) gerektirir.\n- 'Trunk arka üstü' büyük olasılıkla buck_hood'un 1188 mm²'lik üst egzoz ızgarasının üstü. Modül 0–70 °C sınıfında ve orada buck ısısını alır.",
+  "scenario": "P2d modülü ekler, P3 aşağıdan yukarı kütleyi hesaplar: 1952.9 g. G-CAD düşer ve kütle merdiveni yeniden açılır.\n\nTrunk yedeği seçilirse modülün yeri ancak buck egzozunun üstü olur. Uzun yürüyüşte modül ısınır; tanıma ya da modülün kendisi zarar görebilir.",
+  "suggestion": "- K3'e G-CAD maddesi ekle: modül ve tel kütlesi aşağıdan yukarı listeye girsin; ×1.05 sonrası ≤ 1950 g olsun. Aşarsa önce kütle merdiveni uygulansın.\n- Kartın hoparlörünü sökmenin kazancı Adım 0'da tartılsın.\n- Trunk yerleşimi için somut bir zarf ver: K_T uzantısı ICR'si ve buck egzozuna asgari bir mesafe (ör. ≥ 20 mm).\n- 3.3 V / 5 V besleme kararı P2d'de verilsin.",
+  "section": "K3 Yerleşim, K9; ana spec §4"
+ },
+ {
+  "id": "S9",
+  "sev": "major",
+  "objection": "G-SES denemesi gerçek kullanımı temsil etmiyor.\n\n(a) **Yanlış servolar test ediliyor.** Yük testi '6 DS servo' ile yapılıyor. Oysa mikrofona en yakın gürültü kaynakları head linkindeki head_roll MG90S ve gaga SG90 ile head_turn'deki head_yaw MG90S; tercih edilen yerleşimde mikrofona birkaç cm. Bunlar testte yok.\n\n(b) **Tıkı ile komut örtüşüyor.** Gaga tıkı, ördek tanınınca (0.3–1.5 s sonra) başlar. Kullanıcı tam o sırada komutu söyler, yani SG90'ın dişli sesi komut sözcüğüyle örtüşür. Test bunu içermiyor.\n\n(c) **Mesafe gerçekçi değil.** Robot yerde, kafası 0.35 m'de; ayaktaki yetişkinin ağzı yaklaşık 1.6 m'de. Ağız-modül mesafesi 1 m yatayda 1.60 m, 0.5 m yatayda 1.35 m olur. 1 m'lik test, gerçek kullanımın en yakın durumundan bile yaklaşık 4 dB daha güçlü sinyal verir.\n\n(d) **Kabuk yok.** Çıplak kartla ölçülüyor; kabuk açıklıkları (≥ 3 mm) ve kubbe rezonansı yok. 'Yerleşim denenir' adımı kabuksuz tezgâhta yapılamaz.\n\n(e) **6 DS olmayabilir.** Ana spec §7 DS adaylarını adetsiz sayıyor ve §4'e göre 'tezgâhta kaybeden DS' yedeğe gidiyor; Adım 0'da 6 DS bulunacağı yazılı değil.",
+  "scenario": "Tezgâhta 1 m'de ve 6 DS çalışırken %92 tanıma ölçülür ve DF2301Q kalır. Robot bitince kullanıcı ayakta, robotun 1 m önünden \"ördek, gel\" der:\n- ağız-modül mesafesi 1.6 m;\n- gaga tıkı ve head_roll servosu komut sırasında mikrofonun 3 cm yanında çalışır.\n\nTanıma oranı düşer, ama kapı çoktan geçilmiş ve CAD donmuştur.",
+  "suggestion": "- Yük altı denemede 3 MG90S + SG90 çalışsın, mümkünse 6 DS de.\n- Her deneme \"ördek → tıkı → komut\" sırasıyla yapılsın, komut tıkı sürerken söylensin.\n- Mesafeyi ağız-modül arası 1.3 m ve 1.8 m olarak tanımla (ayakta kullanıcı, robot yerde).\n- G-SES'te kafa kubbesinin açıklıklı, basılı bir kesiti kullanılsın.\n- Gereken servo adedini §7'ye ek olarak alım listesine yaz.",
+  "section": "K8 Hazırlık, Denemeler"
+ },
+ {
+  "id": "S10",
+  "sev": "major",
+  "objection": "G-SES kapısının eşikleri istatistik olarak zayıf ve tehlikeli karışmaları görmüyor.\n\n(a) **Kelime başına mı, havuzda mı?** '≥ %90' belirsiz. Havuzda 216/240 geçerken tek bir kelime 15/20 = %75'te kalabilir; bu kelime dur olabilir. Kelime başına 18/20'nin Wilson alt sınırı yalnız %70.\n\n(b) **İkame ile kaçırma ayrılmıyor.** 'sağa dön' ile 'sola dön' tek hecede, 'gel' ile 'geri' ilk hecede ayrışıyor. Araştırma, öğrenilmiş benzer öbeklerin karıştığını belirtiyor. %90 doğru tanımanın geri kalan %10'u tamamen sağa↔sola ikamesi olabilir.\n\n(c) **Yanlış tetik testi zayıf.** '≤ 1/10 dk' tek bir 10 dk koşusuyla ölçülüyor. Gerçek oranı 3/10 dk olan bir modül Poisson'a göre %20 olasılıkla geçer (2/10 dk ise %41). Üstelik konuşmasız 10 dk'da modül uykudadır ve yalnız uyandırma kelimesi sınanır; uyanık 15 s pencerelerinde servo gürültüsünün komut tetiklemesi hiç ölçülmüyor.\n\n(d) **Gecikme ölçümünde saat senkronu yok.** Ses kaydı ile ESP32 logu arasında ortak bir olay olmadığından gecikme yüzlerce ms hata taşıyabilir. Bu dağılım doğrudan sim DR'ına yazılıyor.",
+  "scenario": "Havuz %91 ile kapı geçer, ama \"sola dön\" denemelerinin 3/20'si \"sağa dön\" olarak tanınmıştır. Kullanıcı engelden kaçmak için \"sola dön\" der; robot engele doğru döner.\n\nAynı mantıkla \"geri\" yerine \"gel\" tanınırsa robot ileri yürür.",
+  "suggestion": "Kapıyı şöyle yaz:\n- kelime başına ≥ 18/20;\n- havuzda ≥ %90 ve Wilson alt sınırı ≥ %85;\n- karışıklık matrisi: tehlikeli çiftlerde (sağa/sola, gel/geri, otur/kalk) ikame ≤ 1/40.\n\nYanlış tetik:\n- ≥ 30 dk ölç;\n- uyanık durumu ayrıca ölç (setWakeTime 255 ya da her 15 s'de yeniden uyandırma);\n- Poisson üst sınırıyla değerlendir.\n\nGecikme için ESP32 sese karışan bir senkron tıkı (buzzer ya da servo) üretsin.\n\nBaşarısızlıkta ilk adım, aynı 12 kelimeyi servo gürültüsü altında yeniden öğretmek olsun; ancak sonra yerleşim ve yedek yol denensin.",
+  "section": "K8 Kapı"
+ },
+ {
+  "id": "S11",
+  "sev": "major",
+  "objection": "Plan etkisinde sıra ve bağımlılık eksik.\n\n(a) **P2d tamamlanmış P2c'yi yeniden açıyor.** P2c bitti (200.2 g, tests/cad 88/88, check.py 0); P2d kafa kubbesini yeniden açar. P2d hem G-CAD'deki kütle/COM dondurmasından hem P5b türetmesinden (HEAD_SIT, kafa statik torku, HOME COM) önce bitmeli. K9 hiçbir sıra vermiyor.\n\n(b) **P3 tartım yapamaz.** K3 'kütle ve yükseklik P3'te tartılır ve ölçülür' diyor. P3 bir yazılım adımı (export, BOM, Sonnet ile stok doğrulama); donanıma dokunmaz. '3.3 V ray yetmezse P3 karar verir' kararı da ölçümsüz kalıyor.\n\n(c) **G-SES geç gelirse zincir baştan döner.** G-SES Adım 0'da paralel koşuyor. 'Tutmazsa yerleşim denenir' kararı G-CAD'den sonra gelirse P3 → G-CAD → P5b türetme → P7/P9 yeniden yapılır.\n\n(d) **Şimdi yapılabilecek işler ayrılmamış.** Hepsi G-CAD'e bağlı P5b'ye konmuş, oysa şunlar G-CAD beklemez:\n- commands.py ve birim/parity testleri;\n- jest kanalı;\n- stub üzerinde A10 değerlendirme iskeleti (P5a deploy'un sıfır-politika smoke'u gibi).\n\n(e) **P6 eki zamanlaması.** P6 birleşti ve yeniden açılması gerek; G-SES'in tezgâh betiği Adım 0 başlamadan hazır olmalı.",
+  "scenario": "P5b, G-CAD'den sonra başlar ve derive çalışır. Ardından G-SES düşer, modül trunk'a taşınır. Kafa kütlesi ve COM değişir; HEAD_SIT ve HOME yeniden türetilir; P7 boru hattı eğitimi ve G-ISIL'deki diz RMS ölçümü boşa gider.\n\nAyrıca commands.py'nin yazılması G-CAD'i bekler, oysa bugün stub üzerinde yazılabilirdi.",
+  "suggestion": "K9'a bir bağımlılık grafiği ekle:\n- **P5k (şimdi, stub üzerinde):** xp-genel commands.py, testler, jest kanalı ve A10 iskeleti; sonra P5b'ye birleşsin.\n- **P2d → P3 → G-CAD:** P2d, G-CAD'den önce zorunlu olsun.\n- **G-SES geç kalırsa:** sonuç G-CAD'den önce gelmezse varsayılan trunk yerleşimiyle dondurulsun.\n- **Ölçümler:** modülün tartımı, yüksekliği ve akımı Adım 0 alımına taşınsın; P2d o zamana kadar muhafazakâr bir zarfla çalışsın.\n- **P6 eki:** Adım 0'ın ön koşulu olsun.",
+  "section": "K9, K3 Modül/Bağlantı"
+ },
+ {
+  "id": "S12",
+  "sev": "major",
+  "objection": "Kullanıcıya dönük davranışta dört boşluk var.\n\n(a) **Yok sayılan komut sessiz.** Hoparlör kapalı, modülün mavi LED'i kabuğun içinde. Kullanıcı OTURMUŞ'ta 'evet' ya da dönüşte 'eğil' dediğinde, komutun tanınmadığını mı yoksa reddedildiğini mi bilemez.\n\n(b) **Uyanma penceresi modellenmemiş.** Pencere 15 s. S1 dizisi yaklaşık 47 s sürer:\n- kalk 3.4 s, gel 8 s, iki dönüş 2 × 4.45 s, geri 7.35 s, eğil/yüksel 2 × 0.66 s, jestler yaklaşık 4 s, otur 2.83 s;\n- buna 12 × 0.9 s tanıma gecikmesi eklenir.\n\nGerçekte bu dizi en az 3 kez yeniden 'ördek' gerektirir. Pencerenin her geçerli komutla uzayıp uzamadığı doğrulanmamış (voice-research). Sim (K5 girdisi, K6.2, S1/S2) ID 1 olayını ve uyku durumunu modellemiyor. Pencere dolunca robot hiçbir işaret vermiyor.\n\n(c) **Acil durdurma yavaş.** 'ördek' + 'dur' iki ayrı tanıma: 2 × 1.5 s + yaklaşık 1 s konuşma ≈ 4 s; 0.136 m/s'de yaklaşık 0.5 m yol.\n\n(d) **Tek yanlış tetik 2 m yol.** Uyanık pencerede tek bir yanlış 'gel', robotu 15 s × 0.136 m/s = 2.0 m kendi başına yürütür.",
+  "scenario": "Kullanıcı \"ördek, kalk\" der, sonra \"gel\" ve \"dur\" der. 16. saniyede \"sağa dön\" der; pencere kapandığı için komut sessizce düşer. Robot durur ve bekler. Kullanıcı aynı komutu tekrarlar, yine sonuç yok; neden olduğunu bilemez.\n\nBaşka bir anda masa üstünde servo gürültüsü bir \"gel\" tetikler ve robot 2 m yürüyüp masadan düşer.",
+  "suggestion": "- Reddedilen komut için görünür bir işaret ekle; örneğin DÜŞMÜŞ dışında her durumda izinli bir çift gaga tıkı.\n- Uyanma bitişine bir işaret ekle; NOTIFY_WAKEUPEXIT (0xB2) doğrulanırsa gaga kapanışı olabilir.\n- Sim girdisine ID 1 ve uyanık pencere modeli ekle; S1'e yeniden uyandırmaları ve tıkıyı koy.\n- gel zaman aşımını uyanma penceresine bağla ya da ≤ 8 s (yaklaşık 1.1 m) yap.",
+  "section": "K4, K5 kural 7, K7 S1"
+ },
+ {
+  "id": "S13",
+  "sev": "minor",
+  "objection": "Kural 5'teki 'h, main'in mevcut 2.83 s rampasıyla değişir' ifadesi yanlış. 2.83 s, alpha'nın SIT_RAMP_S/STAND_RAMP_S rampası. h_ref ise h_cmd'yi H_RATE = 0.02 m/s hızıyla izler (posture_step); bu hız tr35'te ölçeklenmiyor. Stub değerleriyle ΔH = (0.1522 − 0.1125)/3 = 13.2 mm, yani rampa 0.66 s sürer.\n\nAyrıca 'Bitiş: rampa bitince' için firmware'in gözlemleyebileceği bir tanım verilmemiş.",
+  "scenario": "commands.py eğil'in 2.83 s sürdüğünü varsayar ve bu sürede gelen gel/dön komutlarını kuyrukta tutar. Gerçek h rampası 0.66 s'de biter; robot 2.2 s boyunca boşuna bekler. Firmware ile sim de bekleme süresinde ayrışır.",
+  "suggestion": "Kural 5'i şöyle düzelt: 'h_ref, H_RATE hızıyla h_cmd'ye yaklaşır; bitiş |h_ref − h_cmd| < 1e-6 (posture_step ile aynı ölçüt).' eğil/yüksel sırasında gelen komutlar beklemesin, hemen işlensin.",
+  "section": "K5 kural 5, K4 eğil/yüksel"
+ },
+ {
+  "id": "S14",
+  "sev": "minor",
+  "objection": "(a) **Jestler gereksiz yere walk'a ekleniyor.** K6.1 jestleri walk politikasına da ekliyor. Denetleyicinin çıktısı yalnız main | getup; walk sesli katmanda hiç kullanılmıyor. Bu değişiklik walk'ın A4 ölçütlerini, 'main takip ödülü ≥ walk'ın %90'ı' tabanını ve walk RNG akışını boşuna oynatır.\n\n(b) **vak eğitim dışında kalıyor.** Kural 6 vak'ı OTURUYOR, OTURMUŞ ve KALKIYOR'da izinli kılıyor. Şablonlar ise yalnız ayakta ve yürüme segmentlerinde örnekleniyor; bu durumlardaki gaga hareketi eğitimde hiç görülmüyor.\n\n(c) **Oturuşta gaga-boyun girişimine yakın.**\n- OTURMUŞ'ta kafa HEAD_SIT pozunda; türetilmiş head_pitch 55.5°.\n- P2c'ye göre head_pitch ≥ yaklaşık 55° ve mouth ≥ yaklaşık 28°'de alt gaga boyun linkine giriyor (60°/30°'de 124 mm³).\n- Bu çift henüz MJCF'de yok, ICR bekliyor.\n- vak'ın 25°'lik açılması, SG90'ın P-bandı ve ölü bant DR'ı ile (P-bandı 8°'ye kadar) bu 3°'lik payı tüketebilir.",
+  "scenario": "Robot oturmuşken kullanıcı \"ördek, vak\" der. Gaga 25° hedefine yük altında 28°'ye kadar açılır ve alt gaga boyun linkine sürtünür.\n\nSimde bu temas çifti tanımlı olmadığı için hiçbir şey görünmez; A10 geçer, gerçek robotta parça aşınır ya da gaga takılır.",
+  "suggestion": "- Jestleri yalnız main'e ekle.\n- vak'ı OTURMUŞ'ta 0…15° ile sınırla, ya da main'in oturuş ve geçiş segmentlerinde de gaga şablonu örnekle.\n- P2c'nin jaw-neck temas çifti isteğini P5b'deki çift listesine bağla.",
+  "section": "K6.1, K5 kural 6"
+ },
+ {
+  "id": "S15",
+  "sev": "minor",
+  "objection": "ID'ler K4'te sabit 5–16 olarak kabul ediliyor. Oysa DF2301Q ID'leri öğrenme sırasına göre veriyor. Yeniden öğrenme akışı ('önce sil') doğrulanmamış (voice-research 1.1). Sabit ID tablosu da cihaz cihaz değişmiş (DFRobot forum 401847). commands.py ve firmware sabit bir ID → kelime eşlemesine bağlanırsa sahada sessizce yanlış eşleme oluşabilir.",
+  "scenario": "Kullanıcı G-SES'ten sonra \"dur\"u gürültü altında yeniden öğretmek ister ve \"Delete command word\" der. Bu komut bütün komut kelimelerini siliyorsa, kullanıcı 12 kelimeyi farklı bir sırayla yeniden öğretir ve \"dur\" ID 5'e düşer.\n\ncommands.py ID 5'i \"gel\" olarak okur: kullanıcı \"dur\" dediğinde robot yürür.",
+  "suggestion": "- ID → kelime eşlemesini sabit değil, G-SES kaydından üretilen bir yapılandırma tablosu yap; commands.py ve firmware aynı tabloyu okusun.\n- Kurulumda her kelime için bir doğrulama turu iste (getCMDID çıktısını yazdır).\n- Eşlenmemiş ID'ler yok sayılsın ve reddetme işareti versin.",
+  "section": "K4 Öğrenme"
+ },
+ {
+  "id": "H1",
+  "sev": "critical",
+  "objection": "Ek 1.171,86 TL'lik yeni zorunlu satır ekliyor, ama bugünkü BOM toplamını ve kalan payı vermiyor. Son hesaplanan toplamlarla iki tavan da aşılıyor. \"Bütçe tavanı değişmez, P3 yeniden hesaplar\" ifadesi A2'nin düşmesini P3'e erteliyor; oysa para P3'ten önce, G-SES için Adım 0'da harcanıyor.",
+  "scenario": "Son kayıtlı BOM hesabına göre (review R2-1) zorunlu toplam ≈ 24,2–24,3k TL, yedekli ≈ 27,4–27,5k TL. Kullanıcı tavanları bu sayılara göre 24,5k / 27,5k koydu, yani pay ≤ ~300 / ~100 TL. Modül tek başına SAMM'ın 1.500 TL'lik ücretsiz kargo eşiğinin altında, kargo ücretli. Toplam maliyet ≈ 1,25–1,3k TL: zorunlu ≈ 25,5k (tavanın ~1,0k üstü), yedekli ≈ 28,7k (~1,2k üstü). SAMM stoğu (6) biterse Direnc'te 1.817,05 TL, +0,65k daha. G-SES düşerse yedek yol V3 (1.434,50 TL) eklenir ve DF2301Q batık maliyet olur; ses katmanı toplam ≈ 2,6k TL tutar.",
+  "suggestion": "Ekte bugünkü zorunlu ve yedekli toplamı ve kalan payı yazın. Ya kesilecek satırı şimdi seçin (ör. kullanıcıda şarj cihazı varsa iMAX B6AC 1.797 TL opsiyonel, DS kutusundan çıkan Al kol, yedek setinin daraltılması) ya da \"12 komutlu ses katmanı mı, tavan mı\" çelişkisini şimdi kullanıcıya götürün. Modül + kargo satırını spec §7'deki Adım 0 alım listesine, yedek yolun koşullu maliyetini A2 tablosuna ayrı satır olarak ekleyin.",
+  "section": "K3 BOM"
+ },
+ {
+  "id": "H2",
+  "sev": "major",
+  "objection": "Tercih edilen kafa yerleşiminin ilk koşulu (\"kafa kütle bütçesi ... modülle birlikte tutmalı\") yapısı gereği tutmaz. P2c kafası 202,0 g bütçeye karşı 200,2 g, yani pay 1,8 g. P2d tercih edilen yeri bir bütçe kaydı yüzünden reddeder ve yeri olmayan trunk'a düşer (H3). Asıl fiziksel kontrol olan MG90S yükü ise geçer.",
+  "scenario": "Kafaya eklenenler: modül ≤ 12 g (tahmin), 4 vida/somun ya da M2.5 dikme ~2 g, dört eklemden geçen 4 telli demet ~1–2 g, conta. Toplam ≈ 14–16 g; kafa ≈ 215 g olur, bütçenin %6–8 üstü. MG90S kontrolü sorun değil: head_pitch ötesindeki yük 150,2 g, COM eksenden 49,9 mm. Modül kubbe tepesinde (z ≈ 191, pitch ekseninden ~85 mm) olunca en kötü eğimdeki statik moment 73,5'ten ~86 N·mm'ye çıkar (+%17); bu, MG90S stall'ının (216 N·mm) %40'ı. Trunk 733,6 g bütçeye karşı 654,0 g (79,6 g boş). Robot sınırı da tutar: 654 + 913,2 + 216 = 1783 g × 1,05 = 1872 g ≤ 1950.",
+  "suggestion": "Bütçeyi açıkça yeniden dağıtın: trunk'tan kafaya ~20 g (202 → 222 g); bunu p2-interface §8'e yazın. P2d koşulunu şöyle değiştirin: yeni bütçe tutar ve p2c-tampon yöntemiyle MG90S statik moment ≤ 0,5·stall kalır; bumper tasarım durumu (+15 g) yeniden hesaplanır. Kafa COM değişikliği MJCF'e ve G-CAD'e girsin.",
+  "section": "K3 Yerleşim (kafa koşulu)"
+ },
+ {
+  "id": "H3",
+  "sev": "major",
+  "objection": "Yedek yer olan \"trunk arka üstü\" donmuş K_T içinde yok. K_T dışında ise kafanın süpürme bölgesinde kalıyor. K_T'yi değiştirmek bir arayüz değişikliğidir (ICR), P2d'nin kendi kararı değil.",
+  "scenario": "P2b voksel taramasıyla 40 × 25 × 11 mm'lik LiPo alarmına bile donmuş K_T'de boş yer bulamadı (boş hacim 178,6 cm³, parçalı). DF2301Q 50 × 32 × ~10–12 mm, iki ölçüde daha büyük. Deck kutusu x −42..−16 (26 mm) ve z 62..72 (10 mm); ESP32 de orada, modülün 32 mm'lik kenarı ve yüksekliği sığmıyor. Arka üstte buck kaputu (5 W, 1188 mm² egzoz ızgarası) ve pil portu var. K_T dışına konursa: (neck +40, head_pitch −20) pozunda kaput trunk'ın buck/hub/arka bölgesine değiyor (P2c; spec v3.1 kafa↔trunk çifti), neck +48'de ESP32'ye çarpıyor. Üste konan modül ve mikrofon delikleri getup ve geri pozlarında kafanın vurduğu yer olur.",
+  "suggestion": "Yedek yer için koordinatlı somut bir kutu ve ICR verin; A1 tek eklem ve kafa↔trunk taramasında kontrol edilsin. Böyle bir kutu yoksa trunk seçeneğini kaldırın ve kafayı (H2'deki bütçe aktarımıyla) tek yol yazın. Trunk seçeneği kalırsa ES3054'lere (≈ 135–160 mm değil, 40–70 mm) ve buck'a yakınlık da G-SES'e girsin.",
+  "section": "K3 Yerleşim (trunk yedeği)"
+ },
+ {
+  "id": "H4",
+  "sev": "major",
+  "objection": "Kafa kubbesi \"bacak servolarından uzak\" olduğu için seçiliyor; oysa mikrofona en yakın gürültü kaynakları kafanın kendi servoları. Kabuk açıklığı için sızdırmazlık ve titreşim yalıtımı tanımlanmamış.",
+  "scenario": "Modül kaput tepesinde (iç tepe z 197,2), mikrofonlar z ≈ 194. En yakın kaynaklar: head_yaw MG90S (head_turn, gövde z 140,7–163,2) ≈ 35 mm, SG90 gaga (z ≈ 152 ± 6) ≈ 36 mm, head_roll MG90S ≈ 45 mm. Diğerleri: hip_yaw ES3054 ≈ 135–160 mm, boyun DS ≈ 150 mm, bacak DS'leri ≈ 220–300 mm. Eşit kaynak gücünde mesafe oranı ~6, yani kafa servoları mikrofonda ≈ 16 dB daha yüksek. Bu servolar kafa betiği ve jestlerle hareket eder; analog MG90S'ler yerçekimine karşı tutarken ölü bantta vızıldar. Kaputun altı açık (P2c); mikrofon portu ile 3 mm delik arasında conta yoksa mikrofon dışarıyı değil servoların bulunduğu iç boşluğu dinler. PLA kaput 4 × M2 ile roll MG90S ve SG90'ı taşıyan çerçeveye bağlı; titreşim yapı yoluyla doğrudan elektret kapsüllere gelir. Research \"köpüğü kapsül deliklerinin üstüne koymayın\" diyor; ekteki \"köpük denenir\" bunu ayırmıyor.",
+  "suggestion": "P2d koşullarına ekleyin: (1) her mikrofon portu kendi deliğine TPU/silikon conta halkasıyla sızdırmaz bağlanır ve iki yol eş uzunlukta olur; (2) kart silikon grometlerle ya da TPU yayla asılır; (3) köpük kartın çevresine konur, deliklerin üstüne değil; (4) mikrofon–en yakın servo mesafesi CAD'de raporlanır. G-SES'te Adım 0'da alınan MG90S ve SG90 bu mesafede jest programı koşarken deneme yapılsın.",
+  "section": "K3 Yerleşim (akustik)"
+ },
+ {
+  "id": "H5",
+  "sev": "major",
+  "objection": "G-SES Adım 0'da yürütülemez; yürütülse bile gerçek yerleşimi temsil etmez. \"DF2301Q kalır\" kararı, P2d CAD'inden önce ve temsil gücü olmayan bir testle verilmiş oluyor.",
+  "scenario": "(1) Spec §7'ye göre Adım 0'da her DS adayından 1 adet alınıyor, toplam 3 DS. \"6 DS yük altında\" için 6 DS ve her biri için ~1,5 kg × 100 mm yük kolu gerekir. (2) tools/bench firmware'i tek kanal sürüyor (C.ch); çok kanallı eşzamanlı salınım programı yok. Adım 0 rehberi akımı DS başına 3 A sürekli / 6 A tepe ile sınırlıyor; 6 DS ≈ 6–18 A, yani robotun 20 A buck'ı ve LiPo'su gerekir. (3) Baskın kaynaklar MG90S/SG90 (H4), test ise DS'leri ölçüyor; yürüyüşteki ayak darbeleri (≈ 1,1 Hz) yok. (4) Modül çıplak: kabuk, delik ve conta yok. Şablonlar tezgâhta öğretiliyor, kullanım ise kabuk içinde. (5) Tezgâhta \"1 m\" ağız–modül mesafesi demek. Gerçekte robot yerde (kafa 0,35 m), ayakta duran kullanıcının ağzı ~1,5 m yüksekte: 1 m yatayda mesafe ≈ 1,5 m, 2 m yatayda ≈ 2,3 m, yani ≈ 4–7 dB daha az sinyal.",
+  "suggestion": "G-SES'i ikiye bölün. G-SES-a (Adım 0, bugün yapılabilir): çıplak modül 0,35 m yükseklikte, konuşmacı ayakta 1 ve 2 m yatay mesafede; ortam sessiz, ayrıca Adım 0 servolarının (1 DS + MG90S + SG90, jest/salınım) kaydedilmiş gürültüsü ölçülmüş SPL'de hoparlörden çalınır. G-SES-b (robot varken, P10'dan önce): son yerleşimde, kabuk ve conta içinde; şablonlar orada yeniden öğretilir (SPK anahtarına kabukta erişim ya da öğrenme sırasında SPK1 seçimi); robot yürürken ve jest yaparken denenir. DF2301Q'nun kalıcı kabulü G-SES-b'ye bağlansın.",
+  "section": "K8 G-SES (yürütülebilirlik)"
+ },
+ {
+  "id": "H6",
+  "sev": "major",
+  "objection": "Yanlış tetik ölçümü yalnız uyku durumunu kapsıyor; asıl tehlikeli olan, uyanık pencerede servo gürültüsünün ürettiği yanlış komut ölçülmüyor. ≤ 1/10 dk ölçütü istatistik olarak zayıf. Uyandırma + komut zinciri ve uzun süreli çalışma test edilmiyor. Gecikme ölçümünün ortak saati yok.",
+  "scenario": "10 dk'lık konuşmasız koşuda modül uyumadığı sürece komut dinlemez; yalnız \"ördek\"/\"Hello robot\" yanlış uyanmaları sayılır. Oysa her geçerli komuttan sonra 15 s uyanık pencere var. \"gel\" ile yürürken gürültüden çıkan bir \"geri\" ya da \"sağa dön\", kural 4 gereği yürüyüşü keser ve yönü değiştirir; bu hiç ölçülmüyor. Gerçek oranı 2/10 dk olan bir modül, ≤ 1 kapısını P(X ≤ 1) = 3e⁻² = %41 olasılıkla geçer. Gerçek kullanım \"ördek\" + komut: ikisi de %90 ise zincir %81. Research'te modülün \"birkaç dakika sonra çalışmayı bıraktığı\" ve UART begin()'in modül yokken de true döndüğü raporları var; koşu sonunda modülün hâlâ tanıdığı kontrol edilmiyor. Telefon kaydı ile PC log'u ayrı saatlerle tutulursa hata yüzlerce ms olur; DR'ı U(0,3–1,5) s yerine bu ölçümle değiştirmek anlamını yitirir.",
+  "suggestion": "(a) Uyanık pencerede yanlış komut testi: modül UART'tan setWakeTime(255) ile uyanık tutulur (research'teki yöntem) ya da her 15 s'de uyandırılır; ≥ 30 dk servolar çalışırken komut ID'leri sayılır; ölçüt Poisson %95 üst sınırıyla yazılır. (b) Zincir başarısı (ördek → onay → komut) ayrı bir ölçüt olsun. (c) Pil süresi kadar (~20–30 dk) koşu yapılsın, sonunda 12 kelime yeniden kontrol edilsin. Firmware sözleşmesine canlılık kontrolü eklensin. (d) ESP32 her ID'de piezo tık ya da LED üretsin; aynı ses kaydı hem konuşmayı hem tıkı tutsun, gecikme tek zaman ekseninden ölçülsün.",
+  "section": "K8 G-SES (yanlış tetik ve ölçütler)"
+ },
+ {
+  "id": "H7",
+  "sev": "major",
+  "objection": "Öğrenilmiş Türkçe kelimelerde karışma riski en yüksek olan çiftler zıt hareketler. Kapı ölçütünün toplam mı kelime başına mı olduğu belli değil; karışma matrisi ve konuşmacı bağımlılığı ele alınmıyor; boş 5 slot kullanılmıyor.",
+  "scenario": "DF2301Q öğrenilmiş komutlarda yerleşik komutlardan daha az doğru ve benzer ifadeleri karıştırıyor (research: \"Turn on the red light\" ↔ \"Turn on the light\"). \"sağa dön\"/\"sola dön\" son hecede aynı, fark yalnız sa-ğa/so-la. \"gel\"/\"geri\" aynı \"ge-\" ile başlıyor. \"otur\"/\"dur\" t/d ve ön sesli farkı. \"gel\", \"dur\", \"kalk\", \"vak\" tek heceli (~0,3 s), şablonda bilgi az. Sonuç: sağa↔sola 90° ters dönüş, gel↔geri ters yön. Ölçüt toplamsa: 11 kelime %95, \"sağa dön\" %40 iken (11·19 + 8)/240 = %90,4 ile kapı geçer. Kelime başınaysa: 18/20'nin Wilson alt sınırı %70; gerçekte %80 olan bir kelime %21 olasılıkla geçer. Şablonlar konuşmacıya bağlı, G-SES ise yalnız öğreten kişinin sesiyle yapılıyor.",
+  "suggestion": "Kapıyı kelime başına ve karışma matrisiyle yazın. Ör.: \"dur\" ≥ %95; zıt çiftlerde (gel↔geri, sağa↔sola) karışma ≤ %2; kelime başına N ≈ 40. 17–21 boş slotlarını ikinci şablonlar için kullanın (ör. \"dur\", \"sağa dön\", \"sola dön\" robot yürürken ikinci kez öğretilir); rl/commands.py'de ID → komut haritası çoktan bire olsun. İkinci bir kullanıcı varsa testlerden biri onun sesiyle yapılsın; yoksa \"tek konuşmacı\" kabulü ekte açıkça yazılsın.",
+  "section": "K4 Kelime dağarcığı, K8 Kapı"
+ },
+ {
+  "id": "H8",
+  "sev": "major",
+  "objection": "Uyandırma akışının zamanlaması doğrulanmamış davranışlara dayanıyor. \"ördek, gel\" tek nefeste söylenirse komut modül uyanmadan gelir. Onay tıkı tam komut penceresinde gürültü üretir. 15 s pencerenin geçerli komutla yenilenip yenilenmediği bilinmiyor; \"gel\"in 15 s'lik bitişi buna bağlı.",
+  "scenario": "K1'deki örnek \"ördek, gel\". Uyandırma kelimesinin tanınması da U(0,3–1,5) s düzeyinde gecikirse ve kullanıcı arada 0,2–0,5 s bırakırsa \"gel\" modül uyanmadan söylenir ve kaybolur. Uyanınca SG90'ın 0 → 12° → 0 tıkı 0,3 s sürer; SG90 mikrofona ~36 mm uzakta (H4). Kullanıcı tıkı görünce konuşmaya başlarsa ~0,3 s'lik \"gel\"in başı tık gürültüsüyle örtüşür. Research'e göre bir kullanıcı pencerenin yalnız geçerli komutla uzadığını, bir başkası yeni setWakeTime değerinin ancak bir sonraki uyanmada geçerli olduğunu söylüyor; NOTIFY_WAKEUPENTER/EXIT çerçevelerinin gönderildiği de doğrulanmamış. Pencere yenilenmiyorsa: t = 0 \"ördek\", t = 10 s \"gel\" → modül t = 15 s'de uyur, robot t ≈ 25 s'ye kadar yürür ve bu arada \"dur\" yok sayılır. Kullanıcı \"ördek, dur\" demek zorunda kalır: iki tanıma + tık, durma ≈ 1–2,5 s gecikir, 0,136 m/s'de 0,15–0,35 m fazla yol.",
+  "suggestion": "Kullanıcı protokolünü tanımlayın: \"ördek\" → işaret → komut. Önce sessiz bir işaret kullanın: ESP32'nin sürdüğü, kabuktan görünen bir LED; tık ikincil olsun ve dinleme başlamadan bitsin. G-SES'te hem aralıksız hem işaretten sonra söyleme biçimini ölçün. G-SES'te şunları da ölçün: pencere geçerli komutla yenileniyor mu; NOTIFY çerçeveleri UART'tan geliyor mu; setWakeTime ve setMuteMode güç kesilince kalıyor mu. Pencere yenilenmiyorsa firmware her komutta setWakeTime'ı yeniden göndersin ya da denetleyici \"gel\" süresini pencerenin kalanına bağlasın.",
+  "section": "K4 Uyandırma, K5 Zamanlama"
+ },
+ {
+  "id": "H9",
+  "sev": "major",
+  "objection": "Modül kafadaysa 4 tel yalnız boyun geçişinden değil, dört eklem geçişinden geçer. Demet çapları donmuş arayüzdür; ek bunu P2d'nin yerel güncellemesi gibi yazıyor.",
+  "scenario": "Modül head linkinde, ESP32 trunk'ta. Teller neck_pitch (d 5,0), head_pitch (d 4,5), head_yaw (d 3,5) ve head_roll (d 3,5) geçişlerinden geçer. İletken sayısı: neck 16 → 20, head_pitch 11 → 15, head_yaw 11 → 15, head_roll 7 → 11. Aynı tel kalınlığında çap √(n'/n) ile büyür: 5,0 → 5,6; 4,5 → 5,3; 3,5 → 4,1; 3,5 → 4,4 mm. bend_r (4d) da 14 → 16–18 mm olur. p2-interface §1'e göre params.harness donmuş; değişmesi yeni bir P2-0 turu ister ve P2a/b/c yeniden derlenir. P2c head_yaw giriş güzergâhını, MG90S köşesine 2,0 mm yaklaşan çakışma yüzünden yeniden çizdi (harness_clear 0,4 mm); yarıçaptaki +0,3 mm bu payı yer. UART ve besleme telleri, PWM ve 6 V motor akımı taşıyan servo telleriyle ~30 cm yan yana gider; mikrofon beslemesine gürültü taşır. head_yaw ±80° ve \"hayır\" jesti ince tellerde yorulma demek, yorulma da sessizce susan bir modül demek.",
+  "suggestion": "Ek, değişen dört geçişi ve yeni d ve bend_r değerlerini sayıyla yazsın ve bunu orkestratör ICR'si olarak işaretlesin. Tel: 30 AWG çok telli silikon; TX/RX, GND ile bükülü çift olarak ve demet içinde servo güç tellerinden ayrı yerleşsin. Kafa seçeneğinin maliyeti (P2-0 turu) H2/H3 kararına girdi olarak yazılsın.",
+  "section": "K3 Yerleşim (kablo demeti)"
+ },
+ {
+  "id": "H10",
+  "sev": "major",
+  "objection": "Revizyon ve ölçüler doğrulanmadan CAD donuyor. P2d yerleşimi ve kabuk deliklerini P3'ten önce yapıyor, oysa ek kütle ve yüksekliğin \"P3'te tartılıp ölçüleceğini\" söylüyor. Delik deseni V1.1'e sabitlenmiş, yedek kaynağın görseli ise V1.0.",
+  "scenario": "Research'te mikrofon konumları DFRobot'un \"V1.2\" adlı CAD PDF'inden ölçülmüş (silkscreen V1.1). Yükseklik, kütle ve kapsül port yönü doğrulanmamış. Direnc fotoğrafındaki kart V1.0: yalnız sağda 2 delik, hoparlör lehimli; SAMM'ın hangi revizyonu gönderdiği bilinmiyor. P2d 35 × 25 mm'lik dört delikli montaj ve CAD'deki mikrofon konumlarına göre 3 mm delikler basar. V1.0 gelirse iki delik boşta kalır; bileşen yerleri farklıysa mikrofon 1,8 mm PLA duvarın arkasında kalır (±1,5 mm sapma deliği ıskalatır). Port alttan (PCB içinden) açılıyorsa \"ağzı öne/yukarı\" kuralı tersine döner.",
+  "suggestion": "Modülü şimdi, G-SES için zaten Adım 0'da alın. G-SES hazırlığında kumpasla ölçün: revizyon, delik konumları, mikrofon merkezleri ve port yönü, yükseklik, kütle. P2d bu ölçümlerle başlasın. Montajı kart kenarını tutan bir beşik yapın (iki revizyonda ortak olan delik çifti + kenar klipsi); delikleri ±2 mm toleranslı yarık yapın. BOM satırına \"V1.1 tercih; revizyon satıcıya sorulur ve gelişte kontrol edilir\" yazın.",
+  "section": "K3 Modül, K9 (P2d → P3 sırası)"
+ },
+ {
+  "id": "H11",
+  "sev": "major",
+  "objection": "ID → komut haritası rl/commands.py'de sabit (5 = gel … 16 = vak). Oysa kimlikler öğrenme sırasıyla atanıyor ve tek bir kelime yeniden öğretilince hangi kimliği alacağı bilinmiyor. 12 komut dışındaki kimliklerin nasıl işleneceği de tanımsız.",
+  "scenario": "Research \"yeni komut öğretmeden önce öncekini silin\" diyor; silme ve yeniden öğrenme akışı belirsiz. G-SES'te \"dur\" kötü çıkar, kullanıcı yalnız onu silip yeniden öğretir; yeni şablon ya ilk boş slotu (6) ya sıradakini (17) alır. 17'yi alırsa \"dur\" hiçbir komuta eşlenmez ve güvenlik kelimesi çalışmaz. Hepsi silinip yanlış sırayla öğretilirse \"gel\" 6'ya düşer ve \"dur\" denince robot yürür. Modül ayrıca şu ID'leri de üretir: 1 ve 2 (uyandırma; \"Hello robot\" silinemez); 22–142 (121 sabit İngilizce komut, uyanıkken açık; ör. 22 Go forward, 23 Retreat); 200–208 (öğrenme/silme). K5 kural 7 yalnız tablodaki komutların uygulanamadığı durumu tanımlıyor.",
+  "suggestion": "Haritayı commands.py'de kod sabiti değil, bir yapılandırma tablosu yapın. G-SES'e \"her kelimeyi söyle, gelen ID'yi kaydet, haritayı yaz\" adımı koyun; firmware bu tabloyu kopyalasın. Beyaz liste uygulayın: yalnız haritadaki ID'ler komut üretir; 1/2 yalnız uyanma onayı verir; 22–142 ve 200–208 yok sayılır ve loglanır (200–208 gelirse modül öğrenme moduna girmiş olabilir, uyarı verilsin). Değişmez testlerine \"haritada olmayan ID komut üretmez\" ekleyin.",
+  "section": "K4 Kimlik tablosu, K5 Kural 7"
+ },
+ {
+  "id": "H12",
+  "sev": "major",
+  "objection": "3,3 V / 5 V kararı ölçüm yapılmadan P3'e bırakılmış ve 3,3 V ray bütçesi yazılmamış. 5 V için öngörülen TX bölücüsü, TX zaten 3,3 V ise bağlantıyı bozar. Modülün RX eşiği hiç ele alınmamış. \"(hoparlör açık)\" niteliği kaynakta yok.",
+  "scenario": "Research'e göre boşta ve dinleme akımı doğrulanmamış; tek veri \"≤ 370 mA, 5 V\". DevKitC'nin 3V3 LDO'su (power-electronics'e göre kart bir klon, LDO tipi bilinmiyor) şunları besliyor: ESP32-S3 (Wi-Fi TX tepe 340 mA), 2 × PCA9685, MPU6500, INA226, 2 × ADS1115. Üstüne 370 mA → ~0,7 A; LDO'da (4,6 − 3,3) × 0,7 ≈ 0,9 W; kart 5 W'lık buck'ın yanındaki deck'te. 5 V seçeneğinde veri pinlerinin VCC'yi izleyip izlemediği bilinmiyor. Modülün iç mantığı 3,3 V ise TX 5 V'ta da 3,3 V olur; 10k/20k bölücü bunu 2,2 V'a indirir, bu da ESP32-S3 VIH'inin (0,75·VDD = 2,475 V) altında: çerçeveler kaybolur. Tersine modülün RX'i 5 V'a göre eşiklenmişse ESP32'nin 3,3 V'luk TX'i setMuteMode/setWakeTime komutlarını iletemez. P3 bir CAD/BOM adımı, ölçüm yapmaz.",
+  "suggestion": "G-SES hazırlığına ölçüm ekleyin: modül akımı (boşta, dinlerken, uyanıkken, SPK1/SPK2, açılış ani akımı; INA226 ya da multimetreyle); 5 V VCC'de TX'in boştaki gerilimi; RX'in 3,3 V sürüşle çalışıp çalışmadığı. Varsayılan besleme research'teki gibi olsun: 5 V MP1584'ten ayrı dal, yerel 10–100 µF + 100 nF. Seviye uyarlamayı ölçülen TX gerilimine göre seçin: TX ≤ 3,6 V ise yalnız 1 kΩ seri direnç; > 3,6 V ise bölücü ya da BSS138 çevirici. Karar G-SES'te verilsin, P3 yalnız yazsın.",
+  "section": "K3 Bağlantı (besleme ve seviye)"
+ },
+ {
+  "id": "H13",
+  "sev": "major",
+  "objection": "\"ESP32-S3'ün boş bir UART'ı\" pin atamasını vermiyor. Çevre birimi olarak UART1/2 boş, ama robot pin haritasında çakışmasız boş pin neredeyse yok ve kayış (strapping) pinleri dışlanmamış.",
+  "scenario": "power-electronics pin haritasında kullanılanlar: GPIO1–10 (potlar), 15–18, 21, 39–42, 47 (MPU INT), 0 (BOOT), 19/20 (USB), 43/44 (UART0 konsolu; tezgâh logger'ı da UART0'da, 921600 baud). Kalan adaylar: 11–14 (ADC2 diz/ayak toprak algısına ayrılmış), 38/48 (biri kartın RGB LED'i), 45/46 (kayış pinleri, \"bağlamayın\"). DF2301Q TX'i boştayken yüksektir ve modül ESP32 ile aynı raydan açılır. TX GPIO45'e bağlanırsa reset anında GPIO45 = 1 olur, VDD_SPI 1,8 V seçilir ve 3,3 V flash/PSRAM'lı N16R8 açılmaz. UART0'ı kullanmak konsol ve logger ile çakışır; G-SES'te ikisi aynı anda gerekiyor.",
+  "suggestion": "Pinleri ekte sabitleyin ve pin haritasına işleyin. Ör.: UART1 RX = GPIO12, TX = GPIO11 (bu iki pinin toprak algısından vazgeçilir) ya da RX = GPIO47 (MPU INT yerine yoklama) + TX = LED olmayan 38/48. Kayış pinleri (0, 3, 45, 46) ve 43/44 açıkça yasaklansın. RX'e 1 kΩ seri direnç konsun. P6 tezgâh eki aynı pinleri kullansın ki G-SES robotun kablolamasını da denesin.",
+  "section": "K3 Bağlantı (UART pinleri)"
+ },
+ {
+  "id": "H14",
+  "sev": "minor",
+  "objection": "Dönüş, gyro z integraliyle ölçülüyor. Simdeki gyro bias DR'ı, açılış kalibrasyonundan sonra ±0,01 rad/s; ama IMU buck'a 1,8 mm uzakta ve ısınıyor. Donanımdaki sapma simdekinin birkaç katı olabilir ve A10 S1 bunu göstermez.",
+  "scenario": "P2b'ye göre IMU buck'ın ön ucunun 1,8 mm önünde ve \"birkaç °C ısınma\" bekleniyor. MPU6500 sınıfı jiroskopta sıfır-hız çıkışının sıcaklık sapması ~0,24 °/s/°C (±30 °/s, −40..85 °C). Açılış kalibrasyonundan sonra 5–10 °C ısınma → 1,2–2,4 °/s (0,02–0,04 rad/s), sim DR'ının 2–4 katı. 0,8·wz_max = 0,352 rad/s (20,2 °/s) ile 90° ≈ 4,5 s sürer; yalnız bias'tan 5–11° hata çıkar. Simde aynı katkı ≤ 2,6°. Yani 20°'lik p90 bütçesinin %25–55'ini donanımda yalnız bias yer.",
+  "suggestion": "Denetleyiciye sıfır-hız güncellemesi ekleyin: AYAKTA durumunda (kural 3'teki ≥ 1 s duruşta) gyro z ortalaması bias olarak alınır ve dönüş integralinden çıkarılır; aynı mantık Python referansında da olsun. A10 değerlendirmesinde gyro bias DR'ını ölçülen sıcaklık sapmasına genişletin; MPU6500 Adım 0'da ısıtılarak ölçülebilir.",
+  "section": "K5 Kural 8, K7 S1 dönüş ölçütü"
+ },
+ {
+  "id": "H15",
+  "sev": "minor",
+  "objection": "Ana spec §2 \"Kafa elektroniği (kamera, hoparlör, ToF)\" maddesini kapsam dışı sayıyor. Ekin tercih ettiği yer, hoparlörü kartta kalan bir elektronik modülü kafaya koyuyor. Ekin kendi öncelik kuralına göre (\"çelişki çıkarsa ana spec geçerlidir\") kafa seçeneği geçersiz.",
+  "scenario": "P2d öncelik kuralını harfiyen uygular: kafa elektroniği kapsam dışı olduğu için kafa elenir, trunk'a geçilir. Trunk'ta da yer yoktur (H3). P2d iki seçenek de tutmadan durur ve kullanıcıya gereksiz bir soru gider. Kafa kütle kontrolü de modülün hangi bütçeye yazılacağını bilemez.",
+  "suggestion": "Ek, spec §2'yi açıkça değiştirsin: \"Kafa elektroniği kapsam dışıdır; istisna K3'teki DF2301Q (hoparlör susturulmuş).\" Dayanak olarak kullanıcı kararı (2026-10-24) yazılsın.",
+  "section": "Giriş (öncelik kuralı), K3 Yerleşim"
+ }
+]

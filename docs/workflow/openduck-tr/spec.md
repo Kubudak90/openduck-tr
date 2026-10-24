@@ -11,8 +11,8 @@ eklendi; A1 komşu çift taraması modül içinde sayılır, modellenen temaslar
 Türkiye'de bugün stokta olan, ucuz parçalarla basılabilen ~35 cm'lik BDX/Microduck tarzı bir ördek robotun
 **parametrik CAD'i, baskı seti, BOM'u, servo ve sensör modelli MuJoCo modeli ve simülasyonda eğitilmiş politikaları**
 (yürüme, boy ayarı + oturma/kalkma, düşünce kalkma). Donanım "B2-ESP32": PWM servolar, potansiyometre geri bildirimi,
-politika ESP32-S3'te (firmware sonraki tur; politika ve sensör modeli ona göre). Bütçe tavanı: zorunlu ≤ 24.5k TL,
-yedeklerle ≤ 27.5k TL (kullanıcı).
+politika ESP32-S3'te (firmware sonraki tur; politika ve sensör modeli ona göre). Bütçe tavanı: zorunlu ≤ 25.8k TL,
+yedeklerle ≤ 28.8k TL (kullanıcı; sesli komut eki K10 ile yükseltildi). Sesli komut katmanı: `spec-ek-komut.md` (ek K).
 
 ## 2. Kapsam dışı
 
@@ -20,7 +20,8 @@ yedeklerle ≤ 27.5k TL (kullanıcı).
 - Satın alma, tezgâh testinin yürütülmesi (kullanıcı) ve gerçek robot denemeleri.
 - 27 cm XL330 profilinin kalıcı bakımı. Yalnız refactor regresyon referansı olarak `configs/xl330_27.json` kalır
   (§3.2.1). Walk için "bit-düzeyinde aynı" sözleşmesi kalkar.
-- Kafa elektroniği (kamera, hoparlör, ToF); göz kozmetik baskı.
+- Kafa elektroniği (kamera, hoparlör, ToF); göz kozmetik baskı. İstisna: DF2301Q ses modülü ve gösterge LED'i (ek K3,
+  kullanıcı kararı 2026-10-24).
 
 ## 3. Mimari
 
@@ -181,7 +182,7 @@ yedeklerle ≤ 27.5k TL (kullanıcı).
 
 - Bütün satın alınan parçalar Türkiye'de stokta. BOM her satırda doğrulama tarihi ve yedek kaynak taşır.
 - **Bütçe**:
-  - Zorunlu ≤ 24.5k TL, yedeklerle ≤ 27.5k TL.
+  - Zorunlu ≤ 25.8k TL, yedeklerle ≤ 28.8k TL (ek K10; ses katmanı dahil).
   - Yedek seti: tezgâhta kaybeden DS, 1 × ES3054, 1 × MG90S, 1 × SG90, 2 × alüminyum 25T kol, 2 × F623ZZ.
   - Adım 0 alımları robota ya da yedeğe gider ve tavana dahildir.
 - **Servo hızı**: üç yayımlanmış değer var (0.12, 0.14, 0.18 s/60°).
@@ -253,6 +254,7 @@ Oran ölçütlerinde "nokta" örnek oranıdır. "W-alt" ve "W-üst" Wilson %95 s
   - CPU ve MJX takımları geçer.
   - Birim testler: `servos`, `actuators` (+3° değişmezi, besleme akımı), `sensors`, sysID, boyun işareti.
   - xl330 regresyonu ve parity testi.
+- **A10 Sesli komut** (simülasyon): `spec-ek-komut.md` K7.
 
 ## 7. Adım 0 (kullanıcı, paralel): tezgâh testi ve karar tablosu
 
