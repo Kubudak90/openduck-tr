@@ -555,3 +555,16 @@ def test_launcher_tr35_dry_run_and_xl330_unchanged():
     for extra in ([], ["--backend", "cpu"], ["--backend", "cpu", "--compute", "gpu", "--ssh", "--api", "v1"]):
         o, n = body(old, extra), body(L, extra)
         assert o[1] == n[1] and o[0] == n[0] and o[2] == n[2], extra
+
+
+def test_launcher_datacenter_and_network():
+    """--datacenter / --min-download-mbps: REST v1'e gecer, govdede dataCenterIds (sirali) + minDownloadMbps."""
+    L = _launch_module()
+    rc, out, err = _run_launch(L, ["launch", "--dry-run", "--name", "dc", "--gpu", "4090", "--cloud", "SECURE",
+                                   "--datacenter", "eu-ro-1,EU-CZ-1", "--datacenter", "EUR-IS-1",
+                                   "--min-download-mbps", "500", "--", "--task", "walk"])
+    assert rc in (0, 1), (rc, err[-2000:])
+    assert "rest.runpod.io/v1" in out and "(--api v1)" in out
+    body = json.loads(out[out.index("{"):out.index("\n}\n") + 2])
+    assert body["dataCenterIds"] == ["EU-RO-1", "EU-CZ-1", "EUR-IS-1"] and body["dataCenterPriority"] == "custom"
+    assert body["minDownloadMbps"] == 500 and body["cloudType"] == "SECURE"

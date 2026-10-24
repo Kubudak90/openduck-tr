@@ -499,7 +499,12 @@ def create_bodies(a, name, env, gpus, clouds, flavors):
                          gpuTypePriority="custom")
                 if a.min_cuda:
                     b["allowedCudaVersions"] = [v for v in CUDA_V1 if vtuple(v) >= vtuple(a.min_cuda)]
-                out.append(("%s / %s" % (" > ".join(gpus), c), b))
+                dcs = getattr(a, "datacenters", None)
+                if dcs:
+                    b.update(dataCenterIds=list(dcs), dataCenterPriority="custom")
+                if getattr(a, "min_download_mbps", None):
+                    b["minDownloadMbps"] = a.min_download_mbps
+                out.append(("%s / %s%s" % (" > ".join(gpus), c, " @ " + " > ".join(dcs) if dcs else ""), b))
         else:
             out.append(("%s x %d vCPU / SECURE" % (" > ".join(flavors), a.vcpu),
                         dict(base, cloudType="SECURE", computeType="CPU", cpuFlavorIds=list(flavors),
@@ -563,6 +568,11 @@ def cmd_launch(a, train_args):
     clouds = [c.strip().upper() for c in a.cloud.split(",") if c.strip()]
     if any(c not in ("SECURE", "COMMUNITY") for c in clouds):
         die("--cloud: SECURE, COMMUNITY ya da SECURE,COMMUNITY")
+    a.datacenters = [d.strip().upper() for x in (a.datacenter or []) for d in x.split(",") if d.strip()]
+    if (a.datacenters or a.min_download_mbps) and a.api == "v2":
+        # REST v2 pod govdesinde veri merkezi / ag hizi alani yok; v1 (dataCenterIds, minDownloadMbps) kullanilir
+        print("not: --datacenter / --min-download-mbps REST v1 ile gonderilir (--api v1)")
+        a.api = "v1"
     gpus = [g.strip() for x in (a.gpu or DEFAULT_GPUS) for g in x.split(",") if g.strip()]
     flavors = [f.strip() for x in (a.cpu_flavor or DEFAULT_CPU_FLAVORS) for f in x.split(",") if f.strip()]
     key = get_key(a)
@@ -1149,6 +1159,10 @@ def build_parser():
     s.add_argument("--compute", choices=("gpu", "cpu"), help="pod tipi (varsayilan: mjx->gpu, cpu->cpu)")
     s.add_argument("--gpu", action="append", help="GPU tipi, sirayla denenir (tekrarlanabilir / virgullu)")
     s.add_argument("--cloud", default="SECURE,COMMUNITY", help="denenecek bulutlar, sirayla")
+    s.add_argument("--datacenter", action="append",
+                   help="veri merkezleri, sirayla (or. EU-RO-1,EU-CZ-1; REST v1 dataCenterIds; GraphQL dataCenters)")
+    s.add_argument("--min-download-mbps", type=int, default=None,
+                   help="makinenin en dusuk indirme hizi (REST v1 minDownloadMbps; yavas ag kurulumu uzatir)")
     s.add_argument("--gpu-count", type=int, default=1)
     s.add_argument("--min-cuda", default="12.4", help="host CUDA surumu alt siniri ('' = yok)")
     s.add_argument("--cpu-flavor", action="append", help="CPU pod tipi, sirayla (varsayilan cpu5c,cpu3c)")

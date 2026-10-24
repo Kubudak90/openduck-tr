@@ -92,6 +92,8 @@ pod `openduck-deneme1`, yerel klasör `runs/deneme1/`).
 | `--kappa` | | Yalnız `tr35_b2`: hız çarpanı κ (`OPENDUCK_KAPPA`) |
 | `--gpu` | 4090 → 5090 → L40S → RTX 6000 Ada → 3090 → A6000 → A40 | Sırayla denenir. Kısa ad olur (`--gpu 4090`) |
 | `--cloud` | `SECURE,COMMUNITY` | Her GPU için önce Secure, sonra Community |
+| `--datacenter` | | Veri merkezleri, sırayla (ör. `EU-RO-1,EU-CZ-1`). REST v1 `dataCenterIds`; verilirse `--api v1` seçilir |
+| `--min-download-mbps` | | Makinenin en düşük indirme hızı (REST v1 `minDownloadMbps`). Yavaş ağ kurulumu (pip, JAX) uzatır |
 | `--max-hours` | 4 | Eğitimin sert süre sınırı. Dolunca SIGTERM gider (`rl.train` checkpoint + ONNX yazar; `rl.train_mjx` son değerlendirmedeki dosyalarla kalır), 5 dk sonra SIGKILL |
 | `--setup-hours` | 1 | Kod + kurulum için süre sınırı |
 | `--linger-hours` | 2 (`--keep` ile 0) | Eğitim bitince pod sonuçları bu kadar sunar, sonra kendini siler. 0 = asla |
