@@ -5,6 +5,7 @@ yer degistirir, kurallar sahte model uzerinde denenir.
 
   pytest tests/cad -q -p no:cacheprovider
 """
+import collections
 import importlib
 import json
 import os
@@ -74,3 +75,21 @@ def test_tr35_rules(check):
     # kablo demeti her zaman sayilir; listede olmayan link ciftleri sayilir
     assert pr("left_sole", "left_knee_harness_in") is None
     assert pr("left_sole", "pca9685_1") is None
+
+
+def test_pair_scope_still_counts_harness(check, monkeypatch):
+    """Komsu cift izgarasi kapsam "module": govde <-> uzuv yapi temasi bilgi amacli (info), kablo demeti temasi kapsam
+    disinda da sayilir (spec A1 "Kablo demeti temaslari her zaman sayilir") ve yalniz kablo / yapi temasli poz diye
+    isaretlenir."""
+    m = _model(_tr35_check())
+    hits = {"p1": [(5.0, "left_knee_harness_in", "pca9685_1")],
+            "p2": [(9.0, "left_hip_pitch_servo", "pca9685_1"), (4.0, "left_knee_harness_in", "pca9685_1")],
+            "p3": [(7.0, "left_hip_pitch_servo", "pca9685_1")]}
+    monkeypatch.setattr(check, "check_pose", lambda model, pose, links=None: hits[pose])
+    legs = {"left_thigh", "left_foot", "left_hip_cradle", "right_foot", "right_thigh"}
+    lines, info, ext = [], collections.Counter(), {}
+    n = check._scan(m, [(k, k) for k in hits], None, lines, scope=lambda name: legs, info=info, ext=ext)
+    assert n == 2
+    assert info == {("left_hip_pitch_servo", "pca9685_1"): 2}
+    assert ext == {"kablo": 1, "yapi": 1}
+    assert "yalniz kablo" in lines[0] and "yapi temasli poz" in lines[1]

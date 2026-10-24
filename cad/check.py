@@ -19,7 +19,8 @@ Konfigde "check" bolumu varsa (TR-35, spec A1; P2-0) ayrica:
 Kablo demetleri (Item kind "harness") butun taramalara dahildir; ayni eklem gecisinin iki tupu
 ("<eklem>_harness_in/out") gecis noktasinda bilerek birlesir ve birbirine karsi sayilmaz. Rapor sonunda sureler.
 Modellenen temaslar (check.contact_pairs, spec 3.2.2): 4) ve 5)'te birlesik uc pozlarda beklenen, MJCF'ye oz-carpisma
-cifti olarak giren link ciftleri sayilmaz, ayri listelenir; kablo demeti (contact_count_kinds) yine sayilir.
+cifti olarak giren link ciftleri sayilmaz, ayri listelenir; kablo demeti (contact_count_kinds) yine sayilir. 4)'te
+kapsam "module" iken de govde/kafa <-> uzuv kablo demeti temaslari sayilir (spec A1 "her zaman").
 
 Modul suzgeci (P2a/b/c hizli dongu): OPENDUCK_CHECK_LINKS=legs | trunk | head | all | <link>,<link>... Yalniz en az
 bir parcasi secili link'lerde olan ciftler; pozlar secili modulun eklemleri (trunk: hepsi). 27 cm raporu suzgecsiz
@@ -172,7 +173,7 @@ def contact_rules(model, section):
     rules = [r for r in ext.get("contact_pairs", []) if section in r.get("sections", ())]
     if not rules:
         return None
-    count = set(ext.get("contact_count_kinds", ["harness"]))
+    count = count_kinds(model)
     where = {it.name: (ln, it) for ln, l in model.links.items() for it in l.items}
     side = lambda ln: ln.split("_")[0] if ln.startswith(("left_", "right_")) else ""
 
@@ -258,20 +259,38 @@ def same_link_overlaps(model, links=None):
     return hits
 
 
-def _scan(model, poses, links, lines, label_w=26, scope=None, info=None, allow=None, modeled=None):
+def count_kinds(model):
+    """Her zaman sayilan parca turleri (check.contact_count_kinds, varsayilan kablo demeti; spec A1)."""
+    return set((model.cfg.get("check") or {}).get("contact_count_kinds", ["harness"]))
+
+
+def _scan(model, poses, links, lines, label_w=26, scope=None, info=None, allow=None, modeled=None, ext=None):
     """Pozlari tara, carpismalari satir satir yaz; carpisma sayisi. scope(poz adi) -> link kumesi verilirse yalniz iki
-    parcasi da o kumede olan carpismalar sayilir, digerleri info sayacina (bilgi amacli) gider. allow(a, b) gerekce
-    verirse (contact_rules) carpisma sayilmaz, modeled[(a, b)] = [poz sayisi, en buyuk hacim] olur."""
+    parcasi da o kumede olan carpismalar sayilir, digerleri info sayacina (bilgi amacli) gider; count_kinds turunden
+    (kablo demeti) parcasi olan carpisma kapsam disinda da sayilir (spec A1) ve satirinda isaretlenir: "yalniz kablo"
+    (pozda modul disi yapi temasi yok) ya da "yapi temasli poz" (uzvun kendi yapisi da diger module giriyor);
+    ext["kablo" | "yapi"] bu poz-cift sayilari. allow(a, b) gerekce verirse (contact_rules) carpisma sayilmaz,
+    modeled[(a, b)] = [poz sayisi, en buyuk hacim] olur."""
     n = 0
     item_link = {it.name: ln for ln, l in model.links.items() for it in l.items}
+    kind = {it.name: it.kind for l in model.links.values() for it in l.items}
+    count = count_kinds(model)
     for name, pose in poses:
         hits = check_pose(model, pose, links)
+        tag = {}
         if scope is not None:
             sc = scope(name)
-            out = [h for h in hits if not (item_link[h[1]] in sc and item_link[h[2]] in sc)]
+            far = [h for h in hits if not (item_link[h[1]] in sc and item_link[h[2]] in sc)]
+            out = [h for h in far if kind[h[1]] not in count and kind[h[2]] not in count]
             hits = [h for h in hits if h not in out]
             for vol, a, b in out:
                 info[(a, b)] += 1
+            k = "yapi" if out else "kablo"
+            for h in far:
+                if h not in out:
+                    tag[h] = "   [modul disi kablo: %s]" % ("yapi temasli poz" if out else "yalniz kablo")
+                    if ext is not None:
+                        ext[k] = ext.get(k, 0) + 1
         if allow is not None:
             ok = [h for h in hits if allow(h[1], h[2]) is not None]
             hits = [h for h in hits if h not in ok]
@@ -279,8 +298,8 @@ def _scan(model, poses, links, lines, label_w=26, scope=None, info=None, allow=N
                 c = modeled.setdefault((a, b), [0, 0.0])
                 c[0], c[1] = c[0] + 1, max(c[1], vol)
         n += len(hits)
-        for vol, a, b in sorted(hits, reverse=True):
-            lines.append("  %-*s %8.1f mm3  %s <-> %s" % (label_w, name, vol, a, b))
+        for h in sorted(hits, reverse=True):
+            lines.append("  %-*s %8.1f mm3  %s <-> %s%s" % (label_w, name, h[0], h[1], h[2], tag.get(h, "")))
     return n
 
 
@@ -440,9 +459,13 @@ def run(n_random=40):
             jmod = {j["name"]: model.link_module[j["child"]] for j in model.joints}
             mlinks = {md: set(lns) for md, lns in model.meta["modules"].items()}
             scope = lambda pname: mlinks[jmod[pname.split(",")[0].split("=")[0]]]
-        pmod = {}
-        n = _scan(model, pposes, links, lines, 40, scope, info, contact_rules(model, "pairs"), pmod)
+        pmod, pext = {}, {}
+        n = _scan(model, pposes, links, lines, 40, scope, info, contact_rules(model, "pairs"), pmod, pext)
         lines.append("  -> %d poz, %d carpisma" % (len(pposes), n))
+        if scope is not None:
+            lines.append("  bunun modul disi kablo demeti temasi (her zaman sayilir, spec A1): %d poz-cift; "
+                         "%d yalniz kablo, %d uzvun yapisinin da diger module girdigi pozlarda"
+                         % (sum(pext.values()), pext.get("kablo", 0), pext.get("yapi", 0)))
         n_mod = _modeled_lines(model, "pairs", pmod, lines)
         if scope is not None:
             lines.append("  modul disi temaslar (bilgi amacli; MJCF oz-carpisma ciftleri, spec 3.2.2): %d poz-cift"
