@@ -33,12 +33,29 @@ Repo (`Kubudak90/openduck`) private olduğundan pod klonlamak için token ister.
 
 | `--source` | Ne olur | Ne zaman |
 |---|---|---|
-| `inline` (varsayılan) | Eğitim modülünün (`rl/train_mjx.py` ya da `rl/train.py`) `rl/` içinde import ettiği dosyalar, `rl/robot_model.py`, `build/sim/openduck.xml`, `build/sim/scene.xml` ve `pod_entry.sh` tar.gz + base64 olarak bir ortam değişkeninde gider | Commit/push gerekmez, yerel dosyalar gider |
+| `inline` (varsayılan) | Eğitim modülünün (`rl/train_mjx.py` ya da `rl/train.py`) `rl/` içinde import ettiği dosyalar, `rl/robot_model.py`, model dosyaları (`--robot`'a göre, aşağıda) ve `pod_entry.sh` tar.gz + base64 olarak bir ortam değişkeninde gider | Commit/push gerekmez, yerel dosyalar gider |
 | `git` | Pod `origin/<dal>` commit'ini token ile klonlar | Kod push edilmiş olmalı (launch.py kontrol eder) |
 
 RunPod istek gövdesi sınırı yaklaşık 100 KB'tır (v2: 102400 bayt). `launch.py` paket ve gövde
-boyutunu yazdırır (bugün `mjx` ≈ 43 KB, `cpu` ≈ 50 KB). Sınır aşılırsa açık bir hata verir;
-o durumda `--source git` kullanın.
+boyutunu yazdırır. P4 (aktüatör + sensör modeli) ve P5a (`rl/export_c.py`) sonrası `mjx` satır içi
+gövdesi sınırı aşar (≈ 107–112 KB): gerçek `launch` açık bir hata verir, `--dry-run` isteği yine
+gösterir ve 1 ile çıkar. O durumda `--source git` kullanın.
+
+### Robot profili (`--robot`)
+
+| `--robot` | Pod ortamı | Paketlenen / git'te denetlenen model dosyaları |
+|---|---|---|
+| `xl330_27` (varsayılan) | değişmez (`OPENDUCK_ROBOT` eklenmez; istek gövdesi bugünküyle aynı) | `build/sim/openduck.xml`, `build/sim/scene.xml` |
+| `tr35_b2` | `OPENDUCK_ROBOT=tr35_b2` (`--kappa K` → `OPENDUCK_KAPPA=K`) | `build/tr35_b2/sim/openduck.xml`, `build/tr35_b2/sim/scene.xml`, `rl/derived/tr35_b2.json` |
+
+`tr35_b2` podunda `rl/config.py` sahneyi ve türetilmiş sabitleri bu varsayılan yollardan okur
+(`OPENDUCK_SCENE` / `OPENDUCK_DERIVED` verilmez). Dosyalar yoksa `launch` (inline) ya da git denetimi
+eksikleri adlarıyla bildirir; `--dry-run` "(YOK)" ile işaretler. tr35 eğitimleri her ONNX dışa
+aktarmasından sonra `run/c/` (C dizileri, `rl/export_c.py`) de yazar; `fetch` bunları da indirir.
+
+```bash
+python3 tools/runpod/launch.py launch --robot tr35_b2 --kappa 0.5 --source git --dry-run -- --task walk
+```
 
 ## 3. Komutlar
 
@@ -71,6 +88,8 @@ pod `openduck-deneme1`, yerel klasör `runs/deneme1/`).
 
 | Seçenek | Varsayılan | Açıklama |
 |---|---|---|
+| `--robot` | `xl330_27` | `tr35_b2`: `OPENDUCK_ROBOT` + TR-35 model dosyaları (yukarıda) |
+| `--kappa` | | Yalnız `tr35_b2`: hız çarpanı κ (`OPENDUCK_KAPPA`) |
 | `--gpu` | 4090 → 5090 → L40S → RTX 6000 Ada → 3090 → A6000 → A40 | Sırayla denenir. Kısa ad olur (`--gpu 4090`) |
 | `--cloud` | `SECURE,COMMUNITY` | Her GPU için önce Secure, sonra Community |
 | `--max-hours` | 4 | Eğitimin sert süre sınırı. Dolunca SIGTERM gider (`rl.train` checkpoint + ONNX yazar; `rl.train_mjx` son değerlendirmedeki dosyalarla kalır), 5 dk sonra SIGKILL |

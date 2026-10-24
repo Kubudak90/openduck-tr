@@ -5,6 +5,7 @@ GPU (MJX + Brax PPO) egitimi, asimetrik aktor-kritik ("state" -> aktor, "privile
   python3 -m rl.train_mjx --out runs/NAME [--task walk|main|getup] [--num-envs 8192] [--num-timesteps 2e8]
                           [--seed S] [--num-evals 20] [--num-eval-envs 128] [--restore runs/X/params_latest.pkl]
                           [--no-randomize] [--no-noise] [--no-head] [--no-push] [--env-precision highest]
+                          [--getup-head free|fixed]
 
 Varsayilanlar MuJoCo Playground'un iki ayakli joystick ayarlarina yakindir (8192 ortam, unroll 20,
 32 minibatch x 4 guncelleme, gamma 0.97, lr 3e-4, entropi 5e-3, 512-256-128 swish agi).
@@ -25,6 +26,10 @@ runs/NAME/ altina yazilanlar:
   params_<adim>.pkl, params_latest.pkl   (normalizer, politika, deger) parametreleri, numpy
   policy.onnx, policy_meta.json          her degerlendirmede ve sonda (rl/TASK.md bicimi; meta rl/policy_meta.py,
                                          gorev meta["task"] ile, walk'ta bugunku alanlar aynen)
+  c/                                     yalniz tr35_b2 (OPENDUCK_ROBOT): her ONNX'ten sonra rl/export_c.py (C dizileri,
+                                         derleyici varsa onnxruntime esitlik kontrolu; hata egitimi durdurmaz)
+--getup-head (getup): "fixed" ortama getup_head="fixed" olarak verilir (kafa toplanmis, aksiyon disi; spec 3.4);
+verilmezse / "free" ise ortamin varsayilani. tr35 meta'si ag (network), aktuator, sensor ve getup_head alanlarini tasir.
 """
 import argparse
 import functools
@@ -87,6 +92,10 @@ def parse_args(argv=None):
     p.add_argument("--no-push", action="store_true")
     p.add_argument("--jax-cache", default=os.path.expanduser("~/.cache/openduck_jax"),
                    help="JAX kalici derleme onbellegi ('' kapatir)")
+    # SUPPRESS: verilmezse args'ta yok (config.json bugunkuyle ayni)
+    p.add_argument("--getup-head", choices=("free", "fixed"), default=argparse.SUPPRESS,
+                   help="getup: kafa serbest (politika) ya da sabit/toplanmis (HEAD_TUCK_DEG; spec 3.4); "
+                        "varsayilan ortaminki (config.GETUP_HEAD_DEFAULT)")
     a = p.parse_args(argv)
     spec = TK.get_task(a.task)                 # gorev varsayilanlari (walk: bugunku degerler)
     if a.discounting is None:
@@ -177,9 +186,23 @@ def actor_to_onnx(params):
     return model
 
 
-def policy_meta(steps, idx=None, task="walk"):
-    """rl/policy_meta.build_meta (walk: bugunku alanlar aynen; main/getup: + gorev alanlari)."""
-    return PM.build_meta(steps, "mjx_brax", idx, task)
+def policy_meta(steps, idx=None, task="walk", network=None, getup_head=None):
+    """rl/policy_meta.build_meta (walk: bugunku alanlar aynen; main/getup: + gorev alanlari; network / getup_head
+    yalniz tr35_b2 meta'sinda)."""
+    return PM.build_meta(steps, "mjx_brax", idx, task, network=network, getup_head=getup_head)
+
+
+def network_info(args):
+    """policy_meta "network" alani (Brax make_ppo_networks: swish, gozlem normalizasyonu acik)."""
+    return {"actor_hidden": list(_hidden(args.policy_hidden)), "critic_hidden": list(_hidden(args.value_hidden)),
+            "activation": "swish", "obs_normalization": True}
+
+
+def env_task_kwargs(task, getup_head=None):
+    """Ortama gorev ek argumanlari: getup_head yalniz getup'ta ve "free" degilse verilir (varsayilan ortaminki)."""
+    if TK.get_task(task).name == "getup" and getup_head not in (None, "free"):
+        return {"getup_head": getup_head}
+    return {}
 
 
 def params_dims(params):
@@ -234,7 +257,7 @@ def check_onnx(onnx_path, params, make_policy=None, n=257, seed=0, atol=1e-4):
     return err
 
 
-def export_policy(params, out_dir, steps, make_policy=None, idx=None, task="walk"):
+def export_policy(params, out_dir, steps, make_policy=None, idx=None, task="walk", network=None, getup_head=None):
     """policy.onnx + policy_meta.json yazar. ONNX gecici dosyada onnxruntime ile dogrulanir, ancak gecerse
     yerine konur (basarisizsa onceki policy.onnx/meta kalir, RuntimeError). En buyuk farki dondurur.
     ONNX boyutlari parametrelerden; gorevin boyutlariyla (walk 49->10, main 53->10, getup 48->14) uyusmalidir."""
@@ -244,7 +267,7 @@ def export_policy(params, out_dir, steps, make_policy=None, idx=None, task="walk
     if dims != (spec.num_obs, spec.num_critic_obs, spec.num_actions):
         raise RuntimeError("parametre boyutlari %s, %s gorevi %s bekliyor" % (
             dims, spec.name, (spec.num_obs, spec.num_critic_obs, spec.num_actions)))
-    meta = policy_meta(steps, idx, spec.name)
+    meta = policy_meta(steps, idx, spec.name, network, getup_head)
     os.makedirs(out_dir, exist_ok=True)
     onnx_path = os.path.join(out_dir, "policy.onnx")
     tmp = onnx_path + ".tmp"
@@ -260,6 +283,18 @@ def export_policy(params, out_dir, steps, make_policy=None, idx=None, task="walk
         with open(p, "w") as f:
             json.dump(meta, f, indent=1)
     _atomic(os.path.join(out_dir, "policy_meta.json"), w)
+    return err
+
+
+def export_all(params, out_dir, steps, make_policy=None, idx=None, task="walk", network=None, getup_head=None,
+               log=None):
+    """export_policy; tr35_b2 surecinde ardindan C dizileri <out_dir>/c (rl/export_c.py; hata olumcul degil).
+    xl330: export_policy'nin yazdiklari aynen."""
+    err = export_policy(params, out_dir, steps, make_policy, idx, task, network, getup_head)
+    if C.ROBOT_PROFILE == "tr35_b2":
+        from . import export_c as EC
+        EC.safe_export(os.path.join(out_dir, "policy.onnx"), os.path.join(out_dir, "c"),
+                       log=log or (lambda m: print(m, flush=True)))
     return err
 
 
@@ -326,9 +361,11 @@ def main(argv=None):
                    "devices": [str(d) for d in jax.devices()]}, f, indent=1, default=str)
 
     spec = TK.get_task(args.task)
+    getup_head = getattr(args, "getup_head", None)
+    net = network_info(args)
 
     def make_env(eval_env=False):
-        kw = {}
+        kw = env_task_kwargs(spec.name, getup_head)
         if spec.name != "walk":
             kw["task"] = spec.name
         if spec.reward_late and eval_env:     # getup: degerlendirme son asama agirliklariyla (p = 1)
@@ -366,7 +403,7 @@ def main(argv=None):
         state["steps"] = int(current_step)
         save_params(params, args.out, current_step, args)
         try:       # ara disa aktarma hatasi egitimi durdurmasin (params zaten kaydedildi)
-            err = export_policy(params, args.out, current_step, make_policy, idx, spec.name)
+            err = export_all(params, args.out, current_step, make_policy, idx, spec.name, net, getup_head)
         except Exception as e:
             print("UYARI adim %d: policy.onnx yazilamadi: %r" % (current_step, e), file=sys.stderr, flush=True)
             return
@@ -409,7 +446,7 @@ def main(argv=None):
     )
     steps = state["steps"]
     save_params(params, args.out, steps, args)
-    err = export_policy(params, args.out, steps, make_policy, idx, spec.name)
+    err = export_all(params, args.out, steps, make_policy, idx, spec.name, net, getup_head)
     print("bitti: %s (adim %d, onnx fark %.1e, %.0f s)" % (
         os.path.join(args.out, "policy.onnx"), steps, err, time.time() - t0), flush=True)
 

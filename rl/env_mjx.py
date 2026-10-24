@@ -54,7 +54,10 @@ Notlar:
   dongusunde gecikmeli hedef + olu bant + LEG ray CC olceklemesi (forcerange alt adim basina), her alt adimda pot/IMU
   algilamasi; aktor gozlemi sensor modelinden, oduller/kritik gercek durumdan; genel OBS_NOISE kapali. Bolum
   parametreleri info["tr"] (act/sens/pot/imu/met/ctrl_prev); yeni sayilar fold_in(k_n, 3) (bolum, aktuator +
-  sensor) ve fold_in(k_noise, 5) (alt adim gurultusu). backlash=True: DS bosluk eklemleri.
+  sensor) ve fold_in(k_noise, 5) (alt adim gurultusu). backlash=True: DS bosluk eklemleri. tr35_b2 SURECINDE
+  (OPENDUCK_ROBOT) robot None ya da "tr35_b2" olmali; poz bankalari ortamin robot'u ve sahnesiyle.
+- getup_head (yalniz getup; env_cpu ile ayni): None/"free" bas politikada; "fixed" kirpmadan sonra 4 bas aksiyonu 0,
+  bas hedefi radians(C.HEAD_TUCK_DEG) (mutlak). Gozlem/aksiyon duzeni ve RNG ayni.
 """
 import contextlib
 import copy
@@ -286,13 +289,14 @@ class OpenDuckEnv(_EnvBase):
     def __init__(self, randomize=True, noise=True, head_random=True, push=True, fixed_command=None,
                  solver_iterations=4, ls_iterations=8, exact_setconst=True, c_semantics=True, scene_path=None,
                  matmul_precision="highest", task="walk", reset_probs=None, curriculum_steps=None,
-                 final_weights=False, random_initial_steps=False, robot=None, backlash=None):
+                 final_weights=False, random_initial_steps=False, robot=None, backlash=None, getup_head=None):
         cfg = dict(ctrl_dt=C.CTRL_DT, sim_dt=C.SIM_DT)
         self.matmul_precision = matmul_precision or None
         super().__init__(_config_dict.create(**cfg) if _pg is not None else cfg)
         self.spec = spec = TK.get_task(task)
         self.task = spec.name
-        self.robot = ACT.profile(robot)
+        self.robot = ACT.env_profile(robot)
+        self.getup_head = TK.getup_head_mode(getup_head, spec)
         self.tr35 = self.robot == ACT.TR35
         self.backlash = bool(backlash)
         self.dr = ACT.domain_rand(self.robot)          # xl330: config.DOMAIN_RAND
@@ -311,6 +315,7 @@ class OpenDuckEnv(_EnvBase):
         self._data0 = mjx.make_data(mj_model, impl="jax")
         self.idx = idx = RobotIndex(mj_model, spec.action_joints)
         self._xml_path = scene_path or C.SCENE_PATH
+        self._scene_path = scene_path
 
         self.randomize = bool(randomize) and self.dr["enabled"]
         self.push = bool(push) and self.dr["enabled"]
@@ -359,6 +364,9 @@ class OpenDuckEnv(_EnvBase):
             self._act_kw = dict(scale=f32(TK.action_scale_vector(spec, idx.default_action_q, idx.action_lo,
                                                                  idx.action_hi)),
                                 clip=float(spec.action_clip), lo=f32(idx.action_lo), hi=f32(idx.action_hi))
+        self.head_fixed = self.task == "getup" and self.getup_head == "fixed"
+        if self.head_fixed:                    # bas aksiyon boyutlari ve toplanmis bas hedefi (mutlak)
+            self._head_fix = tuple(f32(v) for v in T.head_fix_arrays(np, spec.action_joints))
         self.nominal = {k: getattr(self._mjx_model, k) for k in (
             "geom_friction", "body_mass", "body_inertia", "body_ipos", "actuator_gainprm",
             "actuator_biasprm", "dof_damping", "dof_frictionloss", "dof_armature")}
@@ -467,7 +475,7 @@ class OpenDuckEnv(_EnvBase):
         parts = []
         for k in names:
             if self.reset_probs[k] > 0.0:
-                b = PB.bank(k)
+                b = PB.bank(k, robot=self.robot, scene_path=self._scene_path)
                 PB.check_variant(b, spec.model_variant)
                 bq, bv = expand_state(self._mj_model, b["qpos"], b["qvel"])        # bosluk eklemleri 0
                 if bq.shape[1] != nq or bv.shape[1] != nv or b["ctrl"].shape[1] != nu:
@@ -672,6 +680,13 @@ class OpenDuckEnv(_EnvBase):
             s.update({k: info[k] for k in _MEM_KEYS if k in info})
         return s
 
+    def _targets(self, action, base_q):
+        """T.action_to_targets (gorev eslemesi) + getup_head="fixed" (bas aksiyonlari 0, bas hedefi toplanmis)."""
+        targets, a = T.action_to_targets(jnp, action, base_q, **self._act_kw)
+        if self.head_fixed:
+            targets, a = T.fixed_head(jnp, targets, a, *self._head_fix)
+        return targets, a
+
     def _bank_reset(self, key, yaw, qpos, qvel):
         """Sifirlama turu ve banka durumu (fizik yok, yalniz indeks). Dondurur (tur, etiket, qpos, qvel, ctrl);
         HOME/ayakta turunde verilen qpos/qvel (walk sifirlamasi) ve keyframe ctrl kalir."""
@@ -813,11 +828,11 @@ class OpenDuckEnv(_EnvBase):
             base_q = ref["q_ref"]
         else:
             base_q = self.default_action_q
-        targets, a = T.action_to_targets(jnp, action, base_q, **self._act_kw)
+        targets, a = self._targets(action, base_q)
         if self.K > 0:
             abuf = jnp.concatenate([a[None], info["abuf"][:-1]], axis=0)
             info["abuf"] = abuf
-            targets, _ = T.action_to_targets(jnp, abuf[info["dr"]["delay"]], base_q, **self._act_kw)
+            targets, _ = self._targets(abuf[info["dr"]["delay"]], base_q)
 
         # 2-3. bas + bacak kontrolleri (main: bas scripti + alpha'ya bagli rastgele hedef; getup: bas aksiyonda)
         ctrl = self.init_ctrl

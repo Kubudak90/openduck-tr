@@ -11,6 +11,7 @@ Ayrica <ad>_meta.json (rl/TASK.md'deki bicim, rl/policy_meta.build_meta) yazilir
 
 Komut satiri:  python3 -m rl.export_onnx --checkpoint runs/NAME/latest.pt [--out runs/NAME/policy.onnx]
                                          [--task walk|main|getup]   (varsayilan: checkpoint'taki gorev)
+tr35_b2 surecinde (OPENDUCK_ROBOT) ayrica rl/export_c.py ile <cikti klasoru>/c/ yazilir (hata olumcul degil).
 """
 import argparse
 import json
@@ -22,6 +23,7 @@ import torch
 import torch.nn as nn
 from onnx import TensorProto, helper, numpy_helper
 
+from . import config as C
 from . import policy_meta as PM
 from . import tasks as TK
 from .ppo import ActorCritic
@@ -108,9 +110,10 @@ def meta_path_for(onnx_path):
     return os.path.splitext(onnx_path)[0] + "_meta.json"
 
 
-def policy_meta(steps, backend="cpu_torch", idx=None, task="walk"):
-    """rl/policy_meta.build_meta (torch'suz ortak meta; walk ciktisi bugunkuyle ayni)."""
-    return PM.build_meta(steps, backend, idx, task)
+def policy_meta(steps, backend="cpu_torch", idx=None, task="walk", network=None, getup_head=None):
+    """rl/policy_meta.build_meta (torch'suz ortak meta; walk ciktisi bugunkuyle ayni). network / getup_head yalniz
+    tr35_b2 meta'sina yazilir."""
+    return PM.build_meta(steps, backend, idx, task, network=network, getup_head=getup_head)
 
 
 def checkpoint_task(ckpt):
@@ -174,10 +177,14 @@ def main(argv=None):
     if (ac.arch["num_obs"], ac.arch["num_actions"]) != (spec.num_obs, spec.num_actions):
         raise SystemExit("checkpoint %d/%d boyutlu, %s gorevi %d/%d bekler" % (
             ac.arch["num_obs"], ac.arch["num_actions"], spec.name, spec.num_obs, spec.num_actions))
-    meta = policy_meta(ckpt.get("steps", 0), backend=ckpt.get("backend", "cpu_torch"), task=spec.name)
+    meta = policy_meta(ckpt.get("steps", 0), backend=ckpt.get("backend", "cpu_torch"), task=spec.name,
+                       network=ac.network(), getup_head=(ckpt.get("run_info") or {}).get("getup_head"))
     err = export_policy(ac, out, meta=meta)
     print("%s yazildi (iter %s, %d adim), onnx/torch max fark %s" % (
         out, ckpt.get("iter"), meta["steps"], "dogrulanmadi" if err is None else "%.2e" % err))
+    if C.ROBOT_PROFILE == PM.TR35:          # tr35: C dizileri <klasor>/c (rl/export_c.py; hata olumcul degil)
+        from . import export_c as EC
+        EC.safe_export(out, os.path.join(os.path.dirname(os.path.abspath(out)), "c"))
 
 
 if __name__ == "__main__":

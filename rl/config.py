@@ -5,7 +5,14 @@ OpenDuck yurume (joystick) gorevinin ve yeni main/getup gorevlerinin (dosyanin s
 CPU (MuJoCo C + PyTorch PPO) ve GPU (MJX + Brax PPO) arka uclari ayni sabitleri
 ve rl/task_math.py'deki ayni gozlem/odul fonksiyonlarini kullanir.
 Ayrintili formuller: rl/TASK.md; gorev tanimlari: rl/tasks.py
+
+Profil (OPENDUCK_ROBOT, surec basina): "xl330_27" (varsayilan) asagidaki degerler aynen. "tr35_b2": dosyanin sonunda
+geometriye bagli her sabit turetilmis dosyadan (DERIVED_PATH, sema 1; load_derived), digerleri tr35_constants()
+formullerinden (Froude S = 1.282, hiz azaltma KAPPA). Hicbir tr35 geometri sayisi burada elle yazilmaz.
 """
+import copy
+import json
+import math
 import os
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -20,6 +27,15 @@ ROBOT_PROFILE = os.environ.get("OPENDUCK_ROBOT", "xl330_27")
 if ROBOT_PROFILE not in ROBOT_PROFILES:
     raise ValueError("OPENDUCK_ROBOT=%r (gecerli: %s)" % (ROBOT_PROFILE, ", ".join(ROBOT_PROFILES)))
 JOINT_RANGE_MARGIN_DEG = 3.0       # tr35: aktuatorlu eklem range = ctrlrange +- bu (varyant sinirlarindan SONRA)
+# Sahne ve turetilmis dosya (profil basina). OPENDUCK_SCENE / OPENDUCK_DERIVED ezer; build_spec SCENE_PATH'i cagri
+# aninda okur (rl.config.SCENE_PATH atamasi da calisir).
+SCENE_PATHS = {"xl330_27": os.path.join(ROOT, "build", "sim", "scene.xml"),
+               "tr35_b2": os.path.join(ROOT, "build", "tr35_b2", "sim", "scene.xml")}
+SCENE_PATH = os.environ.get("OPENDUCK_SCENE") or SCENE_PATHS[ROBOT_PROFILE]
+DERIVED_PATHS = {"tr35_b2": os.path.join(ROOT, "rl", "derived", "tr35_b2.json")}
+DERIVED_PATH = os.environ.get("OPENDUCK_DERIVED") or DERIVED_PATHS.get(ROBOT_PROFILE)
+DERIVED = None                     # tr35: load_derived(DERIVED_PATH) (dosyanin sonu)
+DERIVED_SOURCE = None              # tr35: DERIVED["source"] (sahne, MJCF/konfig sha256, stub)
 
 # --- Zamanlama -----------------------------------------------------------------
 SIM_DT = 0.005               # fizik adimi (s)
@@ -330,3 +346,260 @@ POSE_BANK = {
     "seated_joint_sigma": 0.05,            # rad, SEAT/HEAD_SIT etrafinda N(0, s) (baslangic = hedef)
     "seated_tilt_deg": 5.0,                # pitch/roll U(+-)
 }
+
+
+# =====================================================================================
+# OpenDuck-TR (P5a) ek adlari. Asagidaki degerler xl330_27 degerleridir (davranis degismez); tr35_b2 surecinde
+# dosyanin sonunda tr35_constants() ile degisirler. Mevcut adlar/anahtarlar hicbir profilde silinmez.
+# =====================================================================================
+FROUDE_S = None                    # tr35: 1.282 (boy orani; Froude olcegi, spec 3.2.5)
+KAPPA = None                       # tr35: hiz azaltma (varsayilan 0.5; OPENDUCK_KAPPA)
+SEAT_PITCH_DEG = 0.0               # oturus govde pitch'i (+ = burun asagi; 0 = duz oturus)
+HEAD_TUCK_DEG = None               # getup_head="fixed" bas pozu (mutlak derece; tr35 turetilmis)
+HOME_OVERRIDE = None               # tr35: yeniden optimize HOME (DERIVED["home"], source "family"); keyframe'i ezer
+SELF_COLLISION_PAIRS = ()          # tr35 main/getup: oz-carpisma geom ciftleri (spec 3.2.2)
+GETUP_HEAD_MODES = ("free", "fixed")
+GETUP_HEAD_DEFAULT = "free"        # getup_head=None: bas politikada; "fixed": HEAD_TUCK_DEG, bas aksiyonlari 0
+GETUP_HEAD_SCALE = None            # tr35: getup bas aksiyon olcegi ust siniri (rad; head_pitch/yaw/roll)
+MOVING_EPS = 0.05                  # walk: moving = |komut| > bu
+RAIL_SOFT_A = 15.0                 # A, LEG ray talebi cezasinin yumusak esigi (A4: > 15 A suresi <= %2)
+MAIN["stand_gz"] = -0.9            # kalkis/ayakta dikligi (MAIN["seat_gz"] oturus kosulundan ayri)
+# POSE_BANK boyutlari: OPENDUCK_BANK_N=<int> hepsini ezer (duman kosulari, testler); yoksa degismez
+_bank_n = os.environ.get("OPENDUCK_BANK_N")
+if _bank_n:
+    POSE_BANK.update({k + "_n": int(_bank_n) for k in ("seated", "fallen", "midfall")})
+
+# xl330 degerlerinin kopyasi: tr35_constants() hep bundan uretir (saf; tr35 surecinde de tekrar cagrilabilir)
+_xl330 = copy.deepcopy({k: v for k, v in globals().items() if k.isupper()})
+
+# --- turetilmis dosya (sema 1; tools/derive_posture.py yazar) ------------------------------------
+_schema = 1
+_regen = ("python tools/derive_posture.py derive --scene build/tr35_b2/sim/scene.xml --out rl/derived/tr35_b2.json "
+          "(MJCF'den yeniden uretir) ya da OPENDUCK_DERIVED=<json>")
+_leg5 = ("hip_yaw", "hip_roll", "hip_pitch", "knee", "ankle")
+_heights = ("H_HOME", "H_MIN_WALK", "H_MIN_STAND", "H_DEEP", "Z_SIT", "SEAT_Z", "SEAT_Z_TOL",
+            "TERMINATION_MIN_HEIGHT", "standup_z", "getup_success_z")
+_dkeys = {
+    "source": ("scene", "mjcf_sha256", "config_sha256", "stub"),
+    "mass": ("total_kg",),
+    "home": ("source", "qpos", "ctrl", "legs_deg", "head_deg", "trunk_z_kin", "com_offset_x", "com_margin"),
+    "heights": _heights + ("getup_pose_z", "getup_arrival_z"),
+    "seat": ("deg", "pitch_deg", "seat_gz", "feasible"),
+    "head": ("home_deg", "sit_deg", "tuck_deg"),
+    "feet": ("home_lateral", "FEET_MIN_DISTANCE"),
+    "caps_deg": ("KNEE_LIMIT_DEG", "NECK_PITCH_MAX_DEG", "HIP_YAW_INWARD_MAX_DEG"),
+}
+
+
+def _num(x):
+    return isinstance(x, (int, float)) and not isinstance(x, bool) and math.isfinite(x)
+
+
+def load_derived(path):
+    """Turetilmis JSON'u (sema 1, rl/TASK.md "Derived file") okur ve dogrular; dict dondurur. Bozuksa ValueError
+    (alan adiyla). Yalniz json (mujoco yok)."""
+    with open(path) as f:
+        d = json.load(f)
+
+    def need(ok, msg, *a):
+        if not ok:
+            raise ValueError("%s: %s" % (path, msg % a))
+
+    def nums(x, n, what):
+        need(isinstance(x, (list, tuple)) and len(x) == n and all(_num(v) for v in x), "%s: %d sayi olmali", what, n)
+
+    def keyed(x, keys, what):
+        need(isinstance(x, dict) and set(x) == set(keys) and all(_num(v) for v in x.values()),
+             "%s anahtarlari %s (sayi) olmali", what, sorted(keys))
+
+    need(isinstance(d, dict), "JSON nesnesi degil")
+    need(d.get("schema") == _schema, "schema %r (beklenen %d)", d.get("schema"), _schema)
+    need(d.get("profile") == "tr35_b2", "profile %r (beklenen tr35_b2)", d.get("profile"))
+    top = ("tool", "tool_version", "params", "crouch_family", "extra_collision", "self_collision_pairs") + tuple(_dkeys)
+    need(not [k for k in top if k not in d], "eksik anahtarlar %s", [k for k in top if k not in d])
+    need(isinstance(d["tool"], str) and isinstance(d["tool_version"], int), "tool (str) / tool_version (int)")
+    need(isinstance(d["params"], dict), "params dict olmali")
+    for sec, keys in _dkeys.items():
+        miss = [k for k in keys if not isinstance(d[sec], dict) or k not in d[sec]]
+        need(not miss, "%s: eksik %s", sec, miss)
+    src = d["source"]
+    need(isinstance(src["scene"], str) and isinstance(src["mjcf_sha256"], str) and isinstance(src["stub"], bool)
+         and (src["config_sha256"] is None or isinstance(src["config_sha256"], str)), "source alan tipleri")
+    need(_num(d["mass"]["total_kg"]) and d["mass"]["total_kg"] > 0, "mass.total_kg > 0 olmali")
+    h = d["home"]
+    nj = len(LEG_JOINTS) + len(HEAD_JOINTS) + len(OTHER_JOINTS)
+    need(h["source"] in ("keyframe", "family"), "home.source %r", h["source"])
+    nums(h["qpos"], 7 + nj, "home.qpos")
+    nums(h["ctrl"], nj, "home.ctrl")
+    keyed(h["legs_deg"], _leg5, "home.legs_deg")
+    keyed(h["head_deg"], HEAD_JOINTS, "home.head_deg")
+    for k in ("trunk_z_kin", "com_offset_x", "com_margin"):
+        need(_num(h[k]), "home.%s sayi olmali", k)
+    hz = d["heights"]
+    for k in _heights:
+        need(_num(hz[k]) and hz[k] > 0, "heights.%s > 0 olmali", k)
+    for k in ("getup_pose_z", "getup_arrival_z"):
+        nums(hz[k], 2, "heights." + k)
+        need(0 < hz[k][0] < hz[k][1], "heights.%s: 0 < z0 < z1 olmali", k)
+    # derive_posture.validate ile ayni sira: Z_SIT < H_DEEP yalniz uyari (stub'da oturus derin comelmeden 0.5 mm
+    # yuksek; z_ref dogrusal ara deger oldugu icin calisir), SEAT_Z < Z_SIT zorunlu
+    need(hz["H_HOME"] > hz["H_MIN_WALK"] >= hz["H_MIN_STAND"] >= hz["H_DEEP"] and hz["SEAT_Z"] < hz["Z_SIT"],
+         "H_HOME > H_MIN_WALK >= H_MIN_STAND >= H_DEEP ve SEAT_Z < Z_SIT olmali (%s)",
+         [hz[k] for k in ("H_HOME", "H_MIN_WALK", "H_MIN_STAND", "H_DEEP", "Z_SIT", "SEAT_Z")])
+    fam = d["crouch_family"]
+    need(isinstance(fam, list) and len(fam) >= 3, "crouch_family en az 3 satir olmali")
+    for i, r in enumerate(fam):
+        nums(r, 5, "crouch_family[%d]" % i)
+    hs = [r[0] for r in fam]
+    need(all(a > b for a, b in zip(hs, hs[1:])), "crouch_family h kesin azalan olmali")
+    need(hs[0] >= hz["H_HOME"] and hs[-1] <= hz["H_DEEP"], "crouch_family: ilk h >= H_HOME, son h <= H_DEEP olmali")
+    lg = h["legs_deg"]
+    flat = lg["hip_pitch"] - lg["knee"] + lg["ankle"]                      # HOME (pitch 0) duz taban degismezi
+    bad = [i for i, r in enumerate(fam) if abs(r[1] + r[2] - r[3] + r[4] - flat) > 1e-6]
+    need(not bad, "crouch_family satirlari %s duz taban degil (pitch + hp - kn + an != HOME %.6g)", bad, flat)
+    s = d["seat"]
+    keyed(s["deg"], CROUCH_JOINTS, "seat.deg")
+    need(_num(s["pitch_deg"]) and _num(s["seat_gz"]) and -1.0 <= s["seat_gz"] < 0.0 and isinstance(s["feasible"], bool),
+         "seat.pitch_deg / seat_gz (-1..0) / feasible (bool)")
+    for k in _dkeys["head"]:
+        keyed(d["head"][k], HEAD_JOINTS, "head." + k)
+    for sec in ("feet", "caps_deg"):
+        for k in _dkeys[sec]:
+            need(_num(d[sec][k]) and d[sec][k] > 0, "%s.%s > 0 olmali", sec, k)
+    ec = d["extra_collision"]
+    need(isinstance(ec, dict), "extra_collision dict olmali")
+    for b, g in ec.items():
+        need(isinstance(g, (list, tuple)) and len(g) == 4 and g[0] in ("box", "capsule"), "extra_collision.%s bicimi", b)
+        nums(g[1], 3, "extra_collision.%s merkez" % b)
+        nums(g[2], 3 if g[0] == "box" else 2, "extra_collision.%s boyut" % b)
+        need(all(v > 0 for v in g[2]) and (g[3] is None if g[0] == "box" else g[3] in ("x", "y", "z")),
+             "extra_collision.%s boyut > 0 / eksen", b)
+    pr = d["self_collision_pairs"]
+    need(isinstance(pr, list) and all(isinstance(p, (list, tuple)) and len(p) == 2 and all(isinstance(n, str) for n in p)
+                                      and p[0] != p[1] for p in pr), "self_collision_pairs [[geomA, geomB], ...] olmali")
+    return d
+
+
+def tr35_constants(derived, kappa=None):
+    """tr35_b2 sabitleri {AD: deger}: geometri turetilmis dosyadan (load_derived ciktisi), digerleri formullerle
+    (S = 1.282, k = kappa | OPENDUCK_KAPPA | 0.5; yurume lv = sqrt(S) k, lw = k / sqrt(S), lt = sqrt(S) / k; main
+    otur/kalk lv = lt = sqrt(S); getup lv = sqrt(S), lw = 1 / sqrt(S)). Yeni nesneler dondurur, xl330 sozluklerini
+    degistirmez (xl330 surecinden de cagrilabilir). Sayisal sabitler: Froude S, KAPPA, 2.21 Hz, 2.88 N.m (spec)."""
+    from . import actuators as A          # servo siniflari (slew siniri); dongusel import modulun sonunda guvenli
+    x = copy.deepcopy(_xl330)
+    d = derived
+    S = 1.282
+    k = float(os.environ.get("OPENDUCK_KAPPA", "0.5") if kappa is None else kappa)
+    sq = math.sqrt(S)
+    lv, lw, lt = sq * k, k / sq, sq / k                  # yurume
+    lv_m = sq                                            # main otur/kalk (kappa yok; lt_m = sqrt(S))
+    lv_g, lw_g = sq, 1.0 / sq                            # getup
+    hz, fl = d["heights"], (lambda v: float(v))
+    o = {"FROUDE_S": S, "KAPPA": k}
+
+    # --- geometri (turetilmis dosya) -----------------------------------------------------------------
+    for n in ("H_HOME", "H_MIN_WALK", "H_MIN_STAND", "H_DEEP", "Z_SIT", "SEAT_Z", "SEAT_Z_TOL", "TERMINATION_MIN_HEIGHT"):
+        o[n] = fl(hz[n])
+    o["BASE_HEIGHT_TARGET"] = o["H_HOME"]
+    o["H_NORM"] = o["H_HOME"] - o["H_MIN_STAND"]
+    o["CROUCH_FAMILY"] = tuple(tuple(fl(v) for v in r) for r in d["crouch_family"])
+    o["SEAT_DEG"] = {j: fl(d["seat"]["deg"][j]) for j in CROUCH_JOINTS}
+    o["SEAT_PITCH_DEG"] = fl(d["seat"]["pitch_deg"])
+    for n, key in (("HEAD_HOME_DEG", "home_deg"), ("HEAD_SIT_DEG", "sit_deg"), ("HEAD_TUCK_DEG", "tuck_deg")):
+        o[n] = {j: fl(d["head"][key][j]) for j in HEAD_JOINTS}
+    o["FEET_MIN_DISTANCE"] = fl(d["feet"]["FEET_MIN_DISTANCE"])
+    for n in ("KNEE_LIMIT_DEG", "NECK_PITCH_MAX_DEG", "HIP_YAW_INWARD_MAX_DEG"):
+        o[n] = fl(d["caps_deg"][n])
+    o["EXTRA_COLLISION"] = {b: (g[0], tuple(fl(v) for v in g[1]), tuple(fl(v) for v in g[2]), g[3])
+                            for b, g in d["extra_collision"].items()}
+    o["SELF_COLLISION_PAIRS"] = tuple(tuple(p) for p in d["self_collision_pairs"])
+    o["HOME_OVERRIDE"] = copy.deepcopy(d["home"]) if d["home"]["source"] == "family" else None
+    o["HEAD_GEOMS"] = ("head_collision", "jaw_collision", "neck_bumper")     # RobotIndex olmayanlari atar
+
+    # --- yurume (Froude + kappa) ---------------------------------------------------------------------
+    o["GAIT_FREQ"] = 2.21 * k
+    o["AIR_TIME_TARGET"] = 0.375 / o["GAIT_FREQ"]                       # xl330: 0.15 s @ 2.5 Hz
+    o["SWING_HEIGHT"] = x["SWING_HEIGHT"] * S
+    o["FOOT_HEIGHT_SIGMA"] = x["FOOT_HEIGHT_SIGMA"] * S ** 2
+    cr = x["COMMAND_RANGES"]
+    o["COMMAND_RANGES"] = {"vx": tuple(v * lv for v in cr["vx"]), "vy": tuple(v * lv for v in cr["vy"]),
+                           "wz": tuple(v * lw for v in cr["wz"])}
+    o["MOVING_EPS"] = x["MOVING_EPS"] * lv
+    o["TRACKING_SIGMA_LIN"] = x["TRACKING_SIGMA_LIN"] * lv ** 2
+    o["TRACKING_SIGMA_ANG"] = x["TRACKING_SIGMA_ANG"] * lw ** 2
+    o["ACTION_SCALE"] = 0.3                                             # rl-map D1 (sert P dongusu)
+
+    def effort(w):
+        """"torques" yerinde "torque_ratio" (sum (tau_net/tau_s)^2) + sona limit_torque, rail_demand. Agirliklar
+        baslangic degerleri; P7'de ayarlanir."""
+        out = {("torque_ratio" if n == "torques" else n): (-2e-3 if n == "torques" else v) for n, v in w.items()}
+        out.update(limit_torque=-0.5, rail_demand=-0.2)
+        return out
+    w = x["REWARD_WEIGHTS"]
+    w.update(lin_vel_z=w["lin_vel_z"] / lv ** 2, ang_vel_xy=w["ang_vel_xy"] / lw ** 2,
+             base_height=w["base_height"] / S ** 2, joint_acc=w["joint_acc"] * lt ** 4,
+             feet_slip=w["feet_slip"] / lv ** 2, feet_distance=w["feet_distance"] / S)
+    o["REWARD_WEIGHTS"] = effort(w)
+
+    # --- main ---------------------------------------------------------------------------------------
+    wm = {n: (w[n] if n in w and n != "torques" else v) for n, v in x["MAIN_REWARD_WEIGHTS"].items()}
+    wm.update(height_l1=wm["height_l1"] / S, vz_cap=wm["vz_cap"] / lv_m)
+    o["MAIN_REWARD_WEIGHTS"] = effort(wm)
+    M = x["MAIN"]
+    M.update(moving_eps=o["MOVING_EPS"], height_sigma=M["height_sigma"] * S, vz_cap=M["vz_cap"] * lv_m,
+             standup_z=fl(hz["standup_z"]), seat_gz=fl(d["seat"]["seat_gz"]), stand_gz=-0.9,
+             standup_window_s=round(x["MAIN"]["standup_window_s"] * sq, 1),
+             sitdown_window_s=round(x["MAIN"]["sitdown_window_s"] * sq, 1))
+    o["MAIN"] = M
+    o["SIT_RAMP_S"] = x["SIT_RAMP_S"] * sq
+    o["STAND_RAMP_S"] = x["STAND_RAMP_S"] * sq
+
+    # --- getup --------------------------------------------------------------------------------------
+    o["GETUP_EPISODE_S"] = 12.0
+    G = x["GETUP"]
+    G.update(height_sigma=tuple(v * S for v in G["height_sigma"]),
+             composite_sigma=(G["composite_sigma"][0] * S,) + tuple(G["composite_sigma"][1:]),
+             torque_limit=2.88,      # KULLANILMAZ (tr35 odulleri tau_ratio ile); eval/play import'ta okur
+             pose_z=tuple(fl(v) for v in hz["getup_pose_z"]), arrival_z=tuple(fl(v) for v in hz["getup_arrival_z"]))
+    G["success"].update(z=fl(hz["getup_success_z"]), gyro=G["success"]["gyro"] / sq, hold_s=G["success"]["hold_s"] * sq)
+    G["midfall"].update(ang_vel=(G["midfall"]["ang_vel"][0], G["midfall"]["ang_vel"][1] / sq))
+    o["GETUP"] = G
+    wg, wl = x["GETUP_REWARD_WEIGHTS"], x["GETUP_REWARD_LATE"]
+    wg.update(height_l1=wg["height_l1"] / S, height_progress=wg["height_progress"] / S,
+              joint_vel=wg["joint_vel"] / lw_g ** 2, arrival_damping=wg["arrival_damping"] / lw_g ** 2)
+    wg.update(limit_torque=-0.5, rail_demand=-0.2)                     # erken agirliklar; gec deger yok
+    wl.update(head_impact=wl["head_impact"] / lv_g ** 2, joint_vel=wl["joint_vel"] / lw_g ** 2,
+              arrival_damping=wl["arrival_damping"] / lw_g ** 2)
+    o["GETUP_REWARD_WEIGHTS"], o["GETUP_REWARD_LATE"] = wg, wl
+
+    # --- bas, devir, sifirlama, bankalar, DR ----------------------------------------------------------
+    rng = {"neck_pitch": 0.15, "head_pitch": 0.2, "head_yaw": 0.5, "head_roll": 0.08}      # rad (spec 3.2.5, MG90S)
+    hr = x["HEAD_RANDOM"]
+    hr.update(filter_tau=0.5, range=rng,
+              slew_max={j: 0.5 * A.CLASSES[A.JOINT_CLASS[A.TR35][j]]["omega0"] for j in HEAD_JOINTS})   # rad/s
+    o["HEAD_RANDOM"] = hr
+    o["GETUP_HEAD_SCALE"] = {j: rng[j] for j in ("head_pitch", "head_yaw", "head_roll")}
+    sv = x["SUPERVISOR"]
+    sv.update(fall_steps=6, ready_hold_s=0.6)
+    o["SUPERVISOR"] = sv
+    o["RESET_BASE_VEL_NOISE"] = x["RESET_BASE_VEL_NOISE"] * sq
+    pb = x["POSE_BANK"]
+    pb.update(settle_s=2.5, drop=tuple(v * S for v in pb["drop"]))
+    o["POSE_BANK"] = pb
+    dr = x["DOMAIN_RAND"]
+    f = fl(d["mass"]["total_kg"]) / 0.6763                              # xl330 toplam kutlesi 0.6763 kg
+    dr.update(trunk_added_mass=tuple(v * f for v in dr["trunk_added_mass"]), trunk_com_offset=0.010, push_vel=0.20)
+    o["DOMAIN_RAND"] = dr                                               # actuators.DR_OVERRIDES bunun ustune
+    return o
+
+
+if ROBOT_PROFILE == "tr35_b2":
+    if not DERIVED_PATH or not os.path.isfile(DERIVED_PATH):
+        raise RuntimeError("tr35_b2 turetilmis dosyasi yok: %s. Uretmek icin: %s" % (DERIVED_PATH, _regen))
+    try:
+        DERIVED = load_derived(DERIVED_PATH)
+    except (ValueError, OSError) as _e:
+        raise RuntimeError("tr35_b2 turetilmis dosyasi gecersiz (%s). Yeniden uretin: %s" % (_e, _regen))
+    DERIVED_SOURCE = DERIVED["source"]
+    globals().update(tr35_constants(DERIVED))
+    H_NORM = H_HOME - H_MIN_STAND

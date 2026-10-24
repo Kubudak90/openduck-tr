@@ -47,15 +47,55 @@ Durum sozlugu alanlari (bkz. rl/TASK.md):
   phi_up_prev (N,)    onceki adimin potansiyeli -gz          (getup_memory)
   phi_h_prev  (N,)    onceki adimin potansiyeli min(z, H_HOME) (getup_memory)
   progress    ()/(N,) mufredat ilerlemesi p in [0,1] (reward_weights'e verilir; s'de zorunlu degil)
+
+  -- tr35_b2 (aktuator modeli; tum gorevler, OBS_JOINTS sirasi; rl/TASK.md "Robot profiles")
+  tau_net, tau_s, tau_ratio, limit_torque (N,14): motor torku, bolum tau_s'i, tau_net/tau_s, |limit kisit torku|
+  rail_demand (N,)    LEG ray talebi (A; olcekleme oncesi, alt adim ortalamasi)
+  tr35 SURECINDE (config.ROBOT_PROFILE, statik dal) tork cezalari bunlarla: "torques" yerine "torque_ratio",
+  sona "limit_torque", "rail_demand"; getup torque_sat |tau_ratio| ile. xl330 ciktilari bit-duzeyinde ayni.
 """
 import numpy as np
 
 from . import config as C
 from . import tasks as TK
 
+_TR35 = C.ROBOT_PROFILE == "tr35_b2"     # statik: tork/ray cezalari tau_ratio ile (dosya notu)
+
 
 def _name(task):
     return task if isinstance(task, str) else task.name
+
+
+def _ratio_term(xp, s):
+    return xp.sum(xp.square(s["tau_ratio"]), axis=-1)
+
+
+def _limit_rail(xp, s):
+    return {"limit_torque": xp.sum(xp.square(s["limit_torque"] / s["tau_s"]), axis=-1),
+            "rail_demand": xp.maximum(s["rail_demand"] - C.RAIL_SOFT_A, 0.0)}
+
+
+def _effort_terms(xp, s):
+    """Tork cezasi terimi: xl330 {"torques": sum tau^2}; tr35 {"torque_ratio": sum (tau_net/tau_s)^2}."""
+    if _TR35:
+        return {"torque_ratio": _ratio_term(xp, s)}
+    return {"torques": xp.sum(xp.square(s["torque"]), axis=-1)}
+
+
+def _limit_rail_terms(xp, s):
+    """tr35 ek cezalari (odul sozlugunun sonunda): limit_torque = sum (limit/tau_s)^2, rail_demand =
+    max(talep - RAIL_SOFT_A, 0) (A). xl330: bos."""
+    if not _TR35:
+        return {}
+    return _limit_rail(xp, s)
+
+
+def tr35_penalties(xp, s):
+    """tr35 tork cezalari, agirliksiz ve odul sozlugundeki formullerle (profilden bagimsiz; tr35 aktuator durumu
+    ister): {"torque_ratio", "limit_torque", "rail_demand"} (N,). rl/eval_tasks.py TorqueAcc raporu."""
+    out = {"torque_ratio": _ratio_term(xp, s)}
+    out.update(_limit_rail(xp, s))
+    return out
 
 
 # --- yardimcilar -----------------------------------------------------------------
@@ -196,7 +236,7 @@ def posture_ref(xp, h_ref, alpha, home_q):
     """Referans durus (spec 3.2). home_q: (14,) HOME (idx.default_obs_q; ilk 10 bacak, son 4 bas). Dondurur:
       q_ref (N,10)      bacak hedefleri: lerp(F_home(hd), SEAT, s2), F_home(h) = HOME + F(h) - F(H_HOME)
       z_ref (N,)        lerp(hd, Z_SIT, s2)
-      pitch_ref (N,)    lerp(pitch_F(hd), 0, s2)
+      pitch_ref (N,)    lerp(pitch_F(hd), SEAT_PITCH (0: duz oturus), s2)
       head_offset (N,4) s1 * (HEAD_SIT - HEAD_HOME) (bas ctrl'una eklenir; HEAD_JOINTS sirasi)
     burada hd = lerp(h_ref, H_DEEP, s1). q_ref(H_HOME, 0) = HOME tam olarak."""
     s1, s2 = sit_split(xp, alpha)
@@ -210,7 +250,7 @@ def posture_ref(xp, h_ref, alpha, home_q):
     q_seat = home_l * (1.0 - _LEG_MASK) + _SEAT_LEGS
     q_ref = q_crouch + (q_seat - q_crouch) * s2[..., None]
     z_ref = hd + (C.Z_SIT - hd) * s2
-    pitch_ref = crouch_pitch(xp, hd) * (1.0 - s2)
+    pitch_ref = _pitch_mix(xp, crouch_pitch(xp, hd), s2)
     head_offset = s1[..., None] * (_HEAD_SIT - home_q[..., 10:14])
     return {"q_ref": q_ref, "z_ref": z_ref, "pitch_ref": pitch_ref, "head_offset": head_offset}
 
@@ -225,9 +265,16 @@ def z_ref(xp, h_ref, alpha, home_q=None):
     return hd + (C.Z_SIT - hd) * s2
 
 
+def _pitch_mix(xp, p_crouch, s2):
+    """pitch_ref = lerp(pitch_F(hd), SEAT_PITCH, s2); duz oturusta (SEAT_PITCH_DEG = 0, xl330) eski ifade aynen."""
+    if C.SEAT_PITCH_DEG:
+        return p_crouch * (1.0 - s2) + float(np.deg2rad(C.SEAT_PITCH_DEG)) * s2
+    return p_crouch * (1.0 - s2)
+
+
 def pitch_ref(xp, h_ref, alpha, home_q=None):
     s1, s2 = sit_split(xp, alpha)
-    return crouch_pitch(xp, h_ref + (C.H_DEEP - h_ref) * s1) * (1.0 - s2)
+    return _pitch_mix(xp, crouch_pitch(xp, h_ref + (C.H_DEEP - h_ref) * s1), s2)
 
 
 def head_offset_ref(xp, h_ref, alpha, home_q):
@@ -371,7 +418,7 @@ def reward_terms(xp, s, task="walk"):
     g = projected_gravity(xp, s["quat"])
     lin_err = xp.sum(xp.square(cmd[..., :2] - s["linvel"][..., :2]), axis=-1)
     ang_err = xp.square(cmd[..., 2] - s["gyro"][..., 2])
-    moving = xp.where(xp.sum(xp.square(cmd), axis=-1) > 0.05 ** 2, 1.0, 0.0)
+    moving = xp.where(xp.sum(xp.square(cmd), axis=-1) > C.MOVING_EPS ** 2, 1.0, 0.0)
 
     foot_z = s["foot_pos"][..., 2]
     feet_phase = xp.exp(-xp.sum(xp.square(foot_z - desired_foot_height(xp, s["phase"])), axis=-1)
@@ -385,14 +432,16 @@ def reward_terms(xp, s, task="walk"):
     dq = s["q"] - s["default_q"]
     hip = xp.sum(xp.square(xp.stack([dq[..., i] for i in hip_idx], axis=-1)), axis=-1)
 
-    return {
+    out = {
         "tracking_lin_vel": xp.exp(-lin_err / C.TRACKING_SIGMA_LIN),
         "tracking_ang_vel": xp.exp(-ang_err / C.TRACKING_SIGMA_ANG),
         "lin_vel_z": xp.square(s["linvel"][..., 2]),
         "ang_vel_xy": xp.sum(xp.square(s["gyro"][..., :2]), axis=-1),
         "orientation": xp.sum(xp.square(g[..., :2]), axis=-1),
         "base_height": xp.square(s["trunk_z"] - C.BASE_HEIGHT_TARGET),
-        "torques": xp.sum(xp.square(s["torque"]), axis=-1),
+    }
+    out.update(_effort_terms(xp, s))
+    out.update({
         "joint_acc": xp.sum(xp.square(s["qdd_legs"]), axis=-1),
         "action_rate": xp.sum(xp.square(s["action"] - s["last_action"]), axis=-1),
         "feet_air_time": moving * xp.sum((s["air_time"] - C.AIR_TIME_TARGET) * s["first_contact"], axis=-1),
@@ -401,7 +450,9 @@ def reward_terms(xp, s, task="walk"):
         "feet_distance": xp.maximum(C.FEET_MIN_DISTANCE - lateral, 0.0),
         "hip_pose": hip,
         "alive": xp.ones_like(s["trunk_z"]),
-    }
+    })
+    out.update(_limit_rail_terms(xp, s))
+    return out
 
 
 def main_gates(xp, s):
@@ -438,13 +489,15 @@ def _main_terms(xp, s):
     both = s["contact"][..., 0] * s["contact"][..., 1]
     seat = sit * is_seated(xp, s["alpha"]) * s["trunk_floor"] * xp.where(g[..., 2] < M["seat_gz"], 1.0, 0.0)
     vz = world_vz(xp, s["quat"], s["linvel"])
-    return {
+    out = {
         "tracking_lin_vel": xp.exp(-lin_err / C.TRACKING_SIGMA_LIN),
         "tracking_ang_vel": xp.exp(-ang_err / C.TRACKING_SIGMA_ANG),
         "lin_vel_z": xp.square(s["linvel"][..., 2]),
         "ang_vel_xy": xp.sum(xp.square(s["gyro"][..., :2]), axis=-1),
         "orientation": xp.square(g[..., 0] - xp.sin(pr)) + xp.square(g[..., 1]),
-        "torques": xp.sum(xp.square(s["torque"]), axis=-1),
+    }
+    out.update(_effort_terms(xp, s))
+    out.update({
         "joint_acc": xp.sum(xp.square(s["qdd_legs"]), axis=-1),
         "action_rate": xp.sum(xp.square(s["action"] - s["last_action"]), axis=-1),
         "feet_air_time": g_step * xp.sum((s["air_time"] - C.AIR_TIME_TARGET) * s["first_contact"], axis=-1),
@@ -459,7 +512,9 @@ def _main_terms(xp, s):
         "stand_contact": still * (1.0 - s["alpha"]) * both,
         "seat": seat,
         "vz_cap": xp.maximum(xp.abs(vz) - M["vz_cap"], 0.0),
-    }
+    })
+    out.update(_limit_rail_terms(xp, s))
+    return out
 
 
 def getup_potentials(xp, s):
@@ -506,8 +561,11 @@ def _getup_terms(xp, s):
     dz = z - C.H_HOME
     tilt = tilt_angle(xp, s["quat"])
     onset = s["head_floor"] * (1.0 - s["head_floor_prev"])
-    lim = G["torque_sat_frac"] * G["torque_limit"]
-    return {
+    if _TR35:                          # doygunluk |tau_net/tau_s| > torque_sat_frac (bolum tau_s'i)
+        sat = xp.sum(xp.maximum(xp.abs(s["tau_ratio"]) - G["torque_sat_frac"], 0.0), axis=-1)
+    else:
+        sat = xp.sum(xp.maximum(xp.abs(s["torque"]) - G["torque_sat_frac"] * G["torque_limit"], 0.0), axis=-1)
+    out = {
         "upright": phi_up,
         "height_gauss": xp.exp(-xp.square(dz / sg)),
         "height_sharp": xp.exp(-xp.square(dz / ss)),
@@ -516,7 +574,7 @@ def _getup_terms(xp, s):
         "height_progress": (phi_h - s["phi_h_prev"]) / C.CTRL_DT,
         "pose": xp.mean(xp.exp(-xp.square(dq / G["pose_sigma"])), axis=-1) * smoothstep(xp, (z - z0) / (z1 - z0)),
         "composite": xp.exp(-xp.square(dz / cz)) * xp.exp(-xp.square(tilt / ct)) * xp.exp(-xp.square(rms / cp)),
-        "torque_sat": xp.sum(xp.maximum(xp.abs(s["torque"]) - lim, 0.0), axis=-1),
+        "torque_sat": sat,
         # olay terimi: temas basladigi adimda carpma hizi^2 (head_impact_v2); total_reward'in CTRL_DT carpimini
         # iptal etmek icin / CTRL_DT
         "head_impact": onset * head_impact_v2(xp, s) / C.CTRL_DT,
@@ -524,6 +582,8 @@ def _getup_terms(xp, s):
         "joint_vel": xp.sum(xp.square(s["qd"]), axis=-1),
         "arrival_damping": xp.sum(xp.square(s["gyro"][..., :2]), axis=-1) * smoothstep(xp, (z - a0) / (a1 - a0)),
     }
+    out.update(_limit_rail_terms(xp, s))
+    return out
 
 
 def late_ramp(xp, progress, task="getup"):
@@ -607,7 +667,7 @@ def main_events(xp, s, ev, term, dt=C.CTRL_DT):
       sitdown_attempts/standup_attempts: sit 0->1 / 1->0 donusu (prev_sit'e gore); kalkis yalniz h komutu
         >= standup_z + 5 mm iken sayilir (alcak comelmeye kalkis z > standup_z'ye hic ulasmaz); mode_t donusten beri sure
       sitdown_success: donusten sonra sitdown_window_s icinde seat kosulu (bir kez)
-      standup_success: donusten sonra standup_window_s icinde z > standup_z, iki ayak yerde, gz < seat_gz (bir kez)
+      standup_success: donusten sonra standup_window_s icinde z > standup_z, iki ayak yerde, gz < stand_gz (bir kez)
       falls_walk / falls_sit / falls_transition: term ve (walk modu / alpha=1 ve sit=1 / digerleri)."""
     M = C.MAIN
     _, h_cmd, sit = main_command(xp, s["command"])
@@ -618,9 +678,10 @@ def main_events(xp, s, ev, term, dt=C.CTRL_DT):
     down = xp.where((ev["prev_sit"] < 0.5) & (sit > 0.5), 1.0, 0.0)
     flip = xp.maximum(up, down)
     mode_t = ev["mode_t"] * (1.0 - flip) + dt
-    upright = xp.where(g[..., 2] < M["seat_gz"], 1.0, 0.0)
-    seated_ok = sit * is_seated(xp, a) * s["trunk_floor"] * upright
-    stood = xp.where(s["trunk_z"] > M["standup_z"], 1.0, 0.0) * s["contact"][..., 0] * s["contact"][..., 1] * upright
+    up_seat = xp.where(g[..., 2] < M["seat_gz"], 1.0, 0.0)          # oturus dikligi (tr35: egik oturus)
+    up_stand = xp.where(g[..., 2] < M["stand_gz"], 1.0, 0.0)        # ayakta dikligi (xl330: ikisi -0.9)
+    seated_ok = sit * is_seated(xp, a) * s["trunk_floor"] * up_seat
+    stood = xp.where(s["trunk_z"] > M["standup_z"], 1.0, 0.0) * s["contact"][..., 0] * s["contact"][..., 1] * up_stand
     su_pend = xp.maximum(ev["standup_pending"] * (1.0 - down), up_ok)
     sd_pend = xp.maximum(ev["sitdown_pending"] * (1.0 - up), down)
     su_win = xp.where(mode_t <= M["standup_window_s"] + 0.5 * dt, 1.0, 0.0)
@@ -646,19 +707,40 @@ def getup_events_init(xp, z_like):
 def getup_events(xp, s, ev, dt=C.CTRL_DT):
     """getup metrikleri. Dondurur (ev', artislar): getup_success (basari kosulu hold_s boyunca ilk saglandigi
     adimda 1, bolumde bir kez), head_impacts (kafa temas baslangici sayisi), head_impact_v2 (baslangiclarda
-    carpma hizi^2 toplami, head_impact_v2()), torque_sat_steps (|tau| > torque_sat_frac*limit olan adim)."""
+    carpma hizi^2 toplami, head_impact_v2()), torque_sat_steps (|tau| > torque_sat_frac*limit olan adim; tr35:
+    max |tau_ratio| > torque_sat_frac)."""
     G = C.GETUP
     t, held = hold_timer(xp, ev["success_t"], getup_success_now(xp, s), G["success"]["hold_s"], dt)
     first = held * (1.0 - ev["succeeded"])
     onset = s["head_floor"] * (1.0 - s["head_floor_prev"])
-    lim = G["torque_sat_frac"] * G["torque_limit"]
-    sat = xp.where(xp.max(xp.abs(s["torque"]), axis=-1) > lim, 1.0, 0.0)
+    if _TR35:
+        sat = xp.where(xp.max(xp.abs(s["tau_ratio"]), axis=-1) > G["torque_sat_frac"], 1.0, 0.0)
+    else:
+        lim = G["torque_sat_frac"] * G["torque_limit"]
+        sat = xp.where(xp.max(xp.abs(s["torque"]), axis=-1) > lim, 1.0, 0.0)
     return ({"success_t": t, "succeeded": xp.maximum(ev["succeeded"], held)},
             {"getup_success": first, "head_impacts": onset,
              "head_impact_v2": onset * head_impact_v2(xp, s), "torque_sat_steps": sat})
 
 
 # --- aksiyon ------------------------------------------------------------------
+def head_fix_arrays(xp, action_joints):
+    """getup_head="fixed": (mask (A,) 1 = HEAD_JOINTS aksiyon boyutlari, tuck (A,) radians(HEAD_TUCK_DEG) bas
+    boyutlarinda, digerleri 0)."""
+    if C.HEAD_TUCK_DEG is None:
+        raise ValueError("getup_head='fixed' icin C.HEAD_TUCK_DEG gerekli")
+    aj = list(action_joints)
+    mask = np.array([1.0 if j in C.HEAD_JOINTS else 0.0 for j in aj])
+    tuck = np.array([np.deg2rad(C.HEAD_TUCK_DEG[j]) if j in C.HEAD_JOINTS else 0.0 for j in aj])
+    return xp.asarray(mask), xp.asarray(tuck)
+
+
+def fixed_head(xp, targets, action, mask, tuck):
+    """Kirpmadan sonra: bas aksiyonlari 0, bas hedefleri tuck (mutlak; ctrlrange kirpmasi ortamda)."""
+    on = mask > 0.5
+    return xp.where(on, tuck, targets), xp.where(on, 0.0, action)
+
+
 def action_to_targets(xp, action, default_action_q, scale=None, clip=None, lo=None, hi=None):
     """Politika aksiyonu (N,A) -> hedef acilar (N,A). Kirpma burada yapilir.
     target = default_action_q + scale * clip(action, +-clip); lo/hi verilirse hedef [lo, hi]'ye kirpilir.
