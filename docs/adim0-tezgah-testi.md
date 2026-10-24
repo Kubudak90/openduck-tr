@@ -10,6 +10,7 @@ Bir DS servo için tahmini süre: kurulum 1–2 saat (pot kablolama dahil), öl�
 - PC kaydedici: `tools/bench/logger.py`.
 - Uydurucu: `python -m tools.sysid.fit`.
 - Satır biçimi: `tools/sysid/logio.py`.
+- Ses modülü eki (G-SES-a, spec eki K8): §10; analiz `tools/bench/voice_report.py`.
 
 ---
 
@@ -97,9 +98,23 @@ Robot pin haritasıyla uyumludur (power-electronics §2). Tezgâhta tek servo (D
 | GPIO15 | PCA ch0 sinyali, 1 kΩ seri | İsteğe bağlı: gerçek darbe genişliği ölçümü |
 | GPIO16 | PCA **ch15** çıkışı, 1 kΩ seri | Osilatör kalibrasyonu (`osc auto`) |
 | GPIO17 / GPIO18 | I2C SDA / SCL (400 kHz) | PCA9685, INA226, ADS1115 |
-| GPIO21 | PCA9685 OE | Yüksek: bütün PWM kapalı (yazılım E-stop) |
-| GPIO0 (BOOT düğmesi) | — | Program sırasında basılırsa E-stop |
+| GPIO21 | PCA9685 OE (iki kartta da) | Yüksek: bütün PWM kapalı (yazılım E-stop) |
+| GPIO0 (BOOT düğmesi) | — | Program sırasında basılırsa E-stop. 2 s basılı tutmak ses modülünün öğrenme modunu açar/kapatır |
+| GPIO12 (UART1 RX) | ← **1 kΩ** ← DF2301Q D/T (modülün TX'i) | Ses modülü (§10). Robotla aynı pin |
+| GPIO11 (UART1 TX) | → 1 kΩ → DF2301Q C/R (modülün RX'i) | Ses modülü. Robotla aynı pin |
+| GPIO13 | → 330 Ω → LED anodu, katot GND | Kafa LED'i (uyanma/red göstergesi). Robotla aynı pin |
+| GPIO7 | → 100 Ω → piezo | Yalnız tezgâh: G-SES-a senkron tıkı |
+| GPIO6 (ADC1_CH5) | Fototransistör düğümü (modülün mavi LED'ine bakar) | Yalnız tezgâh. `set pin_ldr=6` |
 | 3V3, GND | PCA9685 VCC, ADS1115 VDD, INA226 VCC, NTC bölücüsü | |
+| 5V | DF2301Q VCC (ayrı dal; modülde 47 µF + 100 nF) | |
+
+Ses modülü pinleri robot pin haritasında da aynıdır (ek K3 Bağlantı; power-electronics §2). Ses modülü için kayış
+pinleri (0, 3, 45, 46) ve UART0 (43/44) kullanılmadı. GPIO11–13, haritada isteğe bağlı ADC2 toprak algısına ayrılmış 11–14 aralığından alındı;
+toprak algısı için GPIO14 kalır. Piezo ve fototransistör, tezgâhta boş olan sağ bacak pot pinlerinde (6, 7) durur;
+robota gitmezler.
+
+İkinci PCA9685 (isteğe bağlı, önerilir; robotun PCA#2'si gibi): A0 köprülü (0x41), 50 Hz. SDA/SCL ortak, OE → GPIO21,
+VCC 3V3. MG90S → ch4, SG90 → ch6. Bu durumda INA226 0x45'te olmalı (A0 = A1 = VS).
 
 ADS1115 (ADDR → GND, adres 0x48):
 
@@ -116,8 +131,9 @@ AIN2–AIN3 diferansiyel okunur (±256 mV). Bu, servo toprağının akımla kaym
 
 - PCA9685: 0x40 (varsayılan).
 - ADS1115: 0x48 (ADDR → GND).
+- İkinci PCA9685 (§10, isteğe bağlı): 0x41 (A0 köprülü).
 - INA226: **0x40 olmasın**, çünkü PCA9685 ile çakışır.
-  - Modüldeki A0 (ve/veya A1) köprüsünü VS'ye lehimleyin: 0x41 ya da 0x45.
+  - Modüldeki A0 (ve/veya A1) köprüsünü VS'ye lehimleyin: 0x41 ya da 0x45. İkinci PCA kullanacaksanız 0x45.
   - Betik INA226'yı üretici kimliğinden kendisi bulur.
   - `--cmd scan` ile kontrol edin.
 
@@ -426,3 +442,308 @@ Uydurucu her programın son başarılı koşusunu kullanır.
 | Servo 300 Hz'de titriyor ya da çok ısınıyor | `accept300` sorusuna `h` yazın: red kaydedilir (karar tablosu) |
 | Port açılınca kart resetleniyor | Logger DTR/RTS'yi kapalı açar. Başka bir seri monitör açık mı? |
 | Ray okuması yanlış | GPIO4 bölücüsünde C = 1 nF. Ray ölçeği INA VBUS ile otomatik eşlenir |
+
+---
+
+## 10. G-SES-a: ses modülü testi
+
+Bu bölüm spec ekinin K8 protokolüdür (`docs/workflow/openduck-tr/spec-ek-komut.md`). DF2301Q ses modülünün
+robotta kalıp kalmayacağına bu kapı karar verir. Çıktıları şunlardır:
+- modülün ölçüleri ve kütlesi (P2d kafa yerleşimi);
+- kimlik tablosu `configs/komut_kimlik.json` (P5k ve firmware okur);
+- tanıma gecikmesi dağılımı `configs/ses_gecikme.json` (A10 değerlendirme DR'ı);
+- kapı sonucu.
+
+Süre: kurulum ve bağlantı yaklaşık 20 dk, protokol yaklaşık 1.5–2 saat.
+
+| Adım | Test | Süre |
+|---|---|---|
+| Ölçümler (§10.4) | `ses-olcu` | 15 dk |
+| Öğrenme ve kimlik tablosu (§10.5) | `ses-ogren` | 15 dk |
+| Deneme 1: gürültü, 1.3 m, 12 × 20 | `ses-d1` | 25 dk |
+| Deneme 2: sessiz, 1.8 m, 12 × 10 + 10 aralıksız | `ses-d2` | 15 dk |
+| Deneme 3: uyanık pencerede yanlış komut | `ses-d3` | 40–45 dk |
+| Deneme 4: modül davranışı | `ses-d4` | 10 dk |
+
+Hepsini sırayla koşturmak için (her testten önce Enter bekler; `s` atlar, `q` çıkar):
+
+```
+python tools/bench/logger.py --port PORT --servo DF2301Q-1 --plan ses
+```
+
+Planın ilk adımı `gest`tir: gürültü programını 60 s koşturup servoların doğru kanallarda olduğunu gösterir.
+
+### 10.1 Alışveriş listesi
+
+Modül Adım 0 alımıyla birlikte alınır ve robota gider. Fiyat ve stok 24.10.2026 tarihli research taramasından
+(`research/voice-research.md`). Diğer satırların stoğu doğrulanmadı.
+
+| Parça | Adet | Not |
+|---|---|---|
+| DFRobot DF2301Q (Gravity SEN0539) | 1 | SAMM 1.171,86 TL, stok 6 (https://market.samm.com/gravity-cevrimdisi-ses-tanima-sensoru-i2c-ve-uart). Yedek: Direnc 1.817,05 TL. Tercihen V1.1 (dört delik); gelince kart yazısına bakın |
+| Seramik piezo disk (pasif, 20–27 mm, kendi osilatörü olmayan) | 1 | Yalnız tezgâh. 100 Ω seri direnç |
+| Görünür ışık fototransistörü (ör. TEMT6000 modülü) ya da LDR (GL5528) | 1 | Yalnız tezgâh. 10 kΩ ve bir parça siyah makaron |
+| 3 mm LED (yüksek parlaklık) + 330 Ω | 1 + 1 | Kafa LED'i; robota da gider |
+| 1 kΩ direnç | 2 | RX ve TX hatlarına seri |
+| 2 kΩ direnç | 1 | Yalnız TX boşta gerilimi > 3.6 V çıkarsa (bölücü) |
+| 47 µF 16 V elektrolitik + 100 nF MLCC | 1 + 1 | Modülün besleme ucunda |
+| İkinci PCA9685 | 1 | Robot adedinden. Önerilir; yoksa tek kart 50 Hz'e alınır |
+| Mezura, 0.35 m'lik kutu/sehpa, kumpas, 0.1 g terazi (yoksa 1 g), multimetre (mA) | — | |
+| Ses kaydedici (telefon) ve kayıtları çalacak bir hoparlör (bilgisayar ya da ikinci telefon) | — | |
+
+Modülün kutusundaki Gravity 4P kablosu (PH2.0) tezgâhta kullanılabilir. Adım 0'dan MG90S, SG90 ve bir DS servo gerekir.
+
+### 10.2 Bağlantı
+
+Pinler §2.1'deki tabloda ve robot pin haritasında aynıdır.
+
+```
+DF2301Q (Gravity 4P)                         ESP32-S3-DevKitC-1
+  D/T  (modül TX) ── 1 kΩ ──────────────────── GPIO12  (UART1 RX)
+  C/R  (modül RX) ── 1 kΩ ──────────────────── GPIO11  (UART1 TX)
+  GND ──────────────────────────────────────── GND
+  VCC ──────────────────┬───────────────────── 5V   (ayrı dal: servo raylarına bağlanmaz)
+              47 µF + 100 nF (modülün yanında, GND'ye)
+
+GPIO13 ── 330 Ω ── LED (+) ; LED (−) ── GND          kafa LED'i: konuşmacı görebilmeli
+GPIO7  ── 100 Ω ── piezo (+) ; piezo (−) ── GND       modülün ve ses kaydedicinin yanında
+3V3 ── fototransistör C ; E ── düğüm ── 10 kΩ ── GND ; düğüm ── GPIO6
+   (LDR ile: 3V3 ── LDR ── düğüm ── 10 kΩ ── GND. TEMT6000 modülü: VCC 3V3, SIG → GPIO6)
+```
+
+- Modülün anahtarları: iletişim **UART** (I2C değil), hoparlör **SPK1** (kart üstü). I2C kullanılmaz: modülün I2C
+  hattını kilitlediğine dair kullanıcı raporu var (ek K3).
+- **TX'i bağlamadan önce gerilimini ölçün** (§10.4). Ölçülen boşta gerilim ≤ 3.6 V ise yalnız 1 kΩ seri direnç
+  yeterlidir. > 3.6 V ise bölücü kurun: D/T ── 1 kΩ ── GPIO12, ayrıca GPIO12 ── 2 kΩ ── GND (5 V → 3.33 V).
+- D/T ve C/R'nin TX/RX eşlemesi doğrulanmadı. Hiç kare gelmezse iki teli yer değiştirin. İki uçta da 1 kΩ olduğu
+  için bu zararsızdır.
+- Fototransistörü modülün mavi durum LED'ine dayayın ve üstüne siyah makaron geçirin ki oda ışığı girmesin.
+  Kontrol: `--cmd scan` çıktısındaki `R,ldr_mv` değeri, modül uyanıkken (ördek dedikten sonra) uykudakinden en az
+  100 mV yüksek olmalı.
+- Servolar: MG90S → PCA#2 ch4, SG90 → PCA#2 ch6, DS → PCA#1 ch0.
+  - MG90S ve SG90 6.0 V rayda, DS 6.5 V rayda (§5).
+  - İkinci PCA yoksa MG90S → PCA#1 ch4, SG90 → PCA#1 ch6. Betik bu durumda PCA#1'i oturum boyunca 50 Hz'e alır; DS
+    de 50 Hz'de salınır (DS3230 50–330 Hz kabul eder). Analog servolar hiçbir zaman 300 Hz'de sürülmez.
+- Kanalları değiştirmek için: `--arg mg=2:4 sg=2:6 ds=1:0` (kart:kanal). İkinci bir MG90S'i ayrı head_yaw olarak
+  eklemek için: `mg2=2:3`.
+
+**Düzenek (deneme 1 ve 3):**
+- Çıplak modül 0.35 m yükseklikte, mikrofonlar konuşmacıya bakar.
+- MG90S ve SG90 modülden yaklaşık 4 cm uzakta, kolları serbest. DS servo yanında, mengenede.
+- Ses kaydedici (telefon) ve piezo modülün hemen yanında (≤ 10 cm).
+- Konuşmacı ayaktadır. Ağız–modül mesafesi deneme 1'de 1.3 m, deneme 2'de 1.8 m. Mesafeyi mezurayla işaretleyin.
+
+### 10.3 Yazılım
+
+1. Firmware'i yükleyin (`bench-2`): `pio run -d tools/bench -t upload`.
+   - Açılışta betik modüle iki kez (1.5 s ve 4 s'de) `setMuteMode(1)` ve `setWakeTime(15)` gönderir (ek K3.7).
+   - Modül `acilis` NOTIFY'ı gönderirse aynısı tekrarlanır.
+2. Kontrol:
+   ```
+   python tools/bench/logger.py --port PORT --cmd scan
+   python tools/bench/logger.py --port PORT --cmd "set pin_ldr=6"
+   python tools/bench/logger.py --port PORT --cmd save
+   ```
+   `scan` çıktısında `R,pca2,1` (ikinci PCA bulundu) ve `R,ldr_mv,...` görünür.
+3. Gürültü programı: `python tools/bench/logger.py --port PORT --servo DF2301Q-1 --test gest`. 60 s boyunca:
+   - MG90S sırayla baş sallar (head_pitch şablonu: ±0.2 rad, 1.5 Hz, 2 çevrim) ve baş çevirir (head_yaw: ±0.4 rad,
+     1.2 Hz, 2 çevrim);
+   - SG90 gaga açıp kapar (0 ↔ 25°, 2 Hz, 2 çevrim) ve çift tık yapar (0 → 12° → 0, 0.3 s);
+   - DS ±15° ve 1.1 Hz'de salınır.
+
+   Şablonlar ek K6.1'dekilerdir: Tukey zarfı, konum ya da hız basamağı yok.
+4. Modülü izlemek için: `--test ses-izle` (Ctrl-C ile biter). Tanınan her kimlik ekrana yazılır.
+   Elle komut: `--cmd "v play 23"`, `--cmd "v mute 0"`, `--cmd "v wake 20"`.
+
+Bütün oturumlar `voice` programını koşturur. Firmware şunları kendi saatiyle (µs) kaydeder:
+- modülden gelen her kare: tanıma kimliği, NOTIFY, ACK, bilinmeyen ya da bozuk kareler ve ham baytlar;
+- piezo tıkları ve deneme pencereleri;
+- fototransistör, kafa LED'i ve INA226 (50 Hz).
+
+Logger protokolü yürütür, ekranda ne söyleyeceğinizi yazar ve kimlik gelince bir sonrakine geçer. Deneme sırasında
+Ctrl-C duraklatır: Enter o denemeyi tekrarlar (kayıt geçersiz sayılır), `s` olduğu gibi sayıp geçer, `q` bitirir.
+
+### 10.4 Ölçümler: `ses-olcu`
+
+Önce, TX'i ESP32'ye bağlamadan:
+1. Modülü yalnız VCC (5 V) ve GND ile besleyin; anahtar UART'ta olsun.
+2. Multimetreyle D/T ile GND arasını ölçün (TX boşta gerilimi). Değeri not edin; bölücü kararı buna bağlıdır (§10.2).
+3. Sonra RX/TX tellerini bağlayın.
+
+Kumpas ve terazi ölçümlerini yapın, fotoğraflayın:
+- kart yazısı ve revizyon (V1.0 / V1.1);
+- montaj delikleri: sayı, eksenler arası mesafe ve çap;
+- iki mikrofonun merkezleri (konnektör kenarından ve uzun kenardan);
+- mikrofon portunun yönü;
+- en yüksek parçayla toplam yükseklik;
+- konnektörün yeri ve fiş takılıyken yükseklik;
+- kütle (kablosuz).
+
+Akım için multimetreyi (mA kademesi) modülün 5 V dalına seri bağlayın. İsterseniz INA226'yı da bu dala alın; o zaman
+oturum her ölçümün ortalamasını ve tepesini de kaydeder.
+
+```
+python tools/bench/logger.py --port PORT --servo DF2301Q-1 --test ses-olcu
+```
+
+Oturum her değeri sorar, siz yazarsınız (bilinmiyorsa `-`). Sırası:
+1. ölçüler, kütle ve TX boşta gerilimi;
+2. akım: boşta (uyku, sessiz oda), dinlerken (uyku, siz konuşurken; "ördek" demeden), uyanık ("ördek"ten sonra, LED
+   yanarken);
+3. açılış ani akımı: multimetre MAX/tepe kipinde, modülün beslemesini çıkarıp takın;
+4. RX 3.3 V testi: betik modüle `setMuteMode(0)`, ses 7 ve `playByCMDID(23)` gönderir.
+   - Yanıt sesini duyduysanız modülün RX'i ESP32'nin 3.3 V sürüşüyle çalışıyor.
+   - Duymadıysanız D/T–C/R'yi değiştirip tekrarlayın. Yine olmazsa seviye çevirici gerekir; rapora yazın.
+   - Çalarken akım da sorulur. Sonda modül yeniden susturulur.
+
+### 10.5 Kelimeleri öğretme ve kimlik tablosu: `ses-ogren`
+
+Modül çıplak, servolar kapalı, oda sessiz; modüle yaklaşık 1 m uzakta durun.
+
+```
+python tools/bench/logger.py --port PORT --servo DF2301Q-1 --test ses-ogren
+```
+
+Betik öğrenme modunu açar: hoparlör açılır ve kafa LED'i hızlı yanıp söner. Aynı şey BOOT düğmesine 2 s basarak da
+yapılır (robotta da öyle). Sonra adım adım yönlendirir. Modülün istemleri İngilizcedir; bazı birimler başka dilde
+konuşabilir.
+1. **Hepsini sil:** "Hello robot" → "I want to delete" → "Delete all". Ekranda 2, 204 ve 208 kimlikleri görünmeli.
+2. **Uyanma kelimesi:** "Hello robot" → "Learning wake word". Her istemden sonra "ördek" deyin (3 kez).
+3. **Komutlar:** "ördek" → "Learning command word". Sonra şu sırayla, her birini istem sordukça 3 kez söyleyin:
+   gel, dur, geri, sağa dön, sola dön, otur, kalk, eğil, yüksel, evet, hayır, vak. Kimlikler öğrenme sırasıyla 5–16
+   olur.
+4. "Exit learning" deyin. Betik öğrenme modunu kapatır ve modülü yeniden susturur.
+5. **Doğrulama:** her kelime için ekranda yazanı söyleyin: "ördek" → LED → kelime. Gelen kimlik kaydedilir.
+
+Sonra kimlik tablosunu yazın:
+
+```
+python tools/bench/voice_report.py tablo bench_logs/DF2301Q-1
+```
+
+- Komut `configs/komut_kimlik.json` dosyasını yazar: `{"version": 1, "ids": {"5": "gel", ...}, "wake": [1, 2]}`.
+- Bir kelime beklenen kimliği almadıysa ya da doğrulamada kimlik gelmediyse uyarı verir. O kelimeyi yeniden öğretin.
+- Zayıf bir kelimeye boş kimliklerde (17–21) ikinci şablon vermek için (ek K3 yedek yolu):
+  ```
+  python tools/bench/logger.py --port PORT --servo DF2301Q-1 --test ses-ogren --arg kelimeler=geri,sola
+  python tools/bench/voice_report.py tablo bench_logs/DF2301Q-1 --ekle
+  ```
+  Bu sırada silme ve uyanma adımları atlanır.
+
+### 10.6 Denemeler
+
+Deneme 1 ve 2 boyunca telefonla ses kaydı alın; telefon modülün yanında dursun. Kaydı WAV'a çevirin (Audacity:
+Dışa aktar > WAV). Dosyaları `ses-d1.wav` ve `ses-d2.wav` adlarıyla `bench_logs/DF2301Q-1/` klasörüne koyun. Gecikme
+bu kayıttan ölçülür: her denemenin başında piezo bir tık çalar. Analiz tıkları kayıtta bulup log saatine hizalar,
+sonra kelimenin bitişinden kimlik karesine kadar geçen süreyi hesaplar.
+
+**Deneme 1 (gürültülü, 1.3 m):**
+```
+python tools/bench/logger.py --port PORT --servo DF2301Q-1 --test ses-d1
+```
+- Düzenek §10.2'deki gibidir. Enter'dan sonra servolar oynamaya başlar.
+- Her kelime 20 kez, karışık sırayla gelir (240 deneme).
+- Her denemede: "ördek" deyin, kafa LED'inin yanmasını bekleyin, sonra ekrandaki kelimeyi söyleyin.
+
+**Deneme 2 (sessiz, 1.8 m):**
+```
+python tools/bench/logger.py --port PORT --servo DF2301Q-1 --test ses-d2
+```
+- Servolar kapalı. Her kelime 10 kez söylenir (120 deneme).
+- Sonra 10 kez aralıksız "ördek gel": tek nefeste, LED'i beklemeden.
+
+**Deneme 3 (uyanık pencerede yanlış komut; servolar çalışırken, konuşmadan):**
+
+Önce iki kısa kayıt hazırlayın: kendi sesinizle "gel" (`gel.wav`) ve "ördek" (`ordek.wav`). Bilgisayar bunları
+kendi hoparlöründen çalar. Dosya vermezseniz betik her seferinde sizden çalmanızı ister.
+
+```
+python tools/bench/logger.py --port PORT --servo DF2301Q-1 --test ses-d3 --arg canli_wav=gel.wav ordek_wav=ordek.wav
+```
+
+Akış:
+1. Servolar çalışır, 20 s uyku tabanı kaydedilir. Sonra "ördek" deyin ve susun.
+2. Pencere `setWakeTime(255)` ve 200 s'de bir yenilemeyle açık tutulur (A yöntemi).
+3. Her 5 dakikada bir canlılık kontrolü yapılır: kayıtlı "gel" çalınır, tanınması beklenir.
+4. 10. dakikada yöntem doğrulanır.
+   - Doğrulanmış uyanık süre geçen sürenin %90'ından azsa B yöntemine geçilir: pencere 15 s olur ve kayıtlı "ördek"
+     yaklaşık 14 s'de bir çalınır. Her çalmadan sonraki 2 s maruziyetten düşülür.
+5. Doğrulanmış uyanık süre 30 dakikaya ulaşınca (en çok 60 dk) koşu biter.
+6. Ardından pencere kapanır ve 5 dk'lık uyku bölümü gelir. Buradaki yanlış uyanmalar ayrıca sayılır.
+
+Uyanık durum, modül NOTIFY kareleri gönderiyorsa onlardan okunur. Göndermiyorsa modülün LED'ine bakan
+fototransistörden okunur.
+
+"Doğrulanmış uyanık süre", göstergenin uyanık dediği ve iki geçen canlılık kontrolü arasında kalan süredir. Bir
+kontrol kalırsa ondan önceki aralık sayılmaz. Bu süre 30 dakikanın altında kalırsa sonuç "geçti" değil
+"ölçülemedi"dir.
+
+**Deneme 4 (modül davranışı):**
+```
+python tools/bench/logger.py --port PORT --servo DF2301Q-1 --test ses-d4
+```
+- **A, pencere süresi:** "ördek"; 17 s sonra ekranda `SIMDI` çıkınca "evet".
+- **B, geçerli komut pencereyi yeniliyor mu:** "ördek"; 8. saniyede "evet", 17. saniyede "hayır".
+- **C, kalıcılık:** betik modüle mute = 1 ve pencere = 30 s gönderir.
+  - Modülün 5 V'unu 5 s çıkarıp geri takın; ESP32 açık kalsın.
+  - "ördek"e sesli yanıt geldi mi? Bu, susturmanın kalıp kalmadığını gösterir.
+  - 22. saniyede "evet" tanınırsa 30 s ayarı kalmıştır.
+- **D, istemler kafa kesiti içinden duyuluyor mu:** modülü kafa kesitine koyun (P2d çıktısı yoksa kapalı bir kutu ya
+  da 3D baskı kapak). 1 m'den "ördek" → "Learning command word" deyin, istemi dinleyin, hemen "Exit learning" deyin.
+
+NOTIFY karelerinin gelip gelmediği bütün oturumlardan otomatik sayılır.
+
+### 10.7 Kapı ve rapor
+
+```
+python tools/bench/voice_report.py rapor bench_logs/DF2301Q-1
+```
+
+Komut `bench_logs/DF2301Q-1/ses_rapor.md` ve `ses_rapor.json` dosyalarını yazar. Ses kaydı varsa
+`configs/ses_gecikme.json` dosyasını da yazar.
+
+| Ölçüt | Hesap | Eşik |
+|---|---|---|
+| Kelime başına doğruluk | Deneme 1, kelime başına 20 deneme | ≥ 18/20; dur için ≥ 19/20 |
+| Havuz | Deneme 1 + 2'nin LED biçimli denemeleri | ≥ %90 ve Wilson alt sınırı ≥ %85 |
+| Tehlikeli çiftler | gel/geri, sağa/sola, otur/kalk; iki yönde, bütün denemelerde | İkame çift başına ≤ 1 |
+| Uyanık pencerede yanlış komut | Deneme 3, doğrulanmış uyanık süre | 30 dk'da 0 yanlış komut; Poisson %95 üst sınırı ≤ 1/10 dk |
+| "ördek → komut" zinciri | LED biçimli denemelerde uyanma kimliği ve ardından doğru komut | ≥ %90 |
+
+- Bir denemenin sonucu, penceresindeki ilk uyanma dışı kimliktir. Bu kimlik tablodan kelimeye çevrilir. Sonuç dört
+  türden biridir: doğru, ikame (başka bir kelime), bilinmeyen (tabloda yok) ya da yok.
+- Deneme 2'nin kelime başına sonuçları ve aralıksız biçim raporda ayrıca yazılır.
+- Karışıklık matrisi rapordadır.
+- Ölçülen gecikme dağılımı yalnız değerlendirme DR'ına gider (`configs/ses_gecikme.json`, A10). Eğitim yeniden
+  yapılmaz.
+- Kapı tutmazsa ek K3'teki yedek yol uygulanır:
+  1. şablonlar yeniden öğretilir, zayıf kelimelere 17–21'de ikinci şablon verilir;
+  2. conta ve köpük düzeltilir;
+  3. hâlâ tutmazsa kullanıcı karar verir (Elechouse V3 tipi modül ya da telefon uygulaması).
+
+### 10.8 Geri gönderilecek dosyalar
+
+1. Logları zipleyin: `python tools/bench/logger.py --pack bench_logs/DF2301Q-1`. Zip içinde bütün `ses-*` koşuları
+   (CSV, olay, meta JSON, ham satırlar), `ses-d1.wav`, `ses-d2.wav`, `ses_rapor.md` ve `ses_rapor.json` bulunur.
+2. Ayrıca şunları gönderin:
+   - `configs/komut_kimlik.json` ve (varsa) `configs/ses_gecikme.json`;
+   - `gel.wav` ve `ordek.wav`;
+   - kartın iki yüzünün fotoğrafı (revizyon yazısı, delikler, mikrofonlar);
+   - kumpas ölçülerinin fotoğrafı;
+   - düzenek fotoğrafı: modül yüksekliği, servo mesafeleri, fototransistör ve LED yeri;
+   - notlar: istemlerin dili ve gözünüze çarpan her şey.
+3. Gönderme yolu §8'deki gibidir.
+
+### 10.9 Sorun giderme
+
+| Belirti | Çözüm |
+|---|---|
+| `voice programi baslamadi` | Firmware `bench-2` yüklü mü? `--cmd cfg` çıktısında `fw=bench-2` görünmeli |
+| Hiç kimlik gelmiyor (`<-` satırı yok) | Anahtar UART'ta mı? D/T–C/R'yi değiştirin. GND ortak mı? `--test ses-izle` ile "Hello robot" deyin |
+| `vbad` / `vjunk` olayları | Hat gürültülü ya da baud yanlış. Teller kısa olsun ve servo kablolarından ayrı dursun. Raporda sayılır; ham baytlar logdadır |
+| `fototransistor ... kontrast yetersiz` | Makaronu LED'e dayayın, oda ışığını kısın. TEMT6000 ya da LDR deneyin. `scan` ile uyanık ve uyku değerlerini karşılaştırın |
+| `W,ses: ogrenme kimligi 20x (ogrenme modu kapali)` | Modül bir öğrenme komutunu duydu. Raporda sayılır; öğrenme modunu açmadıysanız not edin |
+| `W,BOOT: servolar kapatildi` | BOOT'a kısa basıldı (E-stop). Ctrl-C ile duraklatıp `q` deyin ve oturumu yeniden başlatın |
+| `W,gurultu: tepe akim` | INA226 servo rayındaysa akım sınırı aşıldı. Kollar bir yere takılıyor mu? |
+| `UYARI: uyanik gosterge yok` (deneme 3) | NOTIFY yok ve fototransistör geçersiz. Süre doğrulanamaz; fototransistörü düzeltip deneme 3'ü yeniden koşturun |
+| `tikler hizalanamadi` (rapor) | Kayıtta piezo tıkı duyulmuyor. Piezoyu telefona yaklaştırın, `--arg tick_ms=80` ile tıkı uzatın |
