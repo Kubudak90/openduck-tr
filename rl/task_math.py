@@ -289,14 +289,28 @@ def is_seated(xp, alpha):
 
 # --- main: segment ve sifirlama orneklemesi (rastgele sayi kaynagi arka ucta) ------------------
 SEG_WALK, SEG_STAND, SEG_CROUCH, SEG_SIT = 0.0, 1.0, 2.0, 3.0
+SEG_HOLD, SEG_ATOM = 4.0, 5.0       # tr35 (C.VOICE["atoms"]): oturus oncesi "tut" ve komut atomu (spec eki K6.2)
 NUM_SEGMENT_U = 8      # sample_segment'in tukettigi U[0,1) sayisi (ortam basina)
 
 
-def sample_segment(xp, u, prev_command, seated=None):
+def atom_velocities():
+    """Komut atomlari (spec eki K6.2) (4,3) [vx, vy, wz]: (+k vx_max, 0, 0), (k vx_min, 0, 0), (0, 0, +k wz_max),
+    (0, 0, -k wz_max); k = C.ATOM["speed"] (0.8), sinirlar C.COMMAND_RANGES'tan."""
+    k, R = C.ATOM["speed"], C.COMMAND_RANGES
+    return np.array([[k * R["vx"][1], 0.0, 0.0], [k * R["vx"][0], 0.0, 0.0], [0.0, 0.0, k * R["wz"][1]],
+                     [0.0, 0.0, -k * R["wz"][1]]])
+
+
+def sample_segment(xp, u, prev_command, seated=None, prev_kind=None):
     """Yeni main segmenti. u (N,8) U[0,1): [tur, sure, sifir-hiz, vx, vy, wz, h-modu, h].
     prev_command (N,5): onceki ham komut (sit=1 ise yeni segment sit olamaz; sit segmenti h'yi korur).
     seated (N,) 0/1 ya da None: oturus bankasindan sifirlamada ilk segment (u[0] < seated_first_sit_prob -> sit,
-    yoksa stand). Dondurur (tur (N,) float SEG_*, komut (N,5), sure (N,) s)."""
+    yoksa stand). Dondurur (tur (N,) float SEG_*, komut (N,5), sure (N,) s).
+    C.VOICE["atoms"] (tr35; spec eki K6.2; yeni sayi yok, ayni 8 uniform): walk segmentlerinin C.ATOM["frac"]'i atom
+    (u[0] walk araliginin alt kesri): eksen u[4] (< 0.5 vx, yoksa wz), yon u[3] (vx: < 0.5 ileri) / u[5] (wz: < 0.5 sola),
+    hiz atom_velocities(), sure U(C.ATOM["segment_s"]) (u[1]), h walk kurali. Her sit'ten once "tut" (SEG_HOLD): sifir hiz,
+    onceki h, sure U(C.HOLD_S) (u[1]); prev_kind (N,) onceki segment turu SEG_HOLD ise bu segment sit olur (sifirlamada
+    None: onceki segment yok). Oturustan baslangicin ilk sit'i tut istemez."""
     M = C.MAIN
     p = np.asarray(M["segment_probs"], dtype=np.float64)
     c = np.cumsum(p)
@@ -317,6 +331,29 @@ def sample_segment(xp, u, prev_command, seated=None):
     h_crouch = C.H_MIN_STAND + (C.H_HOME - C.H_MIN_STAND) * u[..., 7]
     h = xp.where(kind == SEG_WALK, h_walk, xp.where(kind == SEG_CROUCH, h_crouch,
                                                      xp.where(kind == SEG_SIT, prev_command[..., 3], C.H_HOME)))
+    sit = xp.where(kind == SEG_SIT, 1.0, 0.0)
+    if not C.VOICE["atoms"]:
+        return kind, xp.concatenate([vel, h[..., None], sit[..., None]], axis=-1), dur
+    # --- tr35: komut atomlari ve oturus oncesi tut (spec eki K6.2) ---
+    atom = (kind == SEG_WALK) & (u0 < C.ATOM["frac"] * c[0])
+    av = atom_velocities()
+    lin = u[..., 4] < 0.5
+    v_lin = xp.where((u[..., 3] < 0.5)[..., None], av[0], av[1])
+    v_rot = xp.where((u[..., 5] < 0.5)[..., None], av[2], av[3])
+    vel = xp.where(atom[..., None], xp.where(lin[..., None], v_lin, v_rot), vel)
+    alo, ahi = C.ATOM["segment_s"]
+    dur = xp.where(atom, alo + (ahi - alo) * u[..., 1], dur)
+    kind = xp.where(atom, SEG_ATOM, kind)
+    after_hold = (prev_kind > SEG_HOLD - 0.5) & (prev_kind < SEG_HOLD + 0.5) if prev_kind is not None else \
+        xp.zeros_like(prev_sit)
+    first_sit = (seated > 0.5) & (kind == SEG_SIT) if seated is not None else xp.zeros_like(prev_sit)
+    hold = (kind == SEG_SIT) & ~after_hold & ~first_sit
+    to_sit = after_hold                                  # tut'tan sonra sit (onceki komut sit degil)
+    hlo, hhi = C.HOLD_S
+    kind = xp.where(to_sit, SEG_SIT, xp.where(hold, SEG_HOLD, kind))
+    vel = xp.where((hold | to_sit)[..., None], 0.0, vel)
+    h = xp.where(hold | to_sit, prev_command[..., 3], h)
+    dur = xp.where(hold, hlo + (hhi - hlo) * u[..., 1], xp.where(to_sit, lo + (hi - lo) * u[..., 1], dur))
     sit = xp.where(kind == SEG_SIT, 1.0, 0.0)
     return kind, xp.concatenate([vel, h[..., None], sit[..., None]], axis=-1), dur
 
@@ -340,6 +377,176 @@ def sample_reset_kind(xp, u, task):
 def bank_index(xp, u, n):
     """u U[0,1) -> banka indeksi floor(u*n) (n-1'e kirpilir; int32)."""
     return xp.minimum(xp.floor(u * n), n - 1).astype(xp.int32)
+
+
+# --- jest kanali (spec eki K6.1): env_cpu, env_mjx ve rl/commands.py AYNI fonksiyonu cagirir ---------------------
+# Cikti (N,5) ofset [rad], GEST_CHANNELS sirasi (4 bas eklemi + gaga); bas kontrolu = varsayilan + filtreli rastgele
+# ofset + jest (jest filtreyi atlar). Durum {"kind", "n", "amp", "cut_n"} (N,) float: tur (GEST_*), baslangictan beri
+# adim, genlik carpani (oturusta gaga siniri), kesmeden beri adim (-1: kesilmedi). Zaman = adim * CTRL_DT (birikmez).
+GEST_NONE, GEST_NOD, GEST_SHAKE, GEST_BEAK, GEST_CLICK, GEST_CLICK2 = 0.0, 1.0, 2.0, 3.0, 4.0, 5.0
+GEST_NAMES = ("none", "nod", "shake", "beak", "click", "click2")
+GEST_TRAIN = (GEST_NOD, GEST_SHAKE, GEST_BEAK, GEST_CLICK)          # egitimde orneklenen turler (spec K6.1 tablosu)
+GEST_CHANNELS = tuple(C.HEAD_JOINTS) + tuple(C.OTHER_JOINTS)
+
+
+def _gesture_table():
+    """Tur basina sabitler (numpy, GEST_NAMES sirasi): kanal, genlik, periyot, sure, Tukey yari cevrimi, sekil (0 yok,
+    1 sin, 2 acik (0 <-> genlik), 3 darbe), bas jesti mi, oturus genlik carpani."""
+    rows = [(0, 0.0, 1.0, 0.0, 0.0, 0, 0.0, 1.0)]
+    for name in GEST_NAMES[1:]:
+        g = C.GESTURES[name]
+        ch = GEST_CHANNELS.index(g["joint"])
+        if g["shape"] == "pulse":
+            per, dur, taper, shape = g["pulse_s"], g["pulse_s"] * g["pulses"], 0.0, 3
+        else:
+            per = 1.0 / g["freq"]
+            dur, taper, shape = per * g["cycles"], 0.5 * per, (1 if g["shape"] == "sin" else 2)
+        head = 1.0 if g["joint"] in C.HEAD_JOINTS else 0.0
+        cap = 1.0 if head else min(1.0, float(np.deg2rad(C.GESTURE_SEATED_MAX_DEG)) / g["amp"])
+        rows.append((ch, float(g["amp"]), per, dur, taper, shape, head, cap))
+    t = np.array(rows, dtype=np.float64)
+    return {"ch": t[:, 0].astype(np.int64), "amp": t[:, 1], "per": t[:, 2], "dur": t[:, 3], "taper": t[:, 4],
+            "shape": t[:, 5], "head": t[:, 6], "cap": t[:, 7],
+            "onehot": np.eye(len(GEST_CHANNELS))[t[:, 0].astype(np.int64)] * (t[:, 5:6] > 0)}
+
+
+GEST_TAB = _gesture_table()
+
+
+def gesture_init(xp, like):
+    """Bos jest durumu (like (N,) sablonu)."""
+    z = xp.zeros_like(like)
+    return {"kind": z, "n": z + 0.0, "amp": z + 1.0, "cut_n": z - 1.0}
+
+
+def _gtake(xp, key, k, like):
+    """GEST_TAB[key][k], like'in dtype'inda (commands.py float32, env_cpu float64, MJX float32)."""
+    return xp.asarray(GEST_TAB[key], dtype=like.dtype)[k]
+
+
+def gesture_raw(xp, kind, t, amp):
+    """Kesmesiz jest sinyali (N,5): sin/acik sekilde Tukey zarfi (yarim cevrim acilis ve kapanis, ortadaki tam cevrim
+    tam genlik; t = 0 ve t = sure'de konum ve hiz 0), darbe 0.5 (1 - cos) (tik). t (N,) s, amp (N,) genlik carpani."""
+    k = xp.clip(kind, 0.0, len(GEST_NAMES) - 1.0).astype(xp.int32)
+    A, P, D = _gtake(xp, "amp", k, t) * amp, _gtake(xp, "per", k, t), _gtake(xp, "dur", k, t)
+    tt, sh = xp.maximum(_gtake(xp, "taper", k, t), 1e-9), _gtake(xp, "shape", k, t)
+    inside = xp.where((t >= 0.0) & (t <= D), t * 0.0 + 1.0, t * 0.0)      # t'nin dtype'i (float32 korunur)
+    env = xp.minimum(0.5 - 0.5 * xp.cos(np.pi * xp.clip(t / tt, 0.0, 1.0)),
+                     0.5 - 0.5 * xp.cos(np.pi * xp.clip((D - t) / tt, 0.0, 1.0)))
+    ph = 2.0 * np.pi * t / P
+    cyc = 0.5 - 0.5 * xp.cos(ph)
+    v = xp.where(sh == 1.0, env * xp.sin(ph), xp.where(sh == 2.0, env * cyc, xp.where(sh == 3.0, cyc, 0.0)))
+    return (A * v * inside)[..., None] * _gtake(xp, "onehot", k, t)
+
+
+def gesture_fade(xp, cut_n, dt=C.CTRL_DT):
+    """Kesme sonumleme carpani: kesilmedi 1; kesmeden tau s sonra 0.5 (1 + cos(pi tau / GESTURE_FADE_S))."""
+    tau = cut_n * dt
+    w = 0.5 + 0.5 * xp.cos(np.pi * xp.clip(tau / C.GESTURE_FADE_S, 0.0, 1.0))
+    return xp.where(cut_n < 0.0, 1.0, w)
+
+
+def gesture_gate(xp, kind, alpha):
+    """Baslatma kapisi (0/1): bas jestleri alpha < ALPHA_STAND_MAX iken; gaga (gaga, tik) alpha < ALPHA_STAND_MAX ya da
+    alpha = 1 iken. Dondurur (kapi, genlik carpani: alpha = 1 ve ayakta degilse oturus siniri)."""
+    k = xp.clip(kind, 0.0, len(GEST_NAMES) - 1.0).astype(xp.int32)
+    stand = alpha < C.ALPHA_STAND_MAX
+    seated = is_seated(xp, alpha) > 0.5
+    ok = xp.where(_gtake(xp, "head", k, alpha) > 0.5, stand, stand | seated)
+    return xp.where(ok & (kind > 0.5), 1.0, 0.0), xp.where(stand, 1.0, _gtake(xp, "cap", k, alpha))
+
+
+def gesture_step(xp, st, req, alpha, cut, dt=C.CTRL_DT):
+    """Jest kanalinin bir kontrol adimi (spec eki K6.1). st: gesture_init durumu; req (N,) baslatma istegi (GEST_*, 0
+    yok); alpha (N,) durus filtresi (kapi yalniz baslangicta); cut (N,) 0/1 kesme (dur, otur, dusme, segment degisimi).
+    Sira: kesme (calisan, kesilmemis jest -> sonumleme baslar), baslatma (kanal bos, istek, kapi; jestler kuyruga girmez:
+    kanal doluyken istek yok sayilir), cikti (bu adimin zamaninda; kesildiyse x gesture_fade), ilerletme ve bitis (sure
+    ya da GESTURE_FADE_S doldu). Dondurur (st', out (N,5) ofset rad, active (N,) 0/1 bu adimda jest var (sonumleme dahil),
+    started (N,) 0/1 bu adimda basladi)."""
+    kind, n, amp, cn = st["kind"], st["n"], st["amp"], st["cut_n"]
+    on = kind > 0.5
+    cn = xp.where(on & (cut > 0.5) & (cn < 0.0), 0.0, cn)
+    gate, cap = gesture_gate(xp, req, alpha)
+    go = (~on) & (gate > 0.5)
+    kind = xp.where(go, req, kind)
+    n = xp.where(go, 0.0, n)
+    amp = xp.where(go, cap, amp)
+    cn = xp.where(go, -1.0, cn)
+    on = kind > 0.5
+    out = gesture_raw(xp, kind, n * dt, amp) * gesture_fade(xp, cn, dt)[..., None]
+    n2 = n + 1.0
+    cn2 = xp.where(cn >= 0.0, cn + 1.0, cn)
+    D = _gtake(xp, "dur", xp.clip(kind, 0.0, len(GEST_NAMES) - 1.0).astype(xp.int32), n)
+    end = on & ((n2 * dt > D + 1e-6) | (cn2 * dt > C.GESTURE_FADE_S + 1e-6))    # son ornek t = sure (cikti 0)
+    st2 = {"kind": xp.where(end, 0.0, kind), "n": xp.where(on & ~end, n2, 0.0), "amp": xp.where(end, 1.0, amp),
+           "cut_n": xp.where(on & ~end, cn2, -1.0)}
+    return st2, out, xp.where(on, 1.0, 0.0), xp.where(go, 1.0, 0.0)
+
+
+def gesture_sample(xp, u0, u1):
+    """Egitim bas yeniden orneklemesi (C.GESTURE_SAMPLE, mevcut 6 bas uniform'undan): u0 < p_jest -> jest (tur
+    GEST_TRAIN[floor(4 u1)]), < p_jest + p_rastgele -> rastgele hedef, yoksa sifir. Dondurur (istek (N,) GEST_*, rastgele
+    (N,) 0/1)."""
+    pg, pr, _ = C.GESTURE_SAMPLE
+    g = u0 < pg
+    k = xp.minimum(xp.floor(u1 * len(GEST_TRAIN)), len(GEST_TRAIN) - 1.0)
+    return xp.where(g, 1.0 + k, 0.0), xp.where((~g) & (u0 < pg + pr), 1.0, 0.0)
+
+
+_RATE_CACHE = {}
+
+
+def gesture_rate_bounds(fine_dt=5e-4):
+    """Kanal basina (5,) jest ciktisinin |d/dt| ust siniri (rad/s): tam genlik, her baslangic ve kesme aninda (sonumleme
+    dahil; ince izgarada sayisal). Durumdan bagimsiz sabit; head_slew_bounds ve testler kullanir."""
+    if fine_dt in _RATE_CACHE:
+        return _RATE_CACHE[fine_dt].copy()
+    out = np.zeros(len(GEST_CHANNELS))
+    F = C.GESTURE_FADE_S
+    tf = np.arange(0.0, F + fine_dt, fine_dt)
+    w = gesture_fade(np, np.round(tf / fine_dt), fine_dt)
+    wd = np.gradient(w, fine_dt)
+    for k in range(1, len(GEST_NAMES)):
+        D = GEST_TAB["dur"][k]
+        t = np.arange(-F, D + F + fine_dt, fine_dt)
+        g = gesture_raw(np, np.full(len(t), float(k)), t, np.ones(len(t)))[:, GEST_TAB["ch"][k]]
+        gd = np.gradient(g, fine_dt)
+        m = len(tf)
+        best = np.max(np.abs(gd))
+        for i0 in range(0, len(t) - m, 4):                        # kesme aninin her konumu (2 ms adim)
+            best = max(best, float(np.max(np.abs(gd[i0:i0 + m] * w + g[i0:i0 + m] * wd))))
+        ch = GEST_TAB["ch"][k]
+        out[ch] = max(out[ch], best)
+    _RATE_CACHE[fine_dt] = out
+    return out.copy()
+
+
+def slew_limits():
+    """(5,) GEST_CHANNELS sirasinda toplam bas/gaga ctrl hiz siniri 0.5 omega0 (MG90S, SG90; tr35 servo siniflari)."""
+    from . import actuators as A
+    return np.array([0.5 * A.CLASSES[A.JOINT_CLASS[A.TR35][j]]["omega0"] for j in GEST_CHANNELS])
+
+
+def head_slew_bounds(random_head=True):
+    """Toplam bas ctrl'unun (varsayilan + filtreli rastgele ofset + oturus scripti + jest) |d/dt| ust siniri (5,)
+    rad/s, GEST_CHANNELS sirasi. Rastgele ofset: jest yokken 2 r / tau, jest suresince (hedef 0) r / tau; script:
+    |HEAD_SIT - HEAD_HOME| / (SIT_SPLIT min(SIT_RAMP_S, STAND_RAMP_S)); gaga ofsetsiz. random_head=False: komut katmani
+    (rastgele ofset yok)."""
+    g = gesture_rate_bounds()
+    hr = C.HEAD_RANDOM
+    r = np.array([hr["range"][j] for j in C.HEAD_JOINTS] + [0.0])
+    off = r / hr["filter_tau"] if random_head else 0.0 * r
+    script = np.array([abs(np.deg2rad(C.HEAD_SIT_DEG[j] - C.HEAD_HOME_DEG[j])) for j in C.HEAD_JOINTS] + [0.0]) \
+        / (C.SIT_SPLIT * min(C.SIT_RAMP_S, C.STAND_RAMP_S))
+    return np.maximum(2.0 * off, off + g) + script
+
+
+def check_head_slew(random_head=True):
+    """spec eki K6.1 hiz siniri: head_slew_bounds <= slew_limits (assert; tr35 jest kanali acik ortamlar ve
+    rl/commands.py kurulumda cagirir). Dondurur (sinir, limit)."""
+    b, lim = head_slew_bounds(random_head), slew_limits()
+    assert np.all(b <= lim), "jest + bas ctrl hizi siniri asiliyor: %s > %s" % (b.round(3).tolist(), lim.tolist())
+    return b, lim
 
 
 # --- gozlemler ----------------------------------------------------------------
