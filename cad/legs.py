@@ -308,15 +308,23 @@ def _routes(m, L, F):
     (params.legs.harness_route[anahtar] = {"in": [...] gecis girisinden once, "out": [...] cikistan sonra, "gland":
     demetin bittigi servo (rakor ucuna kanonik +Z yonunde es eksenli, 0.2 mm aralik)}). Ayni link'teki iki gecis
     tupunun birlesimi (joins = [[A, B], ...]: A'nin cikisi -> B'nin girisi) duz bir parca uzerinde 0.2 mm aralikla es
-    eksenli kesilir: ayni link ici cakisma olmaz, demet surekli. Doner {anahtar: {"in", "out": noktalar, "d": cap}}."""
+    eksenli kesilir: ayni link ici cakisma olmaz, demet surekli. Guzergah noktasi [x, y, z, r] ise o kose r yaricapli
+    yayla yuvarlanir (route.fillet; bukulme yaricapi, uc noktalar ve r'siz koseler keskin). Doner {anahtar: {"in",
+    "out": noktalar, "d": cap}}."""
+    import route
     hc = m.p["harness"]["crossings"]
     rt = L["harness_route"]
     out = {}
+    rad = {}                                   # kose noktasi -> fillet yaricapi (guzergahta 4. eleman)
+    pts = lambda qs: [tuple(q[:3]) for q in qs]
     for key in ("hip_yaw", "hip_roll", "hip_pitch", "knee"):
         c, r = hc[key], rt.get(key, {})
+        for q in r.get("in", []) + r.get("out", []):
+            if len(q) > 3:
+                rad[tuple(q[:3])] = float(q[3])
         out[key] = {"d": float(c["d"]),
-                    "in": [tuple(q) for q in r.get("in", [])] + [tuple(q) for q in c["in"]] + [tuple(c["cross"])],
-                    "out": [tuple(c["cross"])] + [tuple(q) for q in c["out"]] + [tuple(q) for q in r.get("out", [])],
+                    "in": pts(r.get("in", [])) + pts(c["in"]) + [tuple(c["cross"])],
+                    "out": [tuple(c["cross"])] + pts(c["out"]) + pts(r.get("out", [])),
                     # donmus cikis parcasi (gecis + out noktalari) ve link ici uzantinin capi (kollar ayrildiktan sonra
                     # demet incelir: out_d; yoksa d)
                     "n_out": 1 + len(c["out"]), "out_d": float(r.get("out_d", c["d"]))}
@@ -343,6 +351,13 @@ def _routes(m, L, F):
         else:                                  # B'nin basinda: A, B'nin ilk parcasi dogrultusunda yaklasir
             u = _unit(tuple(B["in"][1][i] - Q[i] for i in range(3)))
             A["out"] += [tuple(Q[i] - (ra + 0.4) * u[i] for i in range(3)), tuple(Q[i] - 0.2 * u[i] for i in range(3))]
+    if rad:
+        for v in out.values():
+            for part in ("in", "out"):
+                if any(q in rad for q in v[part][1:-1]):
+                    assert part == "in" or v["out_d"] == v["d"], "fillet: out_d'li cikista n_out kayar"
+                    v[part] = route.fillet(v[part], [rad.get(q, 0.0) if 0 < i < len(v[part]) - 1 else 0.0
+                                                     for i, q in enumerate(v[part])])
     return out
 
 
