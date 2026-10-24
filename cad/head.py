@@ -496,11 +496,20 @@ def _yaw_retainer(m, H, zc1):
     zl0 = zf0 + U["flange_t"] + F["gap"]                       # dudak alti
     zl1 = zl0 + R["lip_t"]
     rw0 = U["flange_r"] + F["gap"]                             # yay duvari ic yuzu (flansa radyal bosluk)
+    # dis ust kenar pahi: head_roll'da head_frame guvertesinin ic kenari yaylarin dis ustune iner
+    import Part
+    r_ch, h_ch = R["chamfer"]
+    k = h_ch / (R["r"][1] - r_ch)
+    ro = R["r"][1] + 1.0
+    tri = Part.Face(Part.makePolygon([V(yx + r_ch, yy, zl1 + 0.01), V(yx + ro, yy, zl1 + 0.01),
+                                      V(yx + ro, yy, zl1 - k * (ro - r_ch)), V(yx + r_ch, yy, zl1 + 0.01)]))
+    chamfer = tri.revolve(V(yx, yy, 0.0), V(0, 0, 1), 360.0)
     arcs, pilots, screws = [], [], []
     for name, c in (("head_yaw_retainer_left", 90.0), ("head_yaw_retainer_right", 270.0)):
         a0, a1 = c - R["half_deg"], c + R["half_deg"]
         arc = _zsector(rw0, R["r"][1], yx, yy, zc1, zl1, a0, a1).fuse(
             _zsector(R["r"][0], R["r"][1], yx, yy, zl0, zl1, a0, a1)).removeSplitter()
+        arc = arc.cut(chamfer)
         pts = [(yx + R["screw_r"] * math.cos(math.radians(c + s * R["screw_deg"])),
                 yy + R["screw_r"] * math.sin(math.radians(c + s * R["screw_deg"]))) for s in (-1, 1)]
         hole = [zcyl(F["m2_clear_d"] / 2.0, x, y, zc1 - 1.0, zl1 + 1.0) for x, y in pts]

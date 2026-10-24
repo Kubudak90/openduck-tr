@@ -83,6 +83,14 @@ for q in range(int(lim["lower"]) - 3, int(lim["upper"]) + 4, 4):
             k = n + " | " + it.name
             sweep[k] = min(sweep.get(k, 1e9), v)
 res["yaw_retainer_sweep"] = sweep
+# head_roll: head_frame guvertesinin ic kenari yaylarin dis ustune iner (pah + +-25 derece; sinirda > 0.5 mm)
+roll = {}
+jr = [j for j in m.joints if j["name"] == "head_roll"][0]
+for q in (jr["lower"], jr["upper"]):
+    p = dict(m.pose("stand")); p["head_roll"] = q
+    sh = {i.name: s for ln, i, s in m.posed_shapes(p)}
+    roll[str(q)] = min(sh[n].distToShape(sh["head_frame"])[0] for n in ret + ["head_yaw_retainer_screws"])
+res["roll_retainer"] = roll
 stand = m.pose("stand")
 J = {j["name"]: j for j in m.joints}
 poses = []
@@ -183,6 +191,7 @@ def test_passive_supports(built):
     assert lift["-0.25"]["down"] == 0.0 and lift["-0.4"]["down"] > 1.0
     sw = r["yaw_retainer_sweep"]
     assert min(sw.values()) >= 0.25, sorted(sw.items(), key=lambda kv: kv[1])[:3]
+    assert min(r["roll_retainer"].values()) > 0.5, r["roll_retainer"]
     assert 0.0 < g["roll_pin"] <= 0.5
     assert 0.0 < g["jaw_pin"] <= 0.5
     # boyun DS32xx eksenel yuku milde degil (p2c-tampon.md 4): +y A kolu baski kovani trunk_base besik duvarlarina
