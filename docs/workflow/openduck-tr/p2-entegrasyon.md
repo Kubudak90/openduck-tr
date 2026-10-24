@@ -3,8 +3,8 @@
 Tarih: 2026-10-24. Girdi: `p2-interface.md` (§12 kararları), P2a/P2b/P2c raporları ve değişiklik talepleri, orkestratör
 kararları. Bu belge birleştirmeyi, kararları, entegrasyon düzeltmelerini, tam `check.py` sonuçlarını, boy/kütle/COM'u
 ve sonraki adımlara devredilen açık konuları verir. `acik-konular.md` başka bir iz tarafından tutulur; bu adımın
-açık konuları §8'dedir. Bağımsız doğrulamanın engelleyici bulguları ve düzeltmeleri §9'dadır; §4 ve §5 doğrulama
-öncesi durumdur, güncel sonuçlar §9.6'da.
+açık konuları §8'dedir. Bağımsız doğrulamanın engelleyici bulguları ve düzeltmeleri §9'dadır (tur 1) ve §10'dadır
+(tur 2: D1–D5); §4 ve §5 doğrulama öncesi durumdur, güncel sonuçlar §10.6'da.
 
 ## 1. Birleştirilenler
 
@@ -240,7 +240,7 @@ Doğrulama öncesi değerler; düzeltmelerden sonra kütle 1768.2 g (x 1.05 = 18
   - kütle 1856.6 ≤ 1950 g;
   - el hesapları: `p2a-el-hesabi.md`, `p2c-tampon.md` (dört DS bacak eklemi, ES3054 ve boyun eksenel yük yolu §9.2-9.4);
   - altın bayt-eşit.
-- **ORCHESTRATOR DECISION NEEDED (kalan kablo temasları, §9.1):** `check.py` artık spec A1'in harfiyle sayar. P2a
+- **[Karar verildi: §10.1 D1 + D2]** ~~ORCHESTRATOR DECISION NEEDED~~ (kalan kablo temasları, §9.1): `check.py` artık spec A1'in harfiyle sayar. P2a
   güzergâhı 14 yalnız-kablo pozun 12'sini temizledi; donmuş arayüzle temizlenemeyen 6 poz kaldı (35 poz-çift):
   - roll ±20 × pitch ±50, yalnız kablo (2 poz, 10 poz-çift): donmuş diz giriş noktası ve diz geçişi trunk'ın alt dış
     arka kenarına girer.
@@ -250,7 +250,7 @@ Doğrulama öncesi değerler; düzeltmelerden sonra kütle 1768.2 g (x 1.05 = 18
     (b) P2b: alt dış arka kenarda x −58..−28 boyunca ~4 x 8 mm kırpma + PCA9685'i ~2 mm yukarı/içeri almak, ya da diz
     giriş noktası için ICR + x −58..−40'ta daha küçük kırpma. (c) A1'in harfi tüm pozlarda: hip_pitch ve diz
     geçişlerini bacağın dış (idler) tarafına almak (arayüz değişikliği, P2a yeniden tasarımı).
-- **ORCHESTRATOR DECISION NEEDED (yeni çift):** neck -90 + head_pitch 60'ta `upper_bill` ↔ `hip_cradle_bracket`
+- **[Karar verildi: §10.1, spec 3.2.2 v3.2 kafa ↔ kalça/kalça beşiği]** ~~ORCHESTRATOR DECISION NEEDED~~ (yeni çift): neck -90 + head_pitch 60'ta `upper_bill` ↔ `hip_cradle_bracket`
   (kafa ↔ kalça beşiği) 3.1 mm3, iki taraf. §3.2.2 listesinde kafa ↔ ayak ve kafa ↔ uyluk/incik var, kafa ↔ kalça
   beşiği yok.
   - Seçenekler: listeye eklemek (spec değişikliği) ya da P2c'nin üst gaga altını ~1 mm kırpması.
@@ -415,3 +415,128 @@ Süre 1076 s: tek eklem 227, rastgele 106, aynı link 3, komşu çift 627, bacak
 |---|---|
 | `pytest tests/cad` | 124 geçti (yeni: `test_pair_scope_still_counts_harness`, `test_axial_load_paths`) |
 | `pytest tests/golden` (check.py ile tam koşu) | 6 / 6, xl330_27 bayt-eşit |
+
+## 10. Doğrulama tur 2 (2026-10-24)
+
+Tur 1 düzeltmelerinden (§9) sonra ikinci bağımsız doğrulama yapıldı ve orkestratör beş karar verdi: D1–D5. Bu iş
+akışı oturum sınırında yarım kaldı. Commit'lenmemiş değişiklikler kullanıcı tarafından
+`worktree-wf_58df728a-3ce-1` dalına WIP olarak kurtarıldı. Bu bölüm o işi tamamlar ve doğrular. Commit'ler `p2-cad`
+dalındadır. Ölçümler Linux bulut konteynerinde FreeCAD 1.1.1 ile alındı.
+
+### 10.1 Kararlar
+
+| # | Konu | Karar | Uygulama |
+|---|---|---|---|
+| D1 | §8'deki kalan kablo temasları. Diz geçişi trunk'ın alt dış arka kenarında kalıyordu. | ICR onaylandı: diz geçişi uyluğun dış (idler) tarafına alındı. | `params.harness.crossings.knee`, `params.legs.harness_route`, `cad/route.py` (§10.2) |
+| D2 | Uzvun kendi yapısının da gövdeye girdiği pozlarda kablo teması | Spec A1 v3.2'ye "yapı önce" kuralı eklendi. | `cad/check.py` (§10.5) |
+| D3 | head_yaw eksenel tutma. Kafayı kaldıran yük MG90S miline gidiyordu. | Tutucu eklendi. | `cad/head.py` (§10.4) |
+| D4 | `check.py` sayılan çarpışmayı yalnız raporluyordu. | Çıkış kodu 1 verir; `build.sh --check` başarısız olur. | `cad/check.py` (§10.5) |
+| D5 | Aynı geçişin iki tüpü her yerde birbirine değebiliyordu. | Spec A1 v3.2: yalnız geçiş noktasının 2d çevresinde değebilir. | `cad/check.py` (§10.5) |
+| — | §8 yeni çift: `upper_bill` ↔ `hip_cradle_bracket` (neck −90, head_pitch 60) | Spec §3.2.2'ye "kafa ↔ kalça/kalça beşiği" eklendi. Ek K6.4 RL listesinde zaten vardı. | spec v3.2 |
+| — | Bütçe | Kafa yapısı 202.0 → 203.5 g (D3), bacaklar 913.2 → 916.5 g (D1). Fark gövde bütçesinden alındı: gövde ölçülen 653.9 g, bütçe 733.6 g. Ek K3'ün 30 g'ı (ses modülü) ayrıdır. | `tests/cad` bütçe satırları |
+| — | A2 | Bütçe tavanı ek K10'la (25.8k / 28.8k TL) uyumlu yazıldı. Spec §1 ve §4 zaten günceldi. | spec v3.2 |
+
+### 10.2 D1: diz geçişi dış tarafta
+
+- Geçiş noktası diz ekseninde, idler M3 başının (y 111.8) dışında: (−40.768, 114.5, −50.639). Giriş ve çıkış bu
+  düzlemde radyal.
+- Uyluk kablosu y 53 katmanından iki servo arasındaki boşluğa (y 61.75) tırmanır. Uyluğun üstünden (z 14) dış tarafa
+  gider ve diz eksenine iner.
+- İncik tarafında kablo geçişten radyal olarak ayak ve uyluk süpürmeleri arasındaki pencereye, oradan bilek servosu
+  rakoruna gider.
+- Köşe yarıçapları güzergâh noktasının 4. elemanıdır (`route.fillet`): demet için 16 (4d), pencere inişinde 11.
+- Dinamik geçiş yayı diz sınırlarında 29.6 mm; bend_r 16 (`route.crossing_bend`, `tests/cad/test_route.py`).
+- Bedeli: kablo bacak başına ~1.5 g ağırlaşır. HOME'da genişlik 223.4 → 232.4 mm olur (diz dışındaki halka).
+
+Tam `check.py` sonucu (D1 + D2 + D5, tutucudan önceki geometri; 6757 s):
+- Bacak modülünün içinde ve bacaktan gövdeye **hiç sayılan kablo teması kalmadı**. §9.1'deki 35 poz-çift temizlendi.
+- roll 10/20 × pitch 90'daki 4 poz "yapı önce" sınıfına girer: incik gövdeye kablodan önce değer. İlk temas adımı
+  rapordadır (`torso_shell` ↔ `shin_bracket`, 3.9 / 4.4 mm³).
+- Aynı link 0. Zarflar 0 / 0 / 0. Modellenen temaslar 30 poz-çift (§4 ile aynı).
+- Sayılan çarpışmaların hepsi head_yaw geçişidir (§10.3):
+  - tek eklem: 101;
+  - komşu çift: 256. Bunların 196'sı bacak pozlarında "modül dışı yalnız kablo" diye sayılır, çünkü kusur kafa
+    modülündedir;
+  - bacak–bacak: 32.
+
+### 10.3 Bilinen kusur: head_yaw geçişi (P2d'ye devredildi)
+
+D5 ile görünür oldu: head_yaw giriş tüpü (head_tilt) ile çıkış tüpü (head_turn) yaw 0'da 24 mm boyunca üst üste biner
+(158.5 mm³). Geçiş noktasının 2d = 7 mm çevresinin dışındadır. Kablo bir saç tokası çizer: iki bacak da −y'den gelir ve
+geçişte 178°'ye kadar bükülür (`route.crossing_bend`: R 0.15 mm).
+
+Donmuş geometride geçerli bir güzergâh yoktur:
+- Çıkış bacağı (head_turn) yalnız −y yarısında dönebilir. +y'de head_tilt kolu vardır.
+- Giriş için serbest yön (+y, β ≤ 80°) boyun beşiği duvarları ve üst kulak plakası tarafından kapatılmıştır. Bu
+  parçalar y 0..14'te z 117.9'a kadar çıkar ve pitch dönüşünde ~16.5 mm yarıçap süpürür.
+- Eksenin altında head_pitch servosu durur. Tablanın altında kablo için ~5 mm'lik katman kalır.
+- Ölçümler `yawroute.py` ile yapıldı (aday güzergâhlar, pitch/yaw süpürmeleri).
+
+Çözüm P2d'dedir. Ek K3.6, P2d'ye kafa kablo güzergâhı ve geçiş ICR yetkisi verir; bitti ölçütü "head_yaw ±80° burulma
+taraması temiz"dir. Ses modülünün 5 iletkeni aynı geçişten geçer. Olası yollar:
+- head_pitch beşiğinin üst kısmında +y kanalı;
+- yaw geçişini burulma bacağı olacak biçimde yeniden yerleştirmek;
+- yaw geçişi için hip_yaw benzeri eksen dışı halka istisnası.
+
+Bu kusur kapanana kadar:
+- `check.py` çıkış kodu 1 verir; main'de `build.sh --check` başarısızdır;
+- `tests/cad/test_head_tr35_fc.py` bu çifti `KNOWN` olarak izler ve başka her çarpışmada kırılır;
+- kusur kapanınca `test_known_head_yaw_crossing_defect_tracked` kırılır ve `KNOWN` boşaltılır.
+
+Bilgi: aynı ölçüyle diğer geçişlerin dinamik geçiş yayı:
+- bend_r'yi karşılayanlar: diz 29.6 (bend_r 16), head_roll 87 (14), hip_yaw (burulma).
+- karşılamayanlar: hip_roll 9.8 (26), hip_pitch 3.0 (26), neck 16.5 (20), head_pitch 17.0 (18).
+
+4d bend_r bir P2-0 tasarım rehberidir, A1 ölçütü değildir. P3'ün baskı ve montaj notunda bu geçişlerdeki servis
+halkası uzunluğu belirtilir.
+
+### 10.4 D3: head_yaw eksenel tutucusu
+
+- head_turn halkasına dış flanş eklendi: r 13.5, 1.2 mm. +x'te donmuş head_turn zarfı (x ≤ 46) için kırpıktır.
+- head_tilt tablasına iki PETG yay eklendi (`head_yaw_retainer_left/right`):
+  - ±y'de, ±25°, r 12..17, dış üst kenarı pahlı;
+  - yay başına 2 × M2 tablaya; vida başları gömülü;
+  - 1.3 mm'lik dudak flanşı yukarıdan 0.3 mm boşlukla tutar.
+- Kafa aşağı → halka tablaya oturur. Kafa yukarı (ters duruş, kalkma, darbe) → flanş dudağa → vidalar → tabla. Devrilme
+  momentinde bir taraf tablaya, öbür taraf dudağa kapanır. MG90S mili tork ve radyal yük taşır (`p2c-tampon.md` §4).
+- Açıklıklar:
+  - dudak üstü MG90S kulesinin (z 134.81) 0.3 mm altında;
+  - yaw −83..83 boyunca head_turn parçalarına ≥ 0.3 mm, kablolara ≥ 1.25 mm;
+  - kaldırma testi: ±0.25 mm serbest, 0.4 mm'de dudağa / tablaya temas.
+- Mesh voksel taraması ilk biçimin (±40°) head_roll'da head_frame güvertesine indiğini gösterdi: +16 sınırında 0 mm.
+  Yaylar ±25°'ye daraltıldı ve pahlandı:
+  - sınırda (+16) 0.85 mm;
+  - +18'de 0.05 mm;
+  - +19'da (MJCF aralığının ucu) 0.28 mm³, A8 eşiği 1 mm³'ün altında;
+  - −20..−23'te 3.5 mm.
+- Kütle +1.2 g: yaylar 2 × 0.1 g, flanş 0.2 g, vidalar 0.8 g. Kafa modülü 202.5 g.
+
+### 10.5 `check.py` kuralları (D2, D4, D5)
+
+- **D5:** aynı geçişin iki tüpünün kesişimi ayrık parçalarına bölünür. Kütle merkezi geçiş noktasının (parent link
+  çerçevesinde pozlanır; sağ bacak aynalı) 2d çevresinde kalan parçalar sayılmaz, diğerleri sayılır.
+- **D2:** komşu çift ızgarasında (kapsam `module`) bir pozda modül dışı yapı teması ve kablo teması birlikte varsa,
+  HOME → poz doğrusal eklem yolu en büyük eklem değişiminin 1°'lik adımlarıyla taranır. İlk modül dışı temasın olduğu
+  adımda temasların hepsi yapıysa ("yapı önce") kablo temasları sayılmaz ve ilk temas adımıyla listelenir. Diğer
+  durumlar sayılır: yalnız kablo, kablo önce.
+- **D4:** sayılan toplam (tek eklem + komşu çift + bacak–bacak + zarflar + aynı link) > 0 ise çıkış kodu 1 olur.
+  freecadcmd `SystemExit`'te stdout'u boşaltmadığı için çıkıştan önce `flush` yapılır. xl330_27'de sayılan yoktur;
+  altın test etkilenmez.
+- Testler `tests/cad/test_check_contacts.py`'dedir. Yol taraması pahalıdır: tam koşu bu makinede 6757 s sürdü (Mac'te
+  §9.6'da 1076 s). Süreyi komşu çift bölümü belirler (4849 s).
+
+### 10.6 Güncel sonuçlar
+
+| Ölçüt | Değer |
+|---|---|
+| Tam `check.py` | §10.2: sayılanların hepsi head_yaw geçişi (§10.3); başka sayılan yok |
+| Kafa modülü (`OPENDUCK_CHECK_LINKS=head`, son geometri) | §10.7 |
+| Kütle (aşağıdan yukarı) | 1775.5 g × 1.05 = **1864.2 g** (sınır 1950). Gövde 653.9, bacaklar 919.0 (link kuralıyla; bacak testi 916.3), kafa 202.5 |
+| Kafa üstü (stand) | 347.7 mm. HOME'da boyut 190.6 × 232.4 × 347.7 mm |
+| Baskı parçaları | 38 (+ iki tutucu yay), tek katı, 256 mm küpe sığar |
+| `pytest tests/cad` | 139 + yeni testler geçti. Linux'ta altın (xl330_27) xml/urdf/mesh yalnız sayısal farkla kalır: en çok 2.9e-18, mesh'lerde üçgen sırası. Aynı 3 hata main'de de vardır; altın Mac'te üretildi. Bayt eşitliği Mac'te doğrulanır |
+| RL paketleri | P5b-ön dalında gerçek tr35 sahnesiyle (`p5b-notlar.md`) |
+
+### 10.7 Kafa modülü taraması (son geometri)
+
+Sonuç commit'te eklenir.
