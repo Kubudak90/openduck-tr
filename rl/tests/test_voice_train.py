@@ -149,7 +149,7 @@ _GEST_ENV = r"""
 import numpy as np
 from rl import task_math as T
 from rl.env_cpu import VecEnv
-n = 8
+n = 16                      # tut (4) ve atom (5) segmentlerinin ikisi de gorulsun (atom: yurume segmentlerinin %20'si)
 e = VecEnv(n, num_workers=0, task="main", seed=3, randomize=True, noise=True, head_random=True, push=True, bank_n=16)
 core = e._core
 out = {"gestures": core.gestures, "slew": core.slew_lim.tolist()}
@@ -175,7 +175,9 @@ act = K > 0.5
 # jest suresince rastgele ofset 0'a dogru (|ofset| azalir) ve zamanlayici durur
 dec = [bool(np.all(np.abs(OFF[k + 1][act[k + 1]]) <= np.abs(OFF[k][act[k + 1]]) + 1e-12)) for k in range(len(K) - 1)]
 out["offset_decays"] = bool(all(dec))
-frozen = [bool(np.all(TM[k][1][act[k - 1]] == TM[k][0][act[k - 1]])) for k in range(1, len(K))]
+# bolum sifirlanan adimlar haric (sure dolumu / dusme: zamanlayici yeniden kurulur; adim sayaci geri gider)
+cont = [act[k - 1] & (SC[k] > SC[k - 1]) for k in range(1, len(K))]
+frozen = [bool(np.all(TM[k][1][cont[k - 1]] == TM[k][0][cont[k - 1]])) for k in range(1, len(K))]
 out["timer_frozen"] = bool(all(frozen))
 rate = np.abs(np.diff(HC, axis=0)) / C.CTRL_DT
 same = SC[1:] >= 2                                    # ayni bolum icindeki ardisik adimlar (sifirlama haric)
