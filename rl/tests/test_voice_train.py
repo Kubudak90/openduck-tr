@@ -245,7 +245,19 @@ sl_q, sl_v = spec.obs_slices["joint_pos"], spec.obs_slices["joint_vel"]
 lsb = float(P["lsb"].max())
 tol_q, tol_v = 2e-3 + lsb, 2e-3 + 2.0 * C.OBS_SCALES["joint_vel"] * P["alpha"] * lsb / C.SIM_DT
 rec = {"rew": 0.0, "crit": 0.0, "obs_rest": 0.0, "dq": 0.0, "dv": 0.0, "g": 0.0, "ctrl": 0.0, "seg": 0.0,
-       "kinds": [], "segs": [], "gest_steps": 0, "mouth": 0.0}
+       "kinds": [], "segs": [], "gest_steps": 0, "mouth": 0.0, "ties": 0, "contact_steps": 0}
+# PWM nicemleme (actuators.quantize_pwm, round(ctrl / res)): nicemleme oncesi deger yuvarlama sinirina float32 hassasiyeti
+# icinde dustugunde CPU (float64) ve MJX (float32) bir adim farkli yuvarlar. Tam bir adimlik fark "tie" sayilir; o ortamin
+# o adimdaki odul / gozlem karsilastirmasi atlanir (durum her adim CPU'dan yeniden esitlenir).
+res_pwm = np.asarray(core.idx.act["pwm_res"])
+flip = np.zeros(n, bool)
+# Temas uyusmazligi: adim sonunda MJX ile MuJoCo C'nin aktif temas sayisi (dist < 0) farkli olan ortam-adimlari. Iki
+# motor temas acilip kapanirken (gercek CAD'de oturusta govde kutusu zeminden ~0.3 mm yukarida) farkli cozer; bu
+# adimlarin odul / gozlem karsilastirmasi atlanir, sayisi raporlanir. Jest, segment ve ctrl her adim kesin.
+active_c = lambda: np.array([int(np.sum(d.contact.dist[:d.ncon] < 0.0)) for d in core.datas])
+def active_m(s_):
+    c_ = getattr(getattr(s_.data, "_impl", s_.data), "contact")
+    return np.sum(np.asarray(c_.dist) < 0.0, axis=1)
 f32 = lambda x: jnp.asarray(x, jnp.float32)
 for t in range(-1, steps):
     if t >= 0:
@@ -267,24 +279,33 @@ for t in range(-1, steps):
             r_.q = {}
         st = jstep(st, jnp.asarray(a))
         assert np.array_equal(done_c, np.asarray(st.done) > 0.5), t
-        rec["rew"] = max(rec["rew"], float(np.abs(rew_c - np.asarray(st.reward)).max()))
         inf = jax.tree_util.tree_map(np.asarray, st.info)
         live = ~done_c
+        dd = np.abs(core.ctrl_prev - inf["tr"]["ctrl_prev"])
+        tie = (dd > 1e-5) & (np.abs(dd - res_pwm[None, :]) < 1e-6)
+        nc1 = active_c()
+        trans = live & (np.asarray(active_m(st)) != nc1)
+        rec["contact_steps"] += int(trans.sum())
+        flip = tie.any(axis=1) | trans
+        rec["ties"] += int(tie.sum())
+        rec["rew"] = max(rec["rew"], float(np.abs(rew_c - np.asarray(st.reward))[~flip].max(initial=0.0)))
         for k in ("kind", "n", "amp", "cut_n"):
             rec["g"] = max(rec["g"], float(np.abs(core.gst[k][live] - inf["g_" + k][live]).max(initial=0.0)))
         rec["seg"] = max(rec["seg"], float(np.abs(core.seg[live] - inf["seg"][live]).max(initial=0.0)))
-        rec["ctrl"] = max(rec["ctrl"], float(np.abs(core.ctrl_prev[live] - inf["tr"]["ctrl_prev"][live]).max(initial=0.0)))
+        rec["ctrl"] = max(rec["ctrl"], float(np.where(tie, 0.0, dd)[live].max(initial=0.0)))
         rec["kinds"] = sorted(set(rec["kinds"]) | set(core.gst["kind"].tolist()))
         rec["segs"] = sorted(set(rec["segs"]) | set(core.seg.tolist()))
         rec["gest_steps"] += int(np.sum(core.gst["kind"] > 0.5))
         rec["mouth"] = max(rec["mouth"], float(np.abs(core.ctrl_prev[:, core.idx.other_act_id]).max()))
     om, cm = np.asarray(st.obs["state"]), np.asarray(st.obs["privileged_state"])
-    rec["crit"] = max(rec["crit"], float(np.abs(crit_c - cm).max()))
-    dq, dv = np.abs(obs_c[:, sl_q] - om[:, sl_q]).max(), np.abs(obs_c[:, sl_v] - om[:, sl_v]).max()
+    k_ = ~flip
+    rec["crit"] = max(rec["crit"], float(np.abs(crit_c - cm)[k_].max(initial=0.0)))
+    dq = np.abs(obs_c[:, sl_q] - om[:, sl_q])[k_].max(initial=0.0)
+    dv = np.abs(obs_c[:, sl_v] - om[:, sl_v])[k_].max(initial=0.0)
     rec["dq"], rec["dv"] = max(rec["dq"], float(dq / tol_q)), max(rec["dv"], float(dv / tol_v))
     rest = np.ones(spec.num_obs, bool)
     rest[sl_q] = rest[sl_v] = False
-    rec["obs_rest"] = max(rec["obs_rest"], float(np.abs(obs_c[:, rest] - om[:, rest]).max()))
+    rec["obs_rest"] = max(rec["obs_rest"], float(np.abs(obs_c[:, rest] - om[:, rest])[k_].max(initial=0.0)))
     qp, qv, qw = (np.stack([getattr(d, f) for d in core.datas]) for f in ("qpos", "qvel", "qacc_warmstart"))
     tr = dict(st.info["tr"], ctrl_prev=f32(core.ctrl_prev), pot={k: f32(v) for k, v in core.pot_st.items()},
               imu={k: f32(v) for k, v in core.imu_st.items()})
@@ -303,6 +324,8 @@ def test_tr35_lockstep_cpu_mjx_gestures_atoms():
     o = _run(_LOCK % {"seed": 71}, _env(OPENDUCK_BANK_N=32, JAX_PLATFORMS="cpu"), timeout=2400)
     print("lockstep jest/atom", o)
     assert o["g"] < 1e-5 and o["seg"] == 0.0 and o["ctrl"] < 1e-5, o
+    assert o["ties"] <= 4, o                  # tek PWM adimi yuvarlama farklari seyrek (280 ortam-adimi x 15 kanal)
+    assert o["contact_steps"] <= 28, o        # temas uyusmazligi seyrek (280 ortam-adiminin <= %10'u)
     assert o["rew"] < 1e-3 and o["crit"] < 2e-3 and o["obs_rest"] < 2e-3 and o["dq"] < 1.0 and o["dv"] < 1.0, o
     assert o["gest_steps"] > 20 and len([k for k in o["kinds"] if k > 0]) >= 2 and o["mouth"] >= 0.0
     assert {4.0} <= set(o["segs"]) or {5.0} <= set(o["segs"]), o["segs"]
