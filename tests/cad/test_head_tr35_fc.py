@@ -57,7 +57,10 @@ res["gaps"] = {"thrust_in": d("head_tilt_bracket", "head_pitch_thrust_in"),
                "thrust_out": d("head_tilt_bracket", "head_pitch_thrust_out"),
                "yaw_ring": d("head_turn_bracket", "head_tilt_bracket"),
                "roll_pin": d("head_turn_bracket", "head_frame"),
-               "jaw_pin": d("lower_bill", "jaw_pin_bushing")}
+               "jaw_pin": d("lower_bill", "jaw_pin_bushing"),
+               "neck_thrust": d("neck_link", "trunk_base"),
+               "neck_idler": d("neck_pitch_idler_pin", "neck_pitch_idler_bearing"),
+               "neck_servo": d("neck_link", "neck_pitch_servo")}
 stand = m.pose("stand")
 J = {j["name"]: j for j in m.joints}
 poses = []
@@ -147,6 +150,11 @@ def test_passive_supports(built):
     assert g["yaw_ring"] == pytest.approx(F["gap"], abs=0.02)
     assert 0.0 < g["roll_pin"] <= 0.5
     assert 0.0 < g["jaw_pin"] <= 0.5
+    # boyun DS32xx eksenel yuku milde degil (p2c-tampon.md 4): +y A kolu baski kovani trunk_base besik duvarlarina
+    # 0.2, -y B kolu somun + ara halka F623ZZ ic bilezigine 0.05; servo govdesine daha uzak
+    assert g["neck_thrust"] == pytest.approx(0.2, abs=0.005)
+    assert g["neck_idler"] == pytest.approx(0.05, abs=0.005)
+    assert g["neck_servo"] > g["neck_thrust"] + 1.0
 
 
 def test_no_collisions_at_limits_and_combos(built):

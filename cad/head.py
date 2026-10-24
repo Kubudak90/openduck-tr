@@ -308,8 +308,9 @@ def _metal(m, link, name, axis, pts, r, a0, a1, mass_g):
 
 
 def _neck(m, sv, H, hz):
-    """Boyun U-link'i (neck, PETG): A kolu DS aluminyum kolu gomer (cep + 2 x M2.5 somunlu + M3 merkez vidasi), B kolu
-    trunk'in idler pimini (F623ZZ ic bileziginde M3) tasir; kopru head_pitch MG90S'in uzak ucunun altindan gecer.
+    """Boyun U-link'i (neck, PETG): A kolu DS aluminyum kolu gomer (cep + 2 x M2.5 somunlu + M3 merkez vidasi) ve baski
+    kovaniyla trunk_base besik duvarlarina dayanir (+y eksenel), B kolu idler milini (M3 vida F623ZZ ic bileziginde,
+    somun + pirinc ara halka: -y eksenel) tasir; kopru head_pitch MG90S'in uzak ucunun altindan gecer.
     head_pitch besigi: kopru (servo altinda -y'ye acik yarik, alt kulak yarikta), yan duvarlar ve ust kulak plakasi
     kulaklarin horn tarafinda; servo arkadan (-y) takilir, 2 x M2 kulak vidasi arkadan. Duvarlar ve plaka yaw kablo
     demetinin pitch ile donme bandinin (y <= 1) onunde kalir. head_pitch devrilme/eksenel yuku: MG90S horn'unun iki
@@ -326,10 +327,15 @@ def _neck(m, sv, H, hz):
         "head.tr35_b2: boyun A kolu DS horn kolunu +z yonunde gomer (trunk.neck_horn_toward=%r)" % (toward,)
     horn = m.shared["neck_pitch_horn"]
     m._add("neck", "neck_pitch_horn", horn, "horn", m.horn_mass("neck_pitch"))
-    m._add("neck", "neck_pitch_idler_pin", m.shared["neck_pitch_idler_pin"], "metal", G["idler_pin"] / 1000.0)
     xf = _horn_xf(m, "neck_pitch", toward)
+    # arka idler mili (bacaklarla ayni, servos.ds_idler_screw): M3 imbus (bas B kolunun disinda), F623ZZ ic
+    # bileziginde mil; somun B kolunun rulmana bakan yuvasinda, pirinc ara halka ic bilezige: boyunun -y eksenel yuku
+    # somun -> ara halka -> ic bilezik -> trunk yuvasinin dudagi (servo milinde degil)
+    m._add("neck", "neck_pitch_idler_pin", xf(servos.ds_idler_screw(t, p["idler"]["bearing"])[0], arm=True), "metal",
+           G["idler_pin"] / 1000.0)
     fy = p["servo_face"]["neck_pitch"][1]                     # DS horn -y: dunya y = fy - Y (kanonik)
     st = servos.idler_stack(t, p["idler"]["bearing"])
+    M3 = p["fit"]
     yb0, yb1 = sorted((fy - st["leg"][0], fy - st["leg"][1]))  # B kolu (idler pimi tarafi)
     arm_t = t["horn"]["arm_t"]
     ya0 = fy - N["leg_a_t"]                                   # A kolu dis yuzu (arayuz: >= -31.4)
@@ -371,7 +377,12 @@ def _neck(m, sv, H, hz):
     z_hole_far = pz - dp["tab_holes"][1][1]
     stem = box(nx + hw - 0.01, bx0, -B["stem_half_y"], B["stem_half_y"], zb0, bz1)
     tongue = box(bx0 - 0.01, bx0 + tg[0], -tg[1], tg[1], tg[2], tg[3])
-    link = leg_a.fuse([leg_b, bridge, stem, tongue, tabp] + walls).removeSplitter()
+    # baski kovani (A kolu, bacaklardaki servos.ds_thrust_sleeve gibi): horn gobegi cevresinde r (gobek + bosluk +
+    # 0.5) .. thrust_r, horn yuzunden thrust_y1'e (donmus boyun zarfinin icinde); trunk_base boyun besigi yan
+    # duvarlarinin uc yuzune (K_T cekirdek siniri) 0.2 mm. Boyunun +y (servoya dogru) eksenel yuku trunk_base'e gider.
+    r_sl0 = t["horn"]["hub_d"] / 2.0 + M3["clearance"] + 0.5
+    sleeve = ycyl(N["thrust_r"], nx, nz, fy - 0.01, N["thrust_y1"]).cut(ycyl(r_sl0, nx, nz, fy - 1.0, 0.0))
+    link = leg_a.fuse([leg_b, bridge, stem, tongue, tabp, sleeve] + walls).removeSplitter()
     arm_holes = [(h.BoundBox.Center.x, h.BoundBox.Center.z)
                  for h in servos.horn_bolt_holes(t, horn, ya0 - 1.0, ya0 + 1.0, 1.0)]
     wscr = [(px + s * (xw + w / 2.0), z) for s in (1, -1) for z in (zb1 + N["thrust_in_screw_dz"],
@@ -383,7 +394,8 @@ def _neck(m, sv, H, hz):
     cut = [xf(servos.horn_pocket(t, F["pocket_clear"], depth=arm_t, over=0.0), arm=True),
            xf(servos.horn_bolt_cutters(t, fy - ya0 + 1.0, r=F["m25_clear_d"] / 2.0), arm=True),
            ycyl(N["center_hole_r"], nx, nz, ya0 - 1.0, fy + 0.01),
-           ycyl(st["boss_r"] + 0.02, nx, nz, yb0 - 1.0, yb1 + 1.0),
+           xf(ycyl(M3["clear_d"] / 2.0, 0, 0, st["head"][0] - 1.0, st["leg"][1] + 1.0)),        # B kolu: M3 + somun
+           xf(servos.hex_prism_y(M3["nut_af"], 0.0, 0.0, st["leg"][1] - M3["nut_t"], st["leg"][1] + 0.01), arm=True),
            box(px - w2 - F["pocket_clear"], px + w2 + F["pocket_clear"], ya2 + 0.01, ytp0, zb0 - 1.0, zb1 + 1.0),
            box(nx - hw - 1.0, nx + hw + 1.0, yti1 - 0.01, yto0 + 0.01, z_relief, zb1 + 1.0),
            ycyl(F["m2_pilot_d"] / 2.0, px, z_hole_near, ytp0 - 0.01, ytp1 + 0.01),

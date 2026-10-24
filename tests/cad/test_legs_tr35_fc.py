@@ -86,6 +86,27 @@ cp = item["left_hip_yaw_coupler"].shape
 pts = [v.Point for v in cp.Vertexes]
 res["coupler"] = {"r": max(math.hypot(q.x - yx, q.y - yy) for q in pts), "z0": cp.BoundBox.ZMin,
                   "z1": cp.BoundBox.ZMax, "solids": len(cp.Solids)}
+# eksenel yuk yolu (A1 el hesabi): DS baski kovani -> servo ust yuzu (THRUST_GAP, kovanin yakin yuzu tam), ES3054
+# kolu kaplinde eksenel serbest (kol altinda top_gap; horn asagi kaydirilinca temas yok)
+F = {key: legs._Frame(m, key, m.p["legs"]["horn_toward"].get(key)) for key in legs.DS_KEYS}
+rotor = {"hip_roll": "hip_cradle_bracket", "hip_pitch": "hip_cradle_bracket", "knee": "shin_bracket",
+         "ankle": "foot_bracket"}
+from geom import ycyl
+th = {}
+for key, fr in F.items():
+    d = servos.datums(fr.t)
+    r0 = fr.t["horn"]["hub_d"] / 2.0 + m.p["fit"]["clearance"] + 0.5
+    face = fr.put(ycyl(r0 + 2.5, 0, 0, d["case_top"] + servos.THRUST_GAP, d["case_top"] + 0.7)
+                  .cut(ycyl(r0, 0, 0, d["case_top"] - 1.0, 1.0)))
+    br, sv = item["left_" + rotor[key]].shape, item["left_%%s_servo" %% key].shape
+    th[key] = [br.distToShape(sv)[0], br.common(face).Volume / face.Volume]
+res["thrust"] = th
+hn = item["left_hip_yaw_horn"].shape
+cg = {}
+for dz in (0.3, 0.49):
+    h = hn.copy(); h.translate(App.Vector(0, 0, -dz))
+    cg[str(dz)] = cp.common(h).Volume
+res["coupler_axial"] = cg
 rep = legs.load_report(m)
 res["checks"] = rep["checks"]
 res["ds"] = rep["ds"]
@@ -199,6 +220,17 @@ def test_hand_calc_load_path(built):
             assert r["M_shaft"] * 5.0 <= r["M_cant"], (key, case, r)
     for case, r in built["turntable"].items():
         assert r["Rl"] > 0 and r["Ru"] > 0
+
+
+def test_axial_load_paths(built):
+    """Servo miline eksenel yuk gitmez (p2a-el-hesabi.md 5-6): her DS ekleminde U-link baski kovani servo ust yuzune
+    0.2 mm (kovanin servoya bakan yuzu kesicilerle kirpilmamis), ES3054 kolu kaplin yariginda eksenel serbest (kol
+    0.49 mm asagi kaydirilinca kaplinla kesisim yok)."""
+    for key, (gap, face) in built["thrust"].items():
+        assert gap == pytest.approx(0.2, abs=0.005), (key, gap)
+        assert face > 0.999, (key, face)
+    for dz, v in built["coupler_axial"].items():
+        assert v < 1e-6, (dz, v)
 
 
 def test_no_collision_at_limit_ends(built):

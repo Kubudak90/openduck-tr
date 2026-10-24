@@ -8,7 +8,7 @@ All coordinates: mm, trunk frame, zero pose (x forward, y left, z up). g = 9.81 
 
 | Link | Part (kind) | Function |
 |---|---|---|
-| neck | `neck_link` (bracket, PETG) | U-link: leg A embeds the DS aluminium 25T arm (pocket + 2 x M2.5 with nut traps + M3 centre screw), leg B carries the trunk's idler pin (M3 in F623ZZ); bridge under the head_pitch MG90S; MG90S cradle (side walls, upper tab plate on the horn side of the tab, lower tab in a bridge slot open to -y; servo slides in from -y, 2 x M2 tab screws from the rear); bumper stem + tongue |
+| neck | `neck_link` (bracket, PETG) | U-link: leg A embeds the DS aluminium 25T arm (pocket + 2 x M2.5 with nut traps + M3 centre screw), leg A thrust sleeve on the trunk_base cradle walls (0.2 mm), leg B carries the idler pin (M3 screw through the F623ZZ, nut in a leg B trap, brass spacer on the inner race); bridge under the head_pitch MG90S; MG90S cradle (side walls, upper tab plate on the horn side of the tab, lower tab in a bridge slot open to -y; servo slides in from -y, 2 x M2 tab screws from the rear); bumper stem + tongue |
 | neck | `head_pitch_thrust_in`, `head_pitch_thrust_out` (bracket) | thrust faces on both sides of the head_tilt rotor disc, 0.3 mm running gap (inner: 4 x M2 to the walls; outer: foot on the bridge, 2 x M2) |
 | neck | `neck_bumper` (pad, TPU 95A) | chin/forehead bumper, press-fit on the stem tongue; `collision_box` = pad box, exported as MJCF geom `neck_bumper` |
 | head_tilt | `head_tilt_bracket` (bracket) | one-piece L: rotor disc (embeds the head_pitch horn, arms vertical) + upper arm + yaw table (embeds the head_yaw horn from below, arms along y) |
@@ -54,7 +54,7 @@ impact torque on the head about the pitch axis (M_i > MG90S stall 0.216 N.m back
   -> head reaches 76 deg -> chin block (head_frame, PETG) -> TPU pad -> PETG tongue / stem (root 18 x 4.4 mm)
   -> neck bridge (z 84.1..88.5) -> neck legs A and B
        leg A -> DS aluminium 25T arm (embedded, 2 x M2.5 + M3) -> DS32xx output (torque + radial)
-       leg B -> M3 pin -> F623ZZ in the trunk's idler seat (radial)
+       leg B -> M3 pin -> F623ZZ in the trunk's idler seat (radial; axial y load: sec. 4, neck_pitch row)
   -> trunk neck cradle
 No head_pitch / head_yaw / head_roll MG90S is in this path (the head_tilt and head_turn are bypassed).
 ```
@@ -83,7 +83,7 @@ the bumper (sec. 3).
 | head_yaw (MG90S) | 141.8 g, W 1.39 N | (-2.9, 2.1, 27.9) | 5 N.mm / 116 N.mm; axial 1.39 N / 4.2 N (compression) | head_turn thrust ring r 9..11.5 on the yaw table (gap 0.3): 11 N edge load at 3 g, 0.14 MPa; carries the head's weight | torque + radial shear |
 | head_roll (MG90S) | 122.0 g, W 1.20 N | COM x 30.3 between horn (x ~8) and front pin (x ~44.9) | two-point support: horn reaction 0.47 N, pin 0.72 N (1.4 / 2.2 N at 3 g) | roll pin d8 in the head-frame front bushing (radial gap 0.25); axial: backward -> front plate on the bushing wall (0.5), forward -> roll thrust ring (0.3) | torque + radial shear |
 | mouth (SG90) | 10.3 g, W 0.10 N | COM between horn (y 54.5) and right pin (y -54.5) | two-point support: 0.06 / 0.04 N | right pin d5 in `jaw_pin_bushing`; axial (y): outer arms on the hood walls (0.5) | torque (3.8 N.mm static, stall 177) |
-| neck_pitch (DS32xx) | head module 199.4 g | see sec. 3 | P2-0 U-link + F623ZZ rear idler | (trunk / P2-0) | torque + radial |
+| neck_pitch (DS32xx) | head module 201.3 g, W 1.97 N | see sec. 3 | radial: U-link A (Al arm on the spline) and B (M3 pin in the F623ZZ) 57.8 mm apart (sec. 3). Axial (y, lateral head load: 5.9 N at 3 g, 19.7 N at 10 g): toward the servo (+y) the leg A thrust sleeve (r 8.2..11.5, 0.2 mm gap) bears on the end faces of the trunk_base neck-cradle side walls (y -21.0), about 20 mm2, 1.0 MPa at 10 g; away from it (-y) the leg B nut presses a brass spacer on the F623ZZ inner race (0.05 mm gap), outer race on the 1 mm seat lip (52 mm2, 0.4 MPa; F623ZZ C0r 180 N) | torque + radial |
 
 Gap note (assumption, to confirm in Step 0): the faces and rings are modelled with a 0.3 mm print gap. They take the
 moment once the rotor tilts by gap / radius (head_pitch 0.3 / 10 = 1.7 deg, yaw 0.3 / 10 = 1.7 deg, roll pin 0.25 / 37
@@ -113,8 +113,8 @@ head_pitch upper 72: the MJCF joint range (limit + 3 = 75) ends 1 deg before the
 |---|---|---|---|
 | MG90S x 3 + SG90 | 49.2 | 49.2 | servo records |
 | horns (DS arm 5 + 3 x MG90S + SG90) | 7.0 | 7.0 | |
-| neck idler pin | 1.8 | 1.8 | trunk shared stub |
-| printed: neck U + bumper | 26 | 24.3 | neck_link 20.1, thrust_in 1.1, thrust_out 2.0, bumper (TPU) 1.2 |
+| neck idler pin | 1.8 | 1.8 | M3 screw + nut + brass spacer (`servos.ds_idler_screw`, as in the legs; budget mass) |
+| printed: neck U + bumper | 26 | 25.5 | neck_link 21.2 (with the leg A thrust sleeve), thrust_in 1.1, thrust_out 2.0, bumper (TPU) 1.2 |
 | printed: tilt | 8 | 6.6 | head_tilt_bracket |
 | printed: turn | 8 | 4.8 | head_turn_bracket |
 | printed: frame | 12 | 14.5 | head_frame 13.1, jaw_pin_bushing 0.4, jaw_hub 1.0 |
@@ -122,7 +122,7 @@ head_pitch upper 72: the MJCF joint range (limit + 3 = 75) ends 1 deg before the
 | printed: bill | 8 | 13.9 | upper_bill 5.6, lower_bill 8.3 |
 | fasteners | 8 | 4.2 | M2.5 + nuts, M2 screws (modelled in their holes) |
 | wiring | 6 | 5.2 | 8 harness tubes (incl. neck_pitch in-tube in the trunk link, 0.8) |
-| **Total** | **202.0** | **200.2** | |
+| **Total** | **202.0** | **201.3** | |
 
 Printed 132.9 g vs 130 (+2.9, bills over, neck/tilt/turn under), fasteners and wiring under. Robot total with the
 P2a/P2b stubs: 1845.4 g (x 1.05 = 1938 g <= 1950).

@@ -483,7 +483,8 @@ def _coupler(m, C, tt, fit):
     outer = servos._horn_outline(t, -hn["arm_t"] - C["top_up"], y_ring0 + 0.01, cl + C["wall"])
     lim = box(-50, 50, -10, 10, hn["hub_d"] / 2.0 + cl + 0.3, hn["hole_r"][-1])   # catal: gobek disi .. kol ucu
     tines = outer.common(lim)
-    slot = servos._horn_outline(t, -hn["arm_t"] - C["top_up"] - 1.0, 0.0, cl)
+    # yarik halka ustunun (top_gap) 0.02 altina kadar: catal tabani kalmaz, kol altinda >= top_gap eksenel bosluk
+    slot = servos._horn_outline(t, -hn["arm_t"] - C["top_up"] - 1.0, y_ring0 + 0.02, cl)
     slot2 = slot.copy()
     slot2.translate(V(0, 0, C["float"]))                         # radyal serbestlik (kol yonunde)
     cp = ring.fuse(tines).removeSplitter()
@@ -666,8 +667,8 @@ def _shin(m, F, L, fit, R):
     rt, r0, rr = S["legb_rib"]
     u = _unit((pc[0] - ka[0], pc[1] - ka[1], 0.0))
     rib = _hull_xz([_circ((ka[0] + u[0] * r0, ka[1] + u[1] * r0), rr), _circ(pc, pa[2])], yb1 - 0.01, yb1 + rt)
-    parts = [lega, spine, a.put(fra), a.put(sha["seat"]), wall, post, legb, rib,
-             k.put(servos.ds_thrust_sleeve(k.t, fit))]
+    sleeve = k.put(servos.ds_thrust_sleeve(k.t, fit))
+    parts = [lega, spine, a.put(fra), a.put(sha["seat"]), wall, post, legb, rib, sleeve]
     sn = _fuse(parts)
     cuts = [k.put(c, arm=True) for c in servos.ds_rotor_cuts(k.t, fit, L["plate_a"]["knee"], p["idler"]["bearing"])]
     cuts += [a.put(c) for c in sha["cuts"]]
@@ -678,9 +679,10 @@ def _shin(m, F, L, fit, R):
     lb = S["legb_keep"]                                       # ayak B kolu supurmesi (bilek ic tarafi, Y bandi)
     cuts.append(ycyl(lb["r"], aa[0], aa[1], lb["y"][0], lb["y"][1]))
     cuts.append(_sector_xz(aa, 0.0, lb["a"][0], lb["a"][1], lb["y"][0], lb["y"][1]))
-    # diz cevresi: uyluk diz besigi bolgesi (govde Y bandinda r < keep)
+    # diz cevresi: uyluk diz besigi bolgesi (govde Y bandinda r < keep); baski kovani haric (eksenel simetrik, servo
+    # ust yuzune THRUST_GAP: diz eksenel yuku servo govdesine gider, mile degil)
     tk = S["thigh_keep"]
-    cuts.append(ycyl(tk["r"], ka[0], ka[1], tk["y"][0], tk["y"][1]))
+    cuts.append(ycyl(tk["r"], ka[0], ka[1], tk["y"][0], tk["y"][1]).cut(sleeve))
     cuts.append(_tube_clear(R["knee"]["out"], R["knee"]["d"], L["harness_clear"]))
     cuts.append(ycyl(S["post_bore"], pc[0], pc[1], ya1 + 1.0, yb0 - 2.0))     # direk ici bos (boru, kutle)
     sn = _cut(sn, cuts)

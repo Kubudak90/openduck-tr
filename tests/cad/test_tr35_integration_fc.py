@@ -30,6 +30,10 @@ def test_accepted_interface_changes():
     assert ["box", 45.332, 51.5, -9.5, 9.5, 84.0, 98.0] in ENV["neck"]                  # tampon govdesi
     assert len(ENV["jaw"]) == 6 and ENV["jaw"][0] == ["box", 15.0, 52.0, 50.0, 57.0, 140.0, 164.0]
     assert CFG["params"]["harness"]["crossings"]["hip_pitch"]["in"] == [[5.128, 44.5, -13.5]]   # P2a ICR
+    # dogrulama duzeltmesi (p2-entegrasyon.md 9.4): boyun idler milinin yolu (F623ZZ deligi + ara halka araligi)
+    # boyun zarfina eklenir, K_T'den cikarilir
+    for c in (["cyl", "y", 33.332, 41.537, 0.0, 1.5, 22.5, 26.45], ["cyl", "y", 33.332, 41.537, 0.0, 2.6, 26.45, 26.75]):
+        assert c in ENV["neck"] and c in ENV["trunk"]["cut"]
     # gerekli araliklar genisletilmis sinirlarin icinde
     for k, (lo, hi) in CFG["required_deg"].items():
         a, b = CFG["joint_limits_deg"][k]

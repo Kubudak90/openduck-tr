@@ -34,7 +34,7 @@ conservative).
 | Link | Part (kind) | Function |
 |---|---|---|
 | hip | `hip_yaw_shaft` (metal, Al 6061 d10 x 35.8) | turntable shaft: z -12.0 .. 23.8, through both 6800ZZ inner races (lower z -3..2, upper 19..24). Bottom end in the hip boss with an M3 cross screw (torque + downward axial load); top end with an M3 blind tap (6 deep) and a 1.2 x 2 hacksaw slot |
-| hip | `hip_yaw_coupler` (bracket, PETG) | pin/slot coupler: ring seated on the upper inner race (seat r 6.2, 0.3 high), key in the shaft slot, M3 x 8 countersunk screw into the shaft; fork around the ES3054 single arm with 0.3 mm side clearance, 1.0 mm radial float along the arm and 0.5 / 0.6 mm axial gaps: torque only |
+| hip | `hip_yaw_coupler` (bracket, PETG) | pin/slot coupler: ring seated on the upper inner race (seat r 6.2, 0.3 high), key in the shaft slot, M3 x 8 countersunk screw into the shaft; fork around the ES3054 single arm with 0.3 mm side clearance, 1.0 mm radial float along the arm, 0.5 mm axial gap under the arm (the slot is cut 0.02 mm into the ring top, so no web is left under the arm) and an open slot above it: torque only |
 | hip | `hip_yaw_screws` (metal) | M3 x 8 DIN 7991 (top) + M3 x 16 cross screw (head +x, tip tapped into the -x boss wall) |
 | hip | `hip_bracket` (bracket) | yaw boss r 8.5 (z -12.2 .. -3.5, frozen flange limit) + shoulder r 6.2 under the lower inner race; roll DS cradle: top plate over the servo, inner rail carrying the far (tapped) shelf, near shelf with nut traps, rear wall with the F623ZZ seat; swept slot for the yaw harness (+-13 deg) |
 | hip | `hip_roll_servo`, `hip_roll_tab_screws`, `hip_roll_idler_bearing` | roll DS (slides in from +y), 4 x M3, F623ZZ |
@@ -120,7 +120,10 @@ Axial load never reaches the shaft:
 * away from the servo: the leg B nut presses the brass spacer (OD 5, inner race only) on the F623ZZ inner race; the
   outer race sits on the 1.0 mm lip of the seat pocket (stator).
 
-The U-link floats axially by at most these running gaps (0.2 + 0.05 mm). Step 0 must confirm that the DS output shaft
+The U-link floats axially by at most these running gaps (0.2 + 0.05 mm). This holds on all four DS joints (0.200 mm
+sleeve to case top, near face of the sleeve complete). At the knee the shin's thigh-clearance cutter (`thigh_keep`)
+used to remove the sleeve's last 0.8 mm (1.0 mm gap); the cutter now spares the sleeve (verification fix,
+`p2-entegrasyon.md` §9). Step 0 must confirm that the DS output shaft
 end play is larger than the sleeve gap; if not, a 0.1 mm PTFE shim under the sleeve sets it.
 
 The axis torque is carried by the servo gear train (that is its job); in the drop case hip_roll sees 3.05 N.m, just over
