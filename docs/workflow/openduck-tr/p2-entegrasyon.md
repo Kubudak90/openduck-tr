@@ -3,7 +3,8 @@
 Tarih: 2026-10-24. Girdi: `p2-interface.md` (§12 kararları), P2a/P2b/P2c raporları ve değişiklik talepleri, orkestratör
 kararları. Bu belge birleştirmeyi, kararları, entegrasyon düzeltmelerini, tam `check.py` sonuçlarını, boy/kütle/COM'u
 ve sonraki adımlara devredilen açık konuları verir. `acik-konular.md` başka bir iz tarafından tutulur; bu adımın
-açık konuları §8'dedir.
+açık konuları §8'dedir. Bağımsız doğrulamanın engelleyici bulguları ve düzeltmeleri §9'dadır; §4 ve §5 doğrulama
+öncesi durumdur, güncel sonuçlar §9.6'da.
 
 ## 1. Birleştirilenler
 
@@ -105,6 +106,8 @@ Entegre modelde 36 baskı parçasının hepsi tek katıdır.
 
 ## 4. Tam `check.py` sonuçları (tr35_b2, bütün modüller, entegre geometri)
 
+Doğrulama öncesi koşu (o zamanki `check.py` modül dışı kablo temaslarını saymıyordu). Güncel sonuç: §9.6.
+
 Rapor: `/private/tmp/claude-501/-Users-huseyinarslan-Desktop-ads-z-klas-r-2/8217cd75-2c54-4fa4-b47f-57c38ee96c2b/scratchpad/s16/p2-integ/snap1/out/interference.txt`.
 Süre 1077 s: tek eklem 230, rastgele 100, aynı link 3, komşu çift 616, bacak-bacak 89, zarflar 39.
 
@@ -149,6 +152,8 @@ poz-çift. Ayrıntılı tarama: `extscan.py` / `extsum.py`, aynı scratch dizini
 111 poz-çiftin 73'ünde bacak kablo demeti tüpü var. 14 pozda gövdeye yalnız kablo değiyor, bacak yapısı değmiyor.
 
 ## 5. Boy, kütle, COM
+
+Doğrulama öncesi değerler; düzeltmelerden sonra kütle 1768.2 g (x 1.05 = 1856.6 g), kafa üstü ve COM aynı (§9.6).
 
 - **Kafa üstü (stand keyframe)**: CAD 347.7 mm (hedef 350 ± 10). MJCF `head_collision` kutusunun üstü 348.7 mm.
   Sıfır pozda 338.2 mm. Stand'da boyut 190.6 x 223.4 x 347.7 mm; trunk kökü yerden 152.5 mm.
@@ -206,8 +211,9 @@ poz-çift. Ayrıntılı tarama: `extscan.py` / `extsum.py`, aynı scratch dizini
     gaga neck link'ine değer (60/30'da en çok 124 mm3, mouth 32'de 317 mm3). head_pitch 72'de boyun servosuna (trunk)
     da değer, 537 mm3'e kadar.
   - Ayrıca `check.contact_pairs` (iki ayak; ayak ↔ aynı bacağın uyluk/kalça beşiği).
-- Uyluk/incik collision geomları bacak kablo demeti tüplerini (`hip_pitch_harness_out` yayı, `knee_harness_in/out`)
-  kapsamalı. Kapsamazsa §4'teki yalnız-kablo 14 pozu MJCF çiftleri görmez.
+- Uyluk/incik collision geomları bacak kablo demeti tüplerini (`hip_pitch_harness_out` y 53 katmanı,
+  `knee_harness_in/out`) kapsamalı. Kapsamazsa §9.1'de kalan kablo temaslarını (roll ±20 × pitch ±50 yalnız kablo;
+  roll ±10/±20 × pitch ±90) MJCF çiftleri görmez.
 - `export.py`'deki `meta['collision_geoms']` uzantısı P3'ün dışa aktarımına katılır.
 - KCD1 yalnız DC 12 V: BOM'da 16.8 V'luk anahtar yoksa ayırıcı XT30 olur.
 - Batarya kapağı tutma ayrıntısı (§3.2): konum dillerinde kilit çıkıntısı, çekme dili ve Adım 0'da geçme kontrolü.
@@ -225,28 +231,32 @@ poz-çift. Ayrıntılı tarama: `extscan.py` / `extsum.py`, aynı scratch dizini
 
 ### G-CAD
 
-- A1 özeti:
-  - sayılan çarpışma her bölümde 0, aynı link 0, zarflar 0/0/0;
+- A1 özeti (doğrulama düzeltmelerinden sonra, §9.6):
+  - tek eklem 0, aynı link 0, bacak-bacak 0, zarflar 0/0/0;
+  - komşu çift ızgarası: modül içi 0; **modül dışı kablo demeti 35 poz-çift sayılır** (aşağıdaki karar);
   - gerekli ⊆ sınırlar;
   - baskı ≤ 256 mm;
   - kafa üstü 347.7;
-  - kütle 1857.5 ≤ 1950 g;
-  - el hesapları: `p2a-el-hesabi.md`, `p2c-tampon.md`;
+  - kütle 1856.6 ≤ 1950 g;
+  - el hesapları: `p2a-el-hesabi.md`, `p2c-tampon.md` (dört DS bacak eklemi, ES3054 ve boyun eksenel yük yolu §9.2-9.4);
   - altın bayt-eşit.
-- **ORCHESTRATOR DECISION NEEDED (yorum):** Komşu çift ızgarasında gövde ↔ bacak **kablo demeti** temasları
-  `pair_scope: module` ile modül dışı bilgi olarak listelenir ve sayılmaz (§4: 18 pozda 73 poz-çift; 14 pozda yalnız
-  kablo). Spec A1'deki "Kablo demeti temasları her zaman sayılır" cümlesi bunları da kapsıyorsa A1 tutmaz.
-  - En hafif örnekler: hip_yaw -10 + hip_roll 0'da belly_duct 3.1 mm3; hip_pitch 10'da roll +9'dan itibaren kabuk.
-  - Şimdiki çözüm: bilgi olarak bırakıldı; P3 collision geomları kabloyu kapsar (yukarıda).
-  - Sayılırsa: P2a'nın hip_pitch çıkış yayını ve diz tüplerini yeniden yönlendirmesi gerekir; belly_duct'ın ön-alt dış
-    kenarı da kırpılabilir.
+- **ORCHESTRATOR DECISION NEEDED (kalan kablo temasları, §9.1):** `check.py` artık spec A1'in harfiyle sayar. P2a
+  güzergâhı 14 yalnız-kablo pozun 12'sini temizledi; donmuş arayüzle temizlenemeyen 6 poz kaldı (35 poz-çift):
+  - roll ±20 × pitch ±50, yalnız kablo (2 poz, 10 poz-çift): donmuş diz giriş noktası ve diz geçişi trunk'ın alt dış
+    arka kenarına girer.
+  - roll ±10 / ±20 × pitch ±90, uzvun yapısı da gövdede (4 poz, 25 poz-çift).
+  - Seçenekler: (a) spec A1'e "uzvun kendi yapısının da gövde/kafaya girdiği pozlarda kablo teması o MJCF gövde ↔ uzuv
+    çiftiyle birlikte listelenir" eklemek (P3 collision geomları kabloyu kapsar); kalan 2 yalnız-kablo poz için (b).
+    (b) P2b: alt dış arka kenarda x −58..−28 boyunca ~4 x 8 mm kırpma + PCA9685'i ~2 mm yukarı/içeri almak, ya da diz
+    giriş noktası için ICR + x −58..−40'ta daha küçük kırpma. (c) A1'in harfi tüm pozlarda: hip_pitch ve diz
+    geçişlerini bacağın dış (idler) tarafına almak (arayüz değişikliği, P2a yeniden tasarımı).
 - **ORCHESTRATOR DECISION NEEDED (yeni çift):** neck -90 + head_pitch 60'ta `upper_bill` ↔ `hip_cradle_bracket`
   (kafa ↔ kalça beşiği) 3.1 mm3, iki taraf. §3.2.2 listesinde kafa ↔ ayak ve kafa ↔ uyluk/incik var, kafa ↔ kalça
   beşiği yok.
   - Seçenekler: listeye eklemek (spec değişikliği) ya da P2c'nin üst gaga altını ~1 mm kırpması.
   - Şimdiki çözüm: bilgi olarak bırakıldı; sayılmıyor.
-- HOME COM ayak merkezinin 19.8 mm gerisinde (hedef 7 ± 10 mm geride). Karar 4 gereği P5 HOME'u yeniden türetir.
-- Kütle hedefi 1.85 kg 7 g aşılıyor (sert sınır tutuyor). Kütle merdiveni isteğe bağlıdır.
+- HOME COM ayak merkezinin 19.7 mm gerisinde (hedef 7 ± 10 mm geride). Karar 4 gereği P5 HOME'u yeniden türetir.
+- Kütle hedefi 1.85 kg 6 g aşılıyor (sert sınır tutuyor). Kütle merdiveni isteğe bağlıdır.
 
 ### P5b (RL)
 
@@ -259,5 +269,149 @@ poz-çift. Ayrıntılı tarama: `extscan.py` / `extsum.py`, aynı scratch dizini
   - `neck_bumper`.
 - RL çift listesine **çene ↔ boyun** ve **çene ↔ trunk** girer. Kilit reddedildiği için politika teması simde öğrenir.
   Ayrıca v3.1 çiftleri: kafa ↔ trunk; ayak ↔ aynı bacağın uyluk/kalça beşiği.
-- Bacak kablo demetlerinin gövdeye değdiği birleşik pozlar (§4), P3'ün kabloyu kapsayan collision geomlarıyla simde
-  görünür olmalı.
+- Bacak kablo demetlerinin gövdeye değdiği birleşik pozlar (§9.1: roll ±20 × pitch ±50, roll ±10/±20 × pitch ±90),
+  P3'ün kabloyu kapsayan collision geomlarıyla simde görünür olmalı.
+
+## 9. Dogrulama duzeltmeleri
+
+Bağımsız doğrulama (tur 1) dört engelleyici bulgu verdi. Düzeltmeler dal `worktree-wf_6b702ebd-130-6`'dadır
+(`worktree-wf_6b702ebd-130-4` üstüne hızlı ileri). Her biri sahibi olan modülde, en küçük değişiklikle yapıldı.
+Ölçüm betikleri: `/private/tmp/claude-501/-Users-huseyinarslan-Desktop-ads-z-klas-r-2/8217cd75-2c54-4fa4-b47f-57c38ee96c2b/scratchpad/s14/p2-dogrulama/`
+(`p6.py` eksenel boşluklar, `route_eval.py` + `cands.json` kablo güzergâhı adayları, `p7.py` temas yerleri).
+
+### 9.1 Kablo demeti temasları komşu çift ızgarasında da sayılır
+
+**Bulgu.** `check._scan`, `pair_scope: module` ile modül dışı temasları `contact_count_kinds` uygulanmadan bilgi
+listesine taşıyordu. Spec A1 "Kablo demeti temasları her zaman sayılır" der. Izgarada 18 pozda 73 poz-çift kablo teması
+sayılmıyordu; 14 pozda gövdeye yalnız kablo değiyordu, yani MJCF bu temasları hiç görmez.
+
+**`cad/check.py`:**
+
+- Modül dışı temaslardan kablo demeti parçası olanlar (`check.count_kinds`, varsayılan `harness`) sayılır. Gövde/kafa
+  ↔ uzuv yapı temasları eskisi gibi bilgi amaçlıdır (spec 3.2.2 MJCF çiftleri).
+- Sayılan her modül dışı kablo satırı işaretlenir: "yalnız kablo" (pozda modül dışı yapı teması yok) ya da "yapı
+  temaslı poz" (uzvun kendi yapısı da gövdeye giriyor). Bölüm 4 özetinde iki sayı ayrı verilir.
+- Test: `tests/cad/test_check_contacts.py::test_pair_scope_still_counts_harness`. xl330_27 raporu değişmez (bölüm 4
+  yok; altın 6/6).
+
+**P2a güzergâhı** (`params.legs.harness_route.hip_pitch.out` ve `knee.in`; yalnız konfig, donmuş geçiş/giriş/çıkış
+noktaları aynı):
+
+- Neden: uyluk kablosu y 44.5 bandında (iki servonun horn iç yüzü), pitch ekseninden r 15..40 arasında yer bulamaz.
+  roll −20 / pitch −70'te hip roll servosu (y 16..36), roll +20 / pitch 10..50'de trunk'ın alt yan kenarı engeldir.
+  Eski yay yukarıdan dolaşarak (r 42) birincisini çözüyor, ikincisinde gövdeye giriyordu.
+- Yeni güzergâh: donmuş çıkıştan (−5, 44.5, −30) sonra pitch ekseninden r 15'te y 46'ya, r 19'da y 53'e çıkar. y 53,
+  horn dış yüzü (51) ile servo üst yüzü (58.5) arasındaki boş katmandır; hip_cradle pitch göbeği (r 11) dışındadır. Kablo
+  y 53'te diz yönüne gider ve dizin üstünde (diz ekseninden r 16.5, 63°) y 44.5'e iner.
+  - İniş noktası, incik A kolunun diz +77'deki süpürmesinin ~8° dışındadır.
+  - İniş noktası pitch ekseninden r 40.7'dedir. hip_cradle'daki pitch kablosu pitch ile r ≤ 37.4'ü süpürür.
+- Aynı geçişin iki tüpü (izinli çift) geçiş noktasından > 8 mm uzakta 12 pitch pozunda kesişiyordu (36 mm'ye kadar).
+  Şimdi 3 pozda, en çok 9.3 mm uzakta kesişir.
+- Kütle: uyluk kablosu bacak başına 3.35 → 2.29 g.
+
+Komşu çift ızgarası (5 x 5, required), modül dışı kablo temasları (sol; sağ ayna):
+
+| Poz | Önce (130-4, sayılmıyordu) | Sonra (sayılır) |
+|---|---|---|
+| hip_yaw −10 × roll 0 / 10 / 20 | belly_duct 3.1 / 12 / 22 mm3 (yalnız kablo) | 0 |
+| roll 10 × pitch 10 / 50 | kabuk 22 / 277 (+ diz girişi 10) (yalnız kablo) | 0 |
+| roll 20 × pitch 10 | PCA9685 224, kabuk 173, taban 24, güç kablosu 3 (yalnız kablo) | 0 |
+| roll 20 × pitch 50 | 10 poz-çift, en çok PCA9685 170 (yalnız kablo) | 5 poz-çift: kabuk 93, taban 35 + 21, kabuk 23, PCA9685 9 (yalnız kablo) |
+| roll 10 × pitch 90 (yapı: incik A kolu ↔ kabuk) | 6 poz-çift, en çok kabuk 230 | 5 poz-çift (sağda 4), en çok kabuk 143 |
+| roll 20 × pitch 90 (yapı: diz servosu, incik, ayak gövdede) | 10 poz-çift, en çok kabuk 213 | 8 poz-çift, en çok PCA9685 130 |
+| **Toplam (iki taraf)** | **73 poz-çift, 18 poz (14 yalnız kablo)** | **35 poz-çift, 6 poz: 10 yalnız kablo (2 poz), 25 yapı temaslı (4 poz)** |
+
+9 x 9 ızgarada (bilgi; doğrulama bu ızgarada 203 kablo poz-çifti saymıştı) sol uyluk kablosunun kalan temasları
+yalnız roll ≥ 5 ve pitch ≥ 50 köşesindedir: 10 pozda 28 poz-çift (incik kablosu bu taramada yok). Modül içi temas yok.
+
+**Kalan temaslar (ORCHESTRATOR DECISION NEEDED, §8 G-CAD):**
+
+- roll ±20 × pitch ±50 (yalnız kablo): donmuş diz giriş noktası (−30, 44.5, −42) ve diz geçişi (−40.768, 44.5,
+  −50.639) bu pozda trunk'ın alt dış arka kenarına girer (x −58..−28, y ≥ 34.3, z ≤ 6). Orada kabuk alt yan duvarı
+  (y 36.2..38), taban plakasının kenarı ve PCA9685'in alt köşesi vardır. Bağlantı içi güzergâh bunu çözemez: geçiş
+  noktasının kendisi gövdenin içindedir.
+- roll ±10 / ±20 × pitch ±90 (yapı temaslı): uzvun yapısı gövdeye girer (roll 10'da incik A kolu kabuğa 122 mm3;
+  roll 20'de diz servosu 287, incik 1498 mm3). Donmuş diz geçişi de bu pozlarda gövde parçalarının içindedir. Geçişi iç
+  tarafta (y 44.5) olan hiçbir güzergâh burada temassız olamaz.
+
+### 9.2 hip_yaw kaplini: kolun altında eksenel boşluk (`cad/legs.py` `_coupler`)
+
+**Bulgu.** Yarık kesicisi horn yüzünde (kanonik Y 0) bitiyordu. Çatal tabanı (0.51 mm, 43 mm3) ES3054 kolunun altında
+sıfır boşlukla kalıyordu; rulman eksenel boşluğu ve düşmede mil eğikliği ES3054 çıkışını eksenel itebilirdi.
+
+**Düzeltme.** Yarık halka üstünün 0.02 mm altına kadar (`top_gap` + 0.02) kesilir; kolun altında çatal tabanı kalmaz.
+
+- Horn 0.30 / 0.49 / 0.51 mm aşağı kaydırılınca kaplinle kesişim 0; 0.60 mm'de halkaya 3.7 mm3.
+- ±1.4° dönmede temas yok, 2°'de tork teması (0.3 mm yan boşluk).
+- Kaplin 0.49 g, tek katı. `p2a-el-hesabi.md` §2 güncellendi; test `test_legs_tr35_fc.py::test_axial_load_paths`.
+
+### 9.3 Diz baskı kovanı (`cad/legs.py` `_shin`)
+
+**Bulgu.** İncik `thigh_keep` kesicisi (diz ekseni etrafında r 23, y 57.5..104.5), `servos.ds_thrust_sleeve`'in servoya
+bakan son 0.8 mm'sini kesiyordu: diz servosu üst yüzüne 1.0 mm (tasarım 0.2).
+
+**Düzeltme.** Kesici kovanı dışarıda bırakır. Kovan eksenel simetriktir; uylukta r ≤ 10.7, y 57.5..58.3 bölgesinde
+parça yoktur.
+
+- Dört DS ekleminde (hip_roll, hip_pitch, knee, ankle) kovan ↔ servo üst yüzü 0.200 mm; kovanın yakın yüzü tam
+  (74.2 / 74.2 mm3).
+- `p2a-el-hesabi.md` §5'teki "en çok 0.2 + 0.05 mm" artık dizde de doğrudur (not eklendi). Test:
+  `test_axial_load_paths`.
+
+### 9.4 Boyun eksenel yük yolu (`cad/head.py` `_neck`, `params.head.neck.thrust_r` / `thrust_y1`)
+
+**Bulgu.** Boyun B kolunda P2-0 yer tutucu pimi duruyordu: göbek + baş; F623ZZ'den geçen M3 ve ara halka yoktu. Baskı
+kovanı da yoktu (neck_link ↔ servo 2.9 mm). Yanal kafa yükü DS spline'ına eksenel gidiyordu; `p2c-tampon.md` boynu
+yalnız "tork + radyal" diye geçiyordu.
+
+**Düzeltme:**
+
+- B kolu: bacaklarla aynı `servos.ds_idler_screw`. M3 imbus F623ZZ iç bileziğinden geçer; somun B kolunun rulmana bakan
+  altıgen yuvasındadır; pirinç ara halka iç bileziğe 0.05 mm. B kolu deliği r 5.02'den M3 boşluk deliği + somun yuvasına
+  döndü. −y yükü: somun → ara halka → iç bilezik → yuva dudağı (trunk).
+- A kolu: baskı kovanı r 8.2..11.5, horn yüzünden y −21.2'ye (donmuş boyun zarfı −21.1 içinde). Servo üst yüzü
+  (y −19.4) zarfın dışındadır. Bu yüzden kovan, trunk_base boyun beşiği yan duvarlarının uç yüzlerine dayanır (y −21.0 =
+  K_T çekirdek sınırı, |dx| ≥ 10.15), 0.2 mm boşlukla, ~20 mm². +y yükü trunk_base'e gider.
+- Arayüz değişikliği (ICR-3, boyun idler mili yolu): mil F623ZZ'nin içinden, ara halka da rulman ile B kolu arasındaki
+  0.1 mm'lik zarf aralığından geçer. Boyun zarfına iki silindir eklendi, K_T'den aynıları çıkarıldı (`["cyl", "y",
+  33.332, 41.537, 0, 1.5, 22.5, 26.45]` rulman deliği, `[..., 0, 2.6, 26.45, 26.75]` ara halka). Bu bölgede trunk
+  parçası yok; trunk geometrisi değişmedi. Test: `test_tr35_integration_fc.py::test_accepted_interface_changes`.
+- Ölçüm: boyun zinciri y boyunca kaydırıldı. +0.25 mm'de trunk_base'e, −0.10 mm'de rulmana dayanır. Servoya 1.8,
+  kabuğa 0.86, torso_top'a 2.7 mm.
+- El hesabı (`p2c-tampon.md` §4 boyun satırı): 10 g yanal yükte (19.7 N) kovanda 1.0 MPa, yuva dudağında 0.4 MPa;
+  F623ZZ C0r 180 N.
+- Kütle: neck_link 20.1 → 21.2 g. Pim bütçe değeri 1.8 g kaldı. Kafa modülü 201.3 g (bütçe 202.0).
+- Test: `test_head_tr35_fc.py::test_passive_supports` (kovan 0.2, idler 0.05).
+
+### 9.5 Bu bulgular dışında
+
+- `check.py` raporunda bölüm 4'e sayılan modül dışı kablo satırları ve özeti eklendi (§9.1). Bölüm 6'nın davranışı
+  değişmedi.
+- Adım 0'a: DS çıkış mili eksenel boşluğu > 0.2 mm olmalı. Bu, bacaklardaki koşulun boyuna da uygulanmasıdır.
+
+### 9.6 Güncel sonuçlar (tr35_b2, entegre, düzeltmelerden sonra)
+
+Rapor: `/private/tmp/claude-501/-Users-huseyinarslan-Desktop-ads-z-klas-r-2/8217cd75-2c54-4fa4-b47f-57c38ee96c2b/scratchpad/s14/p2-dogrulama/full2/out/interference.txt`.
+
+Süre 1076 s: tek eklem 227, rastgele 106, aynı link 3, komşu çift 627, bacak-bacak 74, zarflar 39.
+
+| Bölüm | Önce (§4) | Sonra |
+|---|---|---|
+| 1) Tek eklem (sınırlar, 7 adım, HOME) | 107 poz, 0 | 107 poz, **0** |
+| 2) Rastgele 40 birleşik poz (bilgi) | 19 / 40 çarpışmasız | 26 / 40 çarpışmasız |
+| 3) Aynı link (HOME, > 1 mm3; elektronik dahil) | 0 | **0** |
+| 4) Komşu çiftler (5 x 5, gerekli, kapsam `module`) | 0 sayılan (kablo sayılmıyordu) | modül içi **0**; modül dışı kablo **35 poz-çift sayılır** (10 yalnız kablo, 25 yapı temaslı pozda; §9.1) |
+| 4) modellenen temaslar / modül dışı yapı (bilgi) | 26 / 111 poz-çift (73'ü kablo) | 26 / 38 poz-çift (hiçbiri kablo değil) |
+| 5) Bacak-bacak | 32 poz, 0 sayılan; 4 modellenen | 32 poz, **0** sayılan; 4 modellenen |
+| 6) Modül zarfları (138 poz) | 0 / 0 / 0 | içerme **0**, giriş **0**, zarf-zarf **0** (ICR-3 ile; öncesinde boyun mili 30.9 mm3 dışarıda) |
+
+- Kütle (aşağıdan yukarı): 1768.2 g x 1.05 = **1856.6 g** (sınır 1950). Gövde 653.9, bacaklar 912.9 (bütçe 913.2),
+  kafa 201.3 (bütçe 202.0).
+- Kafa üstü (stand) 347.7 mm. HOME COM (−10.8, 0.2, −9.9), ayak merkezinin 19.7 mm gerisinde. 36 baskı parçası tek
+  katı ve 256 mm küpe sığar. Gerekli ⊆ sınırlar (10 eklem).
+- MJCF: 15 aktüatör, 4 sınıf, 1.768 kg. 2 s ayakta eğim 0.33°; temaslar yalnız ayak ↔ zemin.
+
+| Test | Sonuç |
+|---|---|
+| `pytest tests/cad` | 124 geçti (yeni: `test_pair_scope_still_counts_harness`, `test_axial_load_paths`) |
+| `pytest tests/golden` (check.py ile tam koşu) | 6 / 6, xl330_27 bayt-eşit |
