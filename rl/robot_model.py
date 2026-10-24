@@ -22,6 +22,11 @@ Robot profili (robot=, varsayilan config.ROBOT_PROFILE / OPENDUCK_ROBOT; rl/actu
               eklemlerde range = ctrlrange +- C.JOINT_RANGE_MARGIN_DEG (varyant sinirlayicilarindan sonra).
               Derlenmis modelde profil isareti (actuators.model_profile).
 
+tr35_b2 SURECI (config.ROBOT_PROFILE; geometri profili, robot= degil): C.HOME_OVERRIDE varsa keyframe "stand" qpos/ctrl'u
+apply_to_spec'ten ONCE ezilir; MJCF'deki pair/exclude kayitlari silinir; main ve getup'ta C.EXTRA_COLLISION kutulari
+(main: yalniz cift, contype 0 conaffinity 0; getup: yalniz zemin, conaffinity 1) ve C.SELF_COLLISION_PAIRS'in geomlari
+var olan ciftleri (walk: yok); varyant metin isareti (model_variant onu okur; xl330 tespiti degismez).
+
 RobotIndex, her iki arka ucun (CPU/MJX) ham durumdan dizi cekmek icin kullandigi indeksleri toplar.
 """
 import mujoco
@@ -34,6 +39,65 @@ from . import sensors as SENS
 VARIANTS = ("walk", "main", "getup")
 HEAD_SITE = "head_center"
 HEAD_VEL_SENSOR = "head_vel"
+VARIANT_MARK = "openduck_variant:"        # tr35 derlenmis modelde varyant isareti (mjOBJ_TEXT adi)
+
+
+def tr35_process():
+    """Geometri/gorev profili tr35_b2 mi (surec basina; robot= aktuator/sensor seciminden bagimsiz)."""
+    return C.ROBOT_PROFILE == A.TR35
+
+
+def _home_override(spec):
+    """keyframe "stand" = C.HOME_OVERRIDE (qpos 7 + 15, ctrl 15; bosluk eklemsiz duzen -> apply_to_spec'ten once)."""
+    h = C.HOME_OVERRIDE
+    for k in spec.keys:
+        if k.name == C.DEFAULT_KEYFRAME:
+            k.qpos = np.array(h["qpos"], dtype=float)
+            k.ctrl = np.array(h["ctrl"], dtype=float)
+            return
+    raise ValueError("HOME_OVERRIDE: keyframe %r yok" % C.DEFAULT_KEYFRAME)
+
+
+def clear_pairs(spec):
+    """MJCF pair/exclude kayitlarini siler (tr35: RL oz-carpisma listesi C.SELF_COLLISION_PAIRS yetkilidir)."""
+    for x in list(spec.pairs) + list(spec.excludes):
+        spec.delete(x)
+
+
+SELF_PAIR_CONDIM = 3                       # oz-carpisma cifti temas boyutu (MuJoCo varsayilani; tools/mjx_solver_bench)
+MAIN_PAIR_SUBSET = True                    # main: yalniz main_pairs alt kumesi (False: tam liste; olcum araci)
+
+
+def main_pairs(pairs):
+    """main alt kumesi: uyluk/incik <-> govde, ayak <-> ayni bacagin uyluk/kalca besigi (getup tam liste).
+    Olcum (P5a, stub, CPU-JAX 256 ortam, 8 yineleme, paylasimli makine, tools/mjx_solver_bench.py): spec 3.2.2 tam
+    listesi (43 cift, kutu-kutu cift basina 4 temas yuvasi) main adimini +%310..330, getup'i +%180..264
+    pahalilastiriyor; bu alt kume (8 cift) main'de +%40..78. Esik +%25 asildigindan main bu alt kumeyle kurulur
+    (condim 1 tam listeyi yaklasik yariya indirir); P5b son MJCF ve GPU'da yeniden olcer."""
+    out = []
+    for a, b in pairs:
+        for x, y in ((a, b), (b, a)):
+            side = x.split("_")[0]
+            if side not in ("left", "right") or not x.endswith("_collision"):
+                continue
+            part = x[len(side) + 1:-len("_collision")]
+            if (part in ("thigh", "shin") and y == C.TRUNK_GEOM) or \
+                    (part == "foot" and y in ("%s_thigh_collision" % side, "%s_hip_cradle_collision" % side)):
+                out.append((a, b))
+                break
+    return tuple(out)
+
+
+def add_self_pairs(spec, pairs=None, condim=None):
+    """Iki geomu da modelde olan oz-carpisma ciftleri (spec pair; ad "self:<a>|<b>"). Eklenen sayi."""
+    have = set(g.name for g in spec.geoms)
+    n = 0
+    for a, b in (C.SELF_COLLISION_PAIRS if pairs is None else pairs):
+        if a in have and b in have:
+            p = spec.add_pair(name="self:%s|%s" % (a, b), geomname1=a, geomname2=b)
+            p.condim = int(SELF_PAIR_CONDIM if condim is None else condim)
+            n += 1
+    return n
 
 
 def _limit_knees(spec):
@@ -90,9 +154,10 @@ def _quat_z_to(axis):
     return {"x": [h, 0.0, h, 0.0], "y": [h, -h, 0.0, 0.0], "z": [1.0, 0.0, 0.0, 0.0]}[axis]
 
 
-def add_extra_collision(spec, geoms=None):
+def add_extra_collision(spec, geoms=None, conaffinity=None):
     """Zemin-yalniz ek carpisma geomlari (getup modeli). geoms: {govde: (tip, merkez, boyut, eksen)},
-    tip "box" (boyut = yari kenarlar) ya da "capsule" (boyut = (yaricap, yari uzunluk), eksen x/y/z)."""
+    tip "box" (boyut = yari kenarlar) ya da "capsule" (boyut = (yaricap, yari uzunluk), eksen x/y/z).
+    conaffinity: None sinif varsayilani (1, zemin); 0 -> yalniz acik ciftlerle (tr35 main)."""
     d = spec.find_default("collision")
     for body, (kind, pos, size, axis) in (C.EXTRA_COLLISION if geoms is None else geoms).items():
         if kind == "box":
@@ -101,7 +166,9 @@ def add_extra_collision(spec, geoms=None):
             t, sz, q = mujoco.mjtGeom.mjGEOM_CAPSULE, [size[0], size[1], 0.0], _quat_z_to(axis)
         else:
             raise ValueError(kind)
-        spec.body(body).add_geom(d, name=body + "_collision", type=t, size=sz, pos=list(pos), quat=q)
+        g = spec.body(body).add_geom(d, name=body + "_collision", type=t, size=sz, pos=list(pos), quat=q)
+        if conaffinity is not None:
+            g.contype, g.conaffinity = 0, int(conaffinity)
 
 
 def build_spec(scene_path=None, visual=False, variant="walk", robot=None, backlash=None):
@@ -109,6 +176,9 @@ def build_spec(scene_path=None, visual=False, variant="walk", robot=None, backla
         raise ValueError("variant %r (%s)" % (variant, ", ".join(VARIANTS)))
     robot = A.profile(robot)
     spec = mujoco.MjSpec.from_file(scene_path or C.SCENE_PATH)
+    tr35 = tr35_process()
+    if tr35 and C.HOME_OVERRIDE:
+        _home_override(spec)                 # bosluk eklemi keyframe'e sifir eklemeden ONCE
     if not visual:
         for g in list(spec.geoms):
             if g.group == 2:
@@ -129,7 +199,13 @@ def build_spec(scene_path=None, visual=False, variant="walk", robot=None, backla
         _limit_neck(spec)
         _limit_hip_yaw(spec)
         _add_head_sensor(spec)
-    if variant == "getup":
+    if tr35:
+        clear_pairs(spec)
+        if variant != "walk":
+            add_extra_collision(spec, conaffinity=1 if variant == "getup" else 0)
+            add_self_pairs(spec, main_pairs(C.SELF_COLLISION_PAIRS) if variant == "main" and MAIN_PAIR_SUBSET else None)
+        spec.add_text(name=VARIANT_MARK + variant, data=variant)
+    elif variant == "getup":
         add_extra_collision(spec)
     if robot == A.TR35:
         A.apply_to_spec(spec, robot, bool(backlash))
@@ -172,8 +248,11 @@ def expand_state(model, qpos=None, qvel=None):
 
 
 def model_variant(model):
-    """Derlenmis modelin varyanti (ek geom / kafa sensoru / diz sinirindan)."""
+    """Derlenmis modelin varyanti: tr35 varyant isareti; yoksa (xl330) ek geom / kafa sensorunden."""
     has = lambda t, n: mujoco.mj_name2id(model, t, n) >= 0
+    for v in VARIANTS:
+        if has(mujoco.mjtObj.mjOBJ_TEXT, VARIANT_MARK + v):
+            return v
     if has(mujoco.mjtObj.mjOBJ_GEOM, next(iter(C.EXTRA_COLLISION)) + "_collision"):
         return "getup"
     if has(mujoco.mjtObj.mjOBJ_SENSOR, HEAD_VEL_SENSOR):
@@ -203,6 +282,7 @@ class RobotIndex(object):
         self.action_qpos_adr = np.array([m.jnt_qposadr[jid(n)] for n in self.action_joints])
         self.action_obs_idx = np.array([C.OBS_JOINTS.index(n) for n in self.action_joints])
         self.head_act_id = np.array([aid(n) for n in C.HEAD_JOINTS])
+        self.other_act_id = np.array([aid(n) for n in C.OTHER_JOINTS])      # gaga (jest kanali, spec eki K6.1)
         self.obs_act_id = np.array([aid(n) for n in C.OBS_JOINTS])
         self.hip_pose_idx = np.array([C.OBS_JOINTS.index(n) for n in C.HIP_POSE_JOINTS])
 

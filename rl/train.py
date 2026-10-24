@@ -3,17 +3,21 @@
 CPU PPO egitimi (MuJoCo C ortami rl.env_cpu.VecEnv + rl.ppo).
 
   python3 -m rl.train --out runs/NAME [--task walk|main|getup] [--num-envs N] [--workers W] [--max-steps 5e7]
-                      [--seed S] [--resume PATH] [--no-randomize]
+                      [--seed S] [--resume PATH] [--no-randomize] [--getup-head free|fixed]
 
 --task: rl/tasks.py gorevi (varsayilan walk, davranis degismez). main/getup icin TaskSpec varsayilanlari
 (gamma, ag boyutlari) kullanilir; getup'ta ortamin mufredat ilerlemesi her iterasyonda adim/hedef olarak
 ayarlanir (VecEnv.set_progress). Not: CPU'da main/getup egitimi yalniz duman/parite icindir (spec 2).
+--getup-head (getup): "fixed" ortama getup_head="fixed" olarak verilir (kafa toplanmis, aksiyon disi; spec 3.4);
+verilmezse / "free" ise ortamin varsayilani. tr35_b2 surecinde (OPENDUCK_ROBOT) policy_meta ag/aktuator/sensor
+alanlarini tasir ve her ONNX disa aktarmasindan sonra rl/export_c.py <run>/c/ yazar (hata olumcul degil).
 
 runs/NAME/ altina yazilanlar:
   log.jsonl          her iterasyonda bir JSON satiri
   model_<iter>.pt    periyodik checkpoint (model + normalizer + optimizer + lr + adim sayisi)
   latest.pt          son checkpoint (ayni icerik)
   policy.onnx, policy_meta.json   her checkpoint'ta ve sonda (rl/export_onnx.py)
+  c/                 yalniz tr35_b2: policy_weights.h, policy.h, policy.c, obs_layout.h, export_c.json
   config.json        egitimin basindaki rl/config.py sabitleri ve komut satiri (devamda config.<zaman>.json)
 
 SIGINT/SIGTERM: o anki toplama yarida birakilir, checkpoint + ONNX yazilir, cikilir.
@@ -73,7 +77,8 @@ class Runner(object):
     """PPO egitim dongusu; VecEnv arayuzunu (rl/TASK.md) uygulayan her ortamla calisir."""
 
     def __init__(self, env, out_dir, num_actions=None, cfg=None, seed=0, save_interval=50, threads=1,
-                 update_threads=2, resume=None, meta_fn=None, export=True, print_fn=print, run_info=None):
+                 update_threads=2, resume=None, meta_fn=None, export=True, print_fn=print, run_info=None,
+                 post_export=None):
         self.env = env
         self.out_dir = out_dir
         os.makedirs(out_dir, exist_ok=True)
@@ -81,6 +86,7 @@ class Runner(object):
         self.threads, self.update_threads = threads, update_threads
         self.meta_fn = meta_fn
         self.export = export
+        self.post_export = post_export      # basarili ONNX disa aktarmasindan sonra f(onnx_yolu) (tr35: export_c)
         self.print = print_fn or (lambda *a, **k: None)
         self.run_info = run_info or {}
         self.stop_requested = False
@@ -243,8 +249,11 @@ class Runner(object):
         if self.export:
             try:
                 meta = self.meta_fn(self.steps) if self.meta_fn else None
-                err = export_policy(self.alg.ac, os.path.join(self.out_dir, "policy.onnx"), meta=meta)
+                onnx_path = os.path.join(self.out_dir, "policy.onnx")
+                err = export_policy(self.alg.ac, onnx_path, meta=meta)
                 msg += " + policy.onnx (%s)" % ("dogrulanmadi" if err is None else "onnx/torch %.1e" % err)
+                if self.post_export is not None:
+                    self.post_export(onnx_path)
             except Exception as e:      # egitim disa aktarma yuzunden durmasin; checkpoint yazildi
                 msg += " (UYARI: ONNX disa aktarma basarisiz: %r)" % (e,)
         self.print(msg, flush=True)
@@ -273,6 +282,10 @@ def parse_args(argv=None):
     p.add_argument("--update-threads", type=int, default=None,
                    help="PPO guncellemesinde torch is parcacigi (varsayilan: cekirdeklerin yarisi, 1..16; "
                         "isciler bu sirada bekler)")
+    # SUPPRESS: verilmezse args'ta yok (config.json / checkpoint run_info bugunkuyle ayni)
+    p.add_argument("--getup-head", choices=("free", "fixed"), default=argparse.SUPPRESS,
+                   help="getup: kafa serbest (politika) ya da sabit/toplanmis (HEAD_TUCK_DEG; spec 3.4); "
+                        "varsayilan ortaminki (config.GETUP_HEAD_DEFAULT)")
     a = p.parse_args(argv)
     cpus = effective_cpus()
     if a.workers is None:
@@ -280,6 +293,13 @@ def parse_args(argv=None):
     if a.update_threads is None:
         a.update_threads = max(1, min(16, cpus // 2))
     return a
+
+
+def env_task_kwargs(task, getup_head=None):
+    """Ortama gorev ek argumanlari: getup_head yalniz getup'ta ve "free" degilse verilir (varsayilan ortaminki)."""
+    if TK.get_task(task).name == "getup" and getup_head not in (None, "free"):
+        return {"getup_head": getup_head}
+    return {}
 
 
 def task_ppo_cfg(task):
@@ -314,13 +334,22 @@ def main(argv=None):
     old_int = signal.signal(signal.SIGINT, signal.SIG_IGN)
     try:
         env = VecEnv(args.num_envs, num_workers=args.workers, seed=args.seed, randomize=not args.no_randomize,
-                     noise=not args.no_noise, head_random=not args.no_head, push=not args.no_push, task=spec.name)
+                     noise=not args.no_noise, head_random=not args.no_head, push=not args.no_push, task=spec.name,
+                     **env_task_kwargs(spec.name, getattr(args, "getup_head", None)))
     finally:
         signal.signal(signal.SIGINT, old_int)
+    net = {}
+    post = None
+    if C.ROBOT_PROFILE == "tr35_b2":       # tr35: her ONNX'ten sonra C dizileri <run>/c (rl/export_c.py)
+        from . import export_c as EC
+        post = lambda p: EC.safe_export(p, os.path.join(args.out, "c"))
     try:
         runner = Runner(env, args.out, cfg=task_ppo_cfg(spec), seed=args.seed, save_interval=args.save_interval,
                         threads=args.threads, update_threads=args.update_threads, resume=args.resume,
-                        meta_fn=lambda steps: policy_meta(steps, "cpu_torch", idx, spec.name), run_info=vars(args))
+                        meta_fn=lambda steps: policy_meta(steps, "cpu_torch", idx, spec.name, network=net.get("v"),
+                                                          getup_head=getattr(args, "getup_head", None)),
+                        run_info=vars(args), post_export=post)
+        net["v"] = runner.alg.ac.network()
 
         def on_signal(signum, frame):
             runner.request_stop()

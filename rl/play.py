@@ -5,6 +5,7 @@ Egitilmis politikayi tek ortamda oynatir, istenirse video/GIF kaydeder ve olcum 
   python3 -m rl.play --policy runs/NAME/policy.onnx [--seconds 12] [--command vx vy wz [h sit] | --demo [D]]
                      [--getup-policy runs/G/policy.onnx] [--tip front|back|left|right]
                      [--video out.mp4] [--gif out.gif] [--seed S] [--json metrics.json] [--qpos-out traj.npy]
+                     [--scene SCENE.xml] [--getup-head free|fixed]
 
 --policy: .onnx dosyasi (yaninda <ad>_meta.json), .pt checkpoint ya da "zero" (hep sifir aksiyon = referans
 poz). Gorev (walk / main) politikanin meta'sindan (meta["task"]; meta yoksa ONNX boyutlarindan); "zero" ve
@@ -27,6 +28,11 @@ kucuk, peak_tau (tepe |tau| / 0.96), sit segmentlerinde t_to_seated (oturus kosu
 yerde, gz < -0.9), sit'ten sonraki segmentte t_to_stand (z > 0.105, iki ayak yerde, gz < -0.9).
 getup demosunda: supervizor olaylari, t_to_upright (devrilme -> main'e donus), donusten sonra 2 s icinde
 tekrar dusme sayisi.
+
+tr35_b2 sureci (OPENDUCK_ROBOT; xl330 programlari ve sabitleri aynen kalir): demo komutlari C.COMMAND_RANGES'in
+kesirleri (0.5 vx_max, 0.5 wz_max, 0.5 vx_min, 0.5 vy_max), sit demosu yukseklikleri C.H_*'tan (tr35_programs),
+TIP_W = 10 / sqrt(1.282); peak_tau eklem basina |tau_net| / NOMINAL tau_s (peak_tau_joints). --scene sahne MJCF'si
+(ortamlar ve goruntu modeli); getup ortaminin kafa modu getup meta'sindaki getup_head'den (--getup-head ezer).
 """
 import argparse
 import json
@@ -34,6 +40,7 @@ import os
 
 import numpy as np
 
+from . import commands as CM
 from . import config as C
 from . import task_math as T
 from . import tasks as TK
@@ -62,13 +69,39 @@ GETUP_DEMO = [
     (TIP_SEGMENT, (0.0, 0.0, 0.0), 9.0),
     ("walk", (0.10, 0.0, 0.0), 4.0),
 ]
-DEMOS = {"walk": DEMO, "sit": SIT_DEMO, "getup": GETUP_DEMO}
 # devirme: serbest eklem acisal hizi (govde cercevesi) eksenleri; + y = burun asagi (one dusme)
 TIP_AXES = {"front": (0.0, 1.0, 0.0), "back": (0.0, -1.0, 0.0), "left": (-1.0, 0.0, 0.0), "right": (1.0, 0.0, 0.0)}
 TIP_W = 10.0                 # rad/s (walk-mjx-v2 politikasi 6 rad/s yan itmeyi dengeliyor; 10'da 4 yonde de duser)
 TIP_RETRY_S, TIP_MAX = 1.0, 3
 AFTER_HANDOFF_S = 2.0        # devirden sonra bu sure icinde tekrar dusme sayilir
 TORQUE_LIMIT = C.GETUP["torque_limit"]
+TR35 = "tr35_b2"
+FROUDE_S = 1.282             # OpenDuck-TR olcek (spec; config.FROUDE_S cekirdekte)
+
+
+def tr35_programs():
+    """tr35_b2 demo programlari: komutlar C.COMMAND_RANGES'in kesirleri, yukseklikler C.H_*'tan (27 cm sabitleri
+    yok). walk: 0.5 vx_max, 0.5 wz_max, 0.5 vx_min (geri), 0.5 vy_max; sit: comelerek yurume h = (H_HOME +
+    H_MIN_WALK) / 2, comel h = (H_MIN_STAND + H_MIN_WALK) / 2; getup: 0.5 vx_max. Yavas yurume = vx_max / 3."""
+    R = C.COMMAND_RANGES
+    vf, vs = 0.5 * R["vx"][1], R["vx"][1] / 3.0
+    h, hw = C.H_HOME, 0.5 * (C.H_HOME + C.H_MIN_WALK)
+    hc = 0.5 * (C.H_MIN_STAND + C.H_MIN_WALK)
+    demo = [("stand", (0.0, 0.0, 0.0), 2.0), ("walk forward", (vf, 0.0, 0.0), 5.0),
+            ("turn left", (0.0, 0.0, 0.5 * R["wz"][1]), 4.0), ("walk backward", (0.5 * R["vx"][0], 0.0, 0.0), 4.0),
+            ("sidestep left", (0.0, 0.5 * R["vy"][1], 0.0), 4.0)]
+    sit = [("stand", (0.0, 0.0, 0.0, h, 0.0), 2.0), ("walk forward", (vf, 0.0, 0.0, h, 0.0), 3.0),
+           ("crouch walk", (vs, 0.0, 0.0, hw, 0.0), 4.0), ("crouch", (0.0, 0.0, 0.0, hc, 0.0), 3.0),
+           ("sit", (0.0, 0.0, 0.0, hc, 1.0), 5.0), ("stand up", (0.0, 0.0, 0.0, h, 0.0), 4.0),
+           ("walk", (vf, 0.0, 0.0, h, 0.0), 3.0)]
+    getup = [("stand", (0.0, 0.0, 0.0), 2.0), ("walk forward", (vf, 0.0, 0.0), 3.0),
+             (TIP_SEGMENT, (0.0, 0.0, 0.0), 9.0), ("walk", (vs, 0.0, 0.0), 4.0)]
+    return demo, sit, getup, 10.0 / np.sqrt(getattr(C, "FROUDE_S", None) or FROUDE_S)
+
+
+if C.ROBOT_PROFILE == TR35:  # xl330 programlari yukarida aynen
+    DEMO, SIT_DEMO, GETUP_DEMO, TIP_W = tr35_programs()
+DEMOS = {"walk": DEMO, "sit": SIT_DEMO, "getup": GETUP_DEMO, "voice": ()}   # voice: A10 S1 (spec eki K7), run_voice
 
 
 def infer_task(obs_dim, action_dim):
@@ -168,35 +201,14 @@ def tip_over(data, direction, w=None):
     data.qvel[3:6] += (TIP_W if w is None else w) * np.asarray(TIP_AXES[direction])
 
 
-class Supervisor(object):
-    """main <-> getup devri (spec 3.7, C.SUPERVISOR). update(s) her kontrol adiminda AKTIF politikanin
-    ortam durumuyla (VecEnv.task_state(), tek ortam) cagrilir; devir olursa yeni modu ("getup" | "main")
-    dondurur, yoksa None.
-      main -> getup: gz > fall_gz art arda fall_steps adim
-      getup -> main: task_math.getup_success_now(use_height=False) ready_hold_s boyunca (robotta z olculmez)
+class Supervisor(CM.FallMonitor):
+    """main <-> getup devri (spec 3.7, C.SUPERVISOR). Mantik rl/commands.FallMonitor'da (spec eki K5: tek dusme algisi;
+    play ve eval onu cagirir). update(s) her kontrol adiminda AKTIF politikanin ortam durumuyla (VecEnv.task_state(),
+    tek ortam) cagrilir; devir olursa yeni modu ("getup" | "main") dondurur, yoksa None.
+      main -> getup: gz > fall_gz art arda fall_steps adim (tr35: olculen gz_obs)
+      getup -> main: task_math.getup_success_now(use_height=False) ready_hold_s boyunca (robotta z olculmez; tr35:
+                     olculen gravity / gyro / pot q)
     Devirde cagiran: last_action = 0, alpha = 0, h_ref = H_HOME (VecEnv.set_state) ve handoff_zero_cmd_s sifir komut."""
-
-    def __init__(self, cfg=None, dt=C.CTRL_DT, mode="main"):
-        self.cfg = dict(C.SUPERVISOR if cfg is None else cfg)
-        self.dt = dt
-        self.mode = mode
-        self.n_fall = 0
-        self.t_ready = np.zeros(1)
-
-    def update(self, s):
-        if self.mode == "main":
-            gz = float(np.max(T.projected_gravity(np, s["quat"])[..., 2]))
-            self.n_fall = self.n_fall + 1 if gz > self.cfg["fall_gz"] else 0
-            if self.n_fall >= self.cfg["fall_steps"]:
-                self.mode, self.n_fall, self.t_ready = "getup", 0, np.zeros(1)
-                return "getup"
-            return None
-        ok = T.getup_success_now(np, s, use_height=False)
-        self.t_ready, held = T.hold_timer(np, self.t_ready, ok.reshape(-1)[:1], self.cfg["ready_hold_s"], self.dt)
-        if held[0] > 0.5:
-            self.mode, self.t_ready = "main", np.zeros(1)
-            return "main"
-        return None
 
 
 class Recorder(object):
@@ -205,11 +217,11 @@ class Recorder(object):
 
     GIF_FPS, GIF_WIDTH = 15, 400
 
-    def __init__(self, width, height, trunk_body, shadows=True, video=None, gif=None):
+    def __init__(self, width, height, trunk_body, shadows=True, video=None, gif=None, scene_path=None):
         import mujoco
         from .robot_model import build_model
         self.mj = mujoco
-        self.model = build_model(visual=True)
+        self.model = build_model(scene_path, visual=True)
         self.data = mujoco.MjData(self.model)
         self.renderer = mujoco.Renderer(self.model, height=height, width=width)
         self.renderer.scene.flags[mujoco.mjtRndFlag.mjRND_SHADOW] = bool(shadows)
@@ -300,6 +312,11 @@ def parse_args(argv=None):
     p.add_argument("--seed", type=int, default=0)
     p.add_argument("--json", default=None, help="olcumleri JSON olarak da yaz")
     p.add_argument("--qpos-out", default=None, help="qpos yorungesini .npy olarak yaz (sim/collision_check.py icin)")
+    p.add_argument("--scene", default=None, help="sahne MJCF'si (varsayilan config.SCENE_PATH; or. tr35 yer tutucu)")
+    p.add_argument("--getup-head", choices=("free", "fixed"), default=None,
+                   help="getup politikasinin kafa modu (varsayilan: getup meta'sindaki getup_head)")
+    p.add_argument("--voice-seat", choices=("bank", "exact"), default=None,
+                   help="--demo voice oturmus baslangic: oturus bankasi (varsayilan) ya da turetilmis poz")
     a = p.parse_args(argv)
     if a.command is not None and len(a.command) not in (3, 5):
         p.error("--command 3 (vx vy wz) ya da 5 (vx vy wz h sit) deger alir")
@@ -327,14 +344,18 @@ def build_schedule(args, task="walk"):
 
 
 class _Seg(object):
-    """Segment olcumleri (walk alanlari + main ek alanlari)."""
+    """Segment olcumleri (walk alanlari + main ek alanlari). tau_nom (14,) verilirse (tr35): doygunluk eklem
+    basina |tau_net| / NOMINAL tau_s (peak_tau = en buyugu, peak_tau_joints gozlem eklemleri sirasiyla); yoksa
+    max|tau| / TORQUE_LIMIT (xl330)."""
 
-    def __init__(self, name, cmd, seconds, extra):
+    def __init__(self, name, cmd, seconds, extra, tau_nom=None):
         self.d = dict(name=name, cmd=cmd.tolist(), seconds=seconds, v_sum=np.zeros(3), n=0, falls=0, timeouts=0,
                       path=0.0, disp=0.0)
         self.extra = extra
         self.e2, self.ne, self.zsum, self.zmin, self.tau = 0.0, 0, 0.0, np.inf, 0.0
         self.t_seated = self.t_stand = None
+        self.tau_nom = None if tau_nom is None else np.asarray(tau_nom, dtype=np.float64)
+        self.tau_j = None if tau_nom is None else np.zeros(len(self.tau_nom))
 
     def __getitem__(self, k):
         return self.d[k]
@@ -350,14 +371,21 @@ class _Seg(object):
         self.ne += 1
         self.zsum += z
         self.zmin = min(self.zmin, z)
-        self.tau = max(self.tau, float(np.max(np.abs(s["torque"]))) / TORQUE_LIMIT)
+        if self.tau_nom is None:
+            self.tau = max(self.tau, float(np.max(np.abs(s["torque"]))) / TORQUE_LIMIT)
+            stand_gz = C.MAIN["seat_gz"]
+        else:
+            self.tau_j = np.maximum(self.tau_j, np.abs(np.asarray(s["tau_net"])[0]) / self.tau_nom)
+            self.tau = max(self.tau, float(np.max(self.tau_j)))
+            stand_gz = C.MAIN.get("stand_gz", C.MAIN["seat_gz"])      # tr35: ayakta dik testi oturustan ayri
         gz = float(T.projected_gravity(np, s["quat"])[0, 2])
         up = gz < C.MAIN["seat_gz"]
         _, _, sit = T.main_command(np, s["command"])
         if sit[0] > 0.5 and self.t_seated is None and up and s["trunk_floor"][0] > 0.5 \
                 and T.is_seated(np, s["alpha"])[0] > 0.5:
             self.t_seated = t_rel
-        if after_sit and self.t_stand is None and up and z > C.MAIN["standup_z"] and np.all(s["contact"][0] > 0.5):
+        if after_sit and self.t_stand is None and gz < stand_gz and z > C.MAIN["standup_z"] \
+                and np.all(s["contact"][0] > 0.5):
             self.t_stand = t_rel
 
     def main_metrics(self):
@@ -366,6 +394,9 @@ class _Seg(object):
         out = {"height_rmse": float(np.sqrt(self.e2 / self.ne)) if self.ne else None,
                "trunk_z_mean": self.zsum / self.ne if self.ne else None,
                "trunk_z_min": float(self.zmin) if self.ne else None, "peak_tau": self.tau}
+        if self.tau_j is not None:
+            out["peak_tau_joints"] = [float(v) for v in self.tau_j]
+            out["peak_tau_basis"] = "|tau_net| / nominal tau_s"
         if self.d["cmd"][4] > 0.5:
             out["t_to_seated"] = self.t_seated
         if self.t_stand is not None or self.extra == "after_sit":
@@ -373,7 +404,56 @@ class _Seg(object):
         return out
 
 
+def run_voice(args):
+    """--demo voice: A10 S1 sesli komut dizisinin bir kosusu (rl/eval_tasks.a10_rollout, N = 1; rl/commands.py
+    denetleyicisi, modul modeli ve konusmaci; DR / itme / gurultu kapali, oynatma ortami gibi). Video / GIF: kareler
+    rollout'un aktif ortamindan (main ya da getup varyanti; ayni qpos duzeni). --voice-seat exact: turetilmis oturus pozu
+    (P2-0 stub'inda oturus bankasi one devriliyor)."""
+    from . import eval_tasks as E
+    policy = load_policy(args.policy, task="main" if args.policy == "zero" else None)
+    check_role(policy, ("main",), "--policy")
+    if not args.getup_policy:
+        raise ValueError("--demo voice icin --getup-policy gerekli")
+    gpolicy = load_policy(args.getup_policy, task="getup")
+    scene = getattr(args, "scene", None)
+    ev = E.Evaluator(seed=args.seed, randomize=False, noise=False, push=False, head_random=False, bank_n=16,
+                     collision=False, scene_path=scene, backlash=False)
+    ev.a10_seat = getattr(args, "voice_seat", None) or "bank"
+    rec, nxt = None, [0.0]
+    if args.video or args.gif:
+        os.environ.setdefault("MUJOCO_GL", "egl")
+        from .robot_model import RobotIndex, build_model
+        rec = Recorder(args.width, args.height, RobotIndex(build_model(scene, variant="main")).trunk_body,
+                       shadows=not args.no_shadows, video=args.video, gif=args.gif, scene_path=scene)
+
+    def frame(t, data, label):
+        while rec is not None and nxt[0] <= t + 1e-9:
+            rec.capture(data.qpos, "A10 S1  %s  t %.1fs" % (label, t))
+            nxt[0] += 1.0 / FPS
+    try:
+        eps = ev.a10_rollout(policy, gpolicy, "S1", 1, frame_cb=frame if rec is not None else None)
+    finally:
+        if rec is not None:
+            rec.close()
+    rep = ev._a10_s1_report(eps)
+    words = [{"word": w["word"], "t_apply": w["t_apply"], "t_done": w["t_done"], "ok": bool(w["score"]),
+              "metric": w.get("m")} for w in eps[0]["words"]]
+    out = {"policy": args.policy, "getup_policy": args.getup_policy, "seed": args.seed, "demo": "voice",
+           "task": "main", "ended": eps[0]["ended"], "words": words, "falls": eps[0]["falls"],
+           "report": {k: rep[k] for k in ("completion", "metrics", "penetration", "invariant_violations")}}
+    for w in words:
+        print("%-7s uygulama %6.2f s  tamam %s  %s" % (w["word"], w["t_apply"], "-" if w["t_done"] is None else
+                                                         "%.2f s" % w["t_done"], "ok" if w["ok"] else "BASARISIZ"))
+    print("A10 S1: bitis %s, dusme %d" % (out["ended"], len(out["falls"])))
+    if args.json:
+        with open(args.json, "w") as f:
+            json.dump(out, f, indent=1, default=str)
+    return out
+
+
 def run(args):
+    if args.demo == "voice":
+        return run_voice(args)
     render = bool(args.video or args.gif)
     if render:
         os.environ.setdefault("MUJOCO_GL", "egl")
@@ -404,13 +484,20 @@ def run(args):
             total, TK.get_task(task).episode_length_s))
     if demo == "getup":
         extra.update(terminate=False, model_variant="getup")     # dusunce sifirlama yok; devir icin ayni geomlar
+    scene = getattr(args, "scene", None)
+    sc = {"scene_path": scene} if scene else {}
     env = VecEnv(1, num_workers=0, seed=args.seed, randomize=False, noise=False, head_random=False, push=False,
-                 fixed_command=sched[0][1], task=task, **extra)
+                 fixed_command=sched[0][1], task=task, **dict(extra, **sc))
     genv = None
+    ghead = None
     if gpolicy is not None:
+        ghead = getattr(args, "getup_head", None) or (gpolicy.meta or {}).get("getup_head")
+        gk = dict(sc, **({"getup_head": ghead} if ghead not in (None, "free") else {}))
         genv = VecEnv(1, num_workers=0, seed=args.seed + 1, randomize=False, noise=False, head_random=False,
                       push=False, task="getup", reset_probs={"stand": 1.0}, progress=1.0,
-                      max_episode_steps=n_steps + 1)
+                      max_episode_steps=n_steps + 1, **gk)
+    ridx = env.robot_index
+    tau_nom = ridx.act["tau_s"][ridx.obs_act_id] if getattr(ridx, "act", None) is not None else None
     rec = None
     sup = Supervisor() if genv is not None else None
     events, getups = [], []
@@ -424,12 +511,12 @@ def run(args):
         trunk = RobotIndex(env.mj_model(0)).trunk_body
         if render:
             rec = Recorder(args.width, args.height, trunk, shadows=not args.no_shadows, video=args.video,
-                           gif=args.gif)
+                           gif=args.gif, scene_path=scene)
 
         bounds = np.cumsum([0.0] + [d for _, _, d in sched])
         after_sit = [task == "main" and i > 0 and sched[i - 1][1][4] > 0.5 and c[4] < 0.5
                      for i, (_, c, _) in enumerate(sched)]
-        segs = [_Seg(n, c, d, None if task == "walk" else ("after_sit" if after_sit[i] else "main"))
+        segs = [_Seg(n, c, d, None if task == "walk" else ("after_sit" if after_sit[i] else "main"), tau_nom)
                 for i, (n, c, d) in enumerate(sched)]
         anchor = data.qpos[0:2].copy()      # net yer degistirme: segment basi ya da son sifirlamadan beri
         cur, next_frame, seg_t0 = 0, 0.0, 0.0
@@ -547,9 +634,15 @@ def run(args):
     if task != "walk" or demo in ("sit", "getup"):
         out["task"] = task
         out["demo"] = demo
+    if scene:
+        out["scene"] = scene
+    if tau_nom is not None:
+        out["robot"] = ridx.robot
     if sup is not None:
         ups = [g["t_upright"] - g["t_fall"] for g in getups if g["t_upright"] is not None]
         out["getup_policy"] = args.getup_policy
+        if ghead is not None:
+            out["getup_head"] = ghead
         out["supervisor"] = {
             "events": events, "getups": getups, "tips": n_tip,
             "t_to_upright": ups[0] if ups else None,

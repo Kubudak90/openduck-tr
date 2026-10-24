@@ -2,29 +2,102 @@
 """
 Politika meta verisi (<run>/policy_meta.json) - torch'suz; iki egitici de (train.py, train_mjx.py) bunu kullanir.
 
-  meta = build_meta(steps, backend, idx=None, task="walk")
+  meta = build_meta(steps, backend, idx=None, task="walk", network=None, scene_path=None, robot=None,
+                    getup_head=None)
 
 walk: bugunku alanlar, ayni sira ve degerlerle (obs_dim, action_dim, ctrl_dt, action_scale, action_clip,
 default_leg_q, leg_joints, obs_joints, default_obs_q, gait_freq, obs_scales, backend, steps).
 main/getup: ayni alanlar (action_scale vektor) + gorev alanlari ("task", "version", "obs_layout", komut,
 aksiyon esleme, durus filtresi ve referans durus sabitleri, devir esikleri). Robot calisma zamani gozlemi ve
 aksiyon eslemesini yalniz bu meta ile yeniden uretebilmelidir (rl/TASK.md "Policy export format").
+
+idx verilmezse RobotIndex sahneden kurulur: build_model(scene_path, variant=gorev varyanti, robot=robot) (None:
+surec varsayilanlari; xl330 ciktisi bugunkuyle ayni). tr35_b2 modeli (idx.robot == "tr35_b2") icin ek ust duzey
+alanlar (firmware'in tek dogruluk kaynagi, OpenDuck-TR spec 3.2.3-3.2.4, rl-map D3):
+  robot, actuators (actuators.actuator_table sutunlari aktuator sirasiyla + classes, rails, i_cc, boards),
+  sensors (sensors.POT, sensors.IMU, gozlem eklemlerinin pot tablosu), delays (alt adim gecikme araliklari),
+  derived_source (config.DERIVED_SOURCE), derived_sha256 (yuklenen turetilmis JSON'un sha256'i; tr35 surecinde),
+  kappa (config.KAPPA), network (verilirse: actor_hidden, critic_hidden, activation, obs_normalization), getup:
+  getup_head ("free" | "fixed"; fixed'te head_tuck_deg = config.HEAD_TUCK_DEG), main: posture_ref.seat_pitch_deg
+  (config.SEAT_PITCH_DEG). xl330'da network/getup_head yok sayilir. Geometri sabitleri (default_*_q = HOME, posture_ref,
+  supervisor, getup_success) zaten config'ten, yani tr35'te rl/derived/tr35_b2.json'dan gelir.
 """
+import hashlib
+import os
+
 from . import config as C
 from . import tasks as TK
 
 META_VERSION = 2
+TR35 = "tr35_b2"
+ACT_COLUMNS = ("names", "cls", "tau_s", "omega0", "pband", "kp", "damping", "armature", "frictionloss", "deadband",
+               "pwm_res", "i_stall", "i_idle", "board", "on_leg", "ctrl_lo", "ctrl_hi")
+# PCA9685 kartlari (rl/actuators.py: kart 0 300 Hz DS, kart 1 50 Hz ES3054/MG90S/SG90); JSON anahtari kart no (str)
+BOARDS = {"0": {"pwm_hz": 300, "pca": "0x40"}, "1": {"pwm_hz": 50, "pca": "0x41"}}
+NETWORK_KEYS = ("actor_hidden", "critic_hidden", "activation", "obs_normalization")
 
 
 def _f(x):
     return [float(v) for v in x]
 
 
-def build_meta(steps, backend, idx=None, task="walk"):
+def _j(x):
+    """JSON'a uygun kopya: numpy dizileri/sayilari listeye/Python sayisina, tuple listeye, anahtarlar str."""
+    import numpy as np
+    if isinstance(x, dict):
+        return {str(k): _j(v) for k, v in x.items()}
+    if isinstance(x, (list, tuple)):
+        return [_j(v) for v in x]
+    if isinstance(x, np.ndarray):
+        return _j(x.tolist())
+    if isinstance(x, np.generic):
+        return x.item()
+    return x
+
+
+def _derived_sha256():
+    """Bu surecin yukledigi turetilmis dosyanin sha256'i (tr35_b2 sureci); yoksa None."""
+    p = C.DERIVED_PATH
+    if C.DERIVED is None or not p or not os.path.isfile(p):
+        return None
+    with open(p, "rb") as f:
+        return hashlib.sha256(f.read()).hexdigest()
+
+
+def _tr35_fields(meta, idx, t, network, getup_head):
+    from . import actuators as ACT
+    from . import sensors as SENS
+    tab = idx.act
+    act = {k: _j(tab[k]) for k in ACT_COLUMNS}
+    act.update(classes=_j(ACT.CLASSES), rails=_j(ACT.RAILS), i_cc=float(ACT.I_CC),
+               boards=_j(BOARDS),
+               units="tau_s N.m; omega0 rad/s; pband, deadband, pwm_res, ctrl_lo/hi rad; kp N.m/rad; damping N.m.s/rad; "
+                     "armature kg.m2; frictionloss N.m; i_stall, i_idle A; board PCA9685 karti")
+    pot = dict(_j(idx.pot), joints=list(C.OBS_JOINTS))
+    meta["robot"] = idx.robot
+    meta["actuators"] = act
+    meta["sensors"] = {"pot": _j(SENS.POT), "imu": _j(SENS.IMU), "pot_table": pot}
+    meta["delays"] = {"delay_substeps": _j(ACT.DR["delay_substeps"]), "delay_boards": [0, 1],
+                      "substep_dt": C.SIM_DT, "n_substeps": C.N_SUBSTEPS}
+    meta["derived_source"] = _j(C.DERIVED_SOURCE)
+    meta["derived_sha256"] = _derived_sha256()
+    meta["kappa"] = _j(C.KAPPA)
+    if network is not None:
+        meta["network"] = {k: _j(network.get(k)) for k in NETWORK_KEYS}
+    if t.name == "getup":
+        mode = getup_head or C.GETUP_HEAD_DEFAULT
+        meta["getup_head"] = mode
+        if mode == "fixed":
+            meta["head_tuck_deg"] = _j(C.HEAD_TUCK_DEG)
+    return meta
+
+
+def build_meta(steps, backend, idx=None, task="walk", network=None, scene_path=None, robot=None, getup_head=None):
     t = TK.get_task(task)
     if idx is None:
         from .robot_model import RobotIndex, build_model
-        idx = RobotIndex(build_model(variant=t.model_variant), t.action_joints)
+        idx = RobotIndex(build_model(scene_path, variant=t.model_variant, robot=robot), t.action_joints)
+    tr35 = getattr(idx, "robot", None) == TR35
     if t.name != "walk" and (idx.variant != t.model_variant or list(idx.action_joints) != list(t.action_joints)):
         raise ValueError("RobotIndex gorevle uyusmuyor: %s/%s (gorev %s: %s)" % (
             idx.variant, len(idx.action_joints), t.name, t.model_variant))
@@ -45,7 +118,7 @@ def build_meta(steps, backend, idx=None, task="walk"):
         "steps": int(steps),
     }
     if t.name == "walk":
-        return meta
+        return _tr35_fields(meta, idx, t, network, getup_head) if tr35 else meta
     meta.update({
         "task": t.name,
         "version": META_VERSION,
@@ -87,6 +160,8 @@ def build_meta(steps, backend, idx=None, task="walk"):
                 "sign": "left leg absolute; right = -left",
             },
         })
+        if tr35:      # oturus govde pitch'i (+ = burun asagi, 0 = duz oturus)
+            meta["posture_ref"]["seat_pitch_deg"] = float(C.SEAT_PITCH_DEG)
     else:
         meta.update({"head_control": "policy", "command_names": []})
-    return meta
+    return _tr35_fields(meta, idx, t, network, getup_head) if tr35 else meta

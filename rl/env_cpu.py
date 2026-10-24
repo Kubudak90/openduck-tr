@@ -20,7 +20,10 @@ hedef, PWM kuantalama, olu bant, LEG ray CC olceklemesi; her alt adimda pot/IMU 
 modelinden (q/qd pot, gyro, tamamlayici filtre gravity), oduller/kritik gercek durumdan; genel OBS_NOISE kapali.
 RNG: bolum basina sifirlama blogundan SONRA rng.random(actuators.n_uniform(nu) + sensors.n_episode(14)), her adimda
 U blogundan SONRA rng.random(N_SUBSTEPS * sensors.n_tick(14)). backlash=True: DS bosluk eklemleri (bankalar
-robot_model.expand_state ile genisletilir).
+robot_model.expand_state ile genisletilir). tr35_b2 SURECINDE (OPENDUCK_ROBOT) robot None ya da "tr35_b2" olmali.
+Poz bankalari ortamin robot'u ve sahnesiyle (pose_bank.bank(..., robot=, scene_path=)).
+getup_head (yalniz getup): "free" (varsayilan C.GETUP_HEAD_DEFAULT) bas politikada; "fixed" kirpmadan sonra 4 bas aksiyonu
+0 ve bas hedefi radians(C.HEAD_TUCK_DEG) (mutlak); gozlem/aksiyon duzeni ayni.
 """
 import copy
 import multiprocessing as mp
@@ -115,9 +118,10 @@ def reset_spec(task, reset_probs=None):
     return t2
 
 
-def load_banks(task, reset_probs=None, bank_n=None, variant=None):
+def load_banks(task, reset_probs=None, bank_n=None, variant=None, robot=None, scene_path=None):
     """Gorevin olasiligi > 0 olan bankali sifirlama turleri icin poz bankalari {tur: {qpos, qvel, ctrl, label}}.
-    bank_n: None (config boyutlari), int ya da {tur: n} (testler / hizli oynatma icin onek)."""
+    bank_n: None (config boyutlari), int ya da {tur: n} (testler / hizli oynatma icin onek). robot/scene_path: ortamin
+    aktuator modeli ve sahnesi (None: surec varsayilani)."""
     t = reset_spec(task, reset_probs)
     variant = variant or t.model_variant
     out = {}
@@ -125,7 +129,7 @@ def load_banks(task, reset_probs=None, bank_n=None, variant=None):
         if p <= 0 or kind not in PB.KINDS:
             continue
         n = bank_n.get(kind) if isinstance(bank_n, dict) else bank_n
-        b = PB.bank(kind, n)
+        b = PB.bank(kind, n, robot=robot, scene_path=scene_path)
         PB.check_variant(b, variant)
         out[kind] = {k: b[k] for k in ("qpos", "qvel", "ctrl", "label")}
     return out
@@ -203,6 +207,8 @@ class _EnvSlice(object):
         self.noise = bool(flags["noise"])
         self.noise_obs = self.noise and not self.tr35    # genel OBS_NOISE (tr35: sensor modeli)
         self.head_random = bool(flags["head_random"]) and spec.head_mode != "policy"   # getup: bas politikada
+        # jest kanali (tr35 main, spec eki K6.1): bas yeniden orneklemesinin mevcut 6 uniform'u (yeni sayi yok)
+        self.gestures = self.head_random and self.task == "main" and bool(C.VOICE["gestures"])
         self.terminate = bool(flags.get("terminate", True))
         self.max_steps = int(flags.get("max_episode_steps") or spec.max_episode_steps)
 
@@ -224,6 +230,10 @@ class _EnvSlice(object):
         self.K = int(self.dr["action_delay_steps"][1]) if self.randomize else 0
         if self.task == "getup":
             self.act_scale = TK.action_scale_vector(spec, idx.default_action_q, idx.action_lo, idx.action_hi)
+        self.getup_head = flags.get("getup_head") or C.GETUP_HEAD_DEFAULT
+        self.head_fixed = self.task == "getup" and self.getup_head == "fixed"
+        if self.head_fixed:                 # bas aksiyon boyutlari ve toplanmis bas hedefi (mutlak)
+            self.head_mask, self.head_tuck = T.head_fix_arrays(np, spec.action_joints)
 
         # adim basina cekilen duzgun sayilarin yerlesimi (her ortam her adimda ayni miktari tuketir)
         self.o_noise, nu = 0, (self.num_obs if self.noise_obs else 0)
@@ -266,6 +276,15 @@ class _EnvSlice(object):
         self.head_offset = np.zeros((n, len(idx.head_act_id)))
         self.head_target = np.zeros_like(self.head_offset)
         self.head_timer = np.zeros(n)
+        # jest durumu (T.gesture_*), segment degisiminde kesme istegi, dis jest (komut katmani, set_gesture), hiz kontrolu
+        self.gst = T.gesture_init(np, np.zeros(n))
+        self.g_cutreq = np.zeros(n)
+        self.ext_gesture = None
+        self.hc_act = np.concatenate([idx.head_act_id, idx.other_act_id])
+        self.hc_prev = np.zeros((n, len(self.hc_act)))
+        self.slew_lim = T.slew_limits() if (self.tr35 and self.task == "main") else None
+        if self.gestures:
+            T.check_head_slew(True)
         self.push_timer = np.zeros(n)
         self.friction = np.ones(n)
         self.delay = np.zeros(n, dtype=np.int64)
@@ -635,15 +654,23 @@ class _EnvSlice(object):
         self.abuf[j] = 0.0
         self.head_offset[j] = 0.0
         self.head_target[j] = 0.0
+        self._gesture_reset(j)
         lo, hi = _HR["resample_s"]
         self.head_timer[j] = lo + (hi - lo) * u[nj + 8]
         lo, hi = self.dr["push_interval_s"]
         self.push_timer[j] = lo + (hi - lo) * u[nj + 9]
 
-    def set_state(self, j, qpos, qvel, ctrl=None, warmstart=None):
+    def _gesture_reset(self, j):
+        for v in self.gst.values():
+            v[j] = 0.0
+        self.gst["amp"][j], self.gst["cut_n"][j] = 1.0, -1.0
+        self.g_cutreq[j] = 0.0
+
+    def set_state(self, j, qpos, qvel, ctrl=None, warmstart=None, alpha=0.0):
         """Ortam j'yi verilen fiziksel duruma koyar (oynatma: politika devri). Model (DR) korunur; bolum
-        sayaclari, aksiyon gecmisi (last_action = 0), durus filtresi (alpha = 0, h_ref = H_HOME), getup bellegi
-        ve olaylar yeni durumdan baslar. Gozlem icin ardindan refresh_obs()."""
+        sayaclari, aksiyon gecmisi (last_action = 0), durus filtresi (alpha (varsayilan 0; komut katmani BEKLE ->
+        KALKIYOR icin 1), h_ref = H_HOME), getup bellegi, olaylar ve jest kanali yeni durumdan baslar. Gozlem icin
+        ardindan refresh_obs()."""
         m, d = self.models[j], self.datas[j]
         mujoco.mj_resetData(m, d)
         d.qpos[:] = qpos
@@ -656,7 +683,7 @@ class _EnvSlice(object):
         self._contacts_one(j)
         if self.tr35:
             self._tr35_sensor_reset(j, d.ctrl)
-        self._task_reset(j, 0.0)
+        self._task_reset(j, float(alpha))
         self.reset_kind[j], self.bank_label[j] = -1.0, -1.0
         self.step_count[j] = 0
         self.a_prev[j] = 0.0
@@ -666,6 +693,15 @@ class _EnvSlice(object):
         self.abuf[j] = 0.0
         self.head_offset[j] = 0.0
         self.head_target[j] = 0.0
+        self._gesture_reset(j)
+
+    def set_gesture(self, g):
+        """Dis jest ofseti (komut katmani; rl/commands.py): (n,5) T.GEST_CHANNELS sirasi rad, bas ve gaga ctrl'una
+        eklenir (yalniz main; egitim jest kanali kapali olmali: head_random=False). None kapatir."""
+        if g is not None and (self.task != "main" or self.gestures):
+            raise ValueError("dis jest yalniz main ve head_random=False ile (gorev %s, jest kanali %s)" % (
+                self.task, self.gestures))
+        self.ext_gesture = None if g is None else np.asarray(g, dtype=np.float64).reshape(self.n, len(self.hc_act))
 
     # -- gozlem
     def _state(self, action, last_action, rows=None):
@@ -737,6 +773,8 @@ class _EnvSlice(object):
         if self.task == "main":
             s.update(seg=self.seg.copy(), seg_timer=self.seg_timer.copy(), locked=self.fixed_cmd is not None,
                      **{"ev_" + k: np.array(v) for k, v in self.ev.items()})
+            s.update({"g_" + k: v.copy() for k, v in self.gst.items()})
+            s["head_ctrl"] = self.hc_prev.copy()        # tr35: son bas + gaga ctrl'u (kuantalama oncesi; T.GEST_CHANNELS)
         elif self.task == "getup":
             s.update(**{"ev_" + k: np.array(v) for k, v in self.ev.items()})
         return s
@@ -760,8 +798,11 @@ class _EnvSlice(object):
             return T.action_to_targets(np, a, idx.default_action_q)
         if self.task == "main":
             return T.action_to_targets(np, a, ref["q_ref"])
-        return T.action_to_targets(np, a, idx.default_action_q, scale=self.act_scale, clip=self.spec.action_clip,
+        t, a = T.action_to_targets(np, a, idx.default_action_q, scale=self.act_scale, clip=self.spec.action_clip,
                                    lo=idx.action_lo, hi=idx.action_hi)
+        if self.head_fixed:
+            t, a = T.fixed_head(np, t, a, self.head_mask, self.head_tuck)
+        return t, a
 
     def _substeps_head_peak(self, m, d, nsub):
         """nsub kez mj_step(m, d) (mj_step(m, d, nsub) ile bit-duzeyinde ayni); dondurur: alt adimlarin her birinden
@@ -796,25 +837,51 @@ class _EnvSlice(object):
         # 2-3. bas + bacak kontrolleri
         ctrl = np.empty((n, len(self.ctrl0)))
         ctrl[:] = self.ctrl0
+        gout = None
         if self.head_random:
             uh = U[:, self.o_head:self.o_head + 6]
-            self.head_timer -= C.CTRL_DT
+            if self.gestures:       # jest suresince zamanlayici durur (spec eki K6.1)
+                self.head_timer -= C.CTRL_DT * np.where(self.gst["kind"] > 0.5, 0.0, 1.0)
+            else:
+                self.head_timer -= C.CTRL_DT
             rs = self.head_timer <= 0.0
+            req = np.zeros(n)
             if rs.any():
-                tgt = np.where(uh[:, :1] < _HR["prob"], (2.0 * uh[:, 1:5] - 1.0) * idx.head_range, 0.0)
+                if self.gestures:   # u0: jest / rastgele / sifir (C.GESTURE_SAMPLE), u1: jest turu
+                    greq, rnd = T.gesture_sample(np, uh[:, 0], uh[:, 1])
+                    tgt = np.where(rnd[:, None] > 0.5, (2.0 * uh[:, 1:5] - 1.0) * idx.head_range, 0.0)
+                    req = np.where(rs, greq, 0.0)
+                else:
+                    tgt = np.where(uh[:, :1] < _HR["prob"], (2.0 * uh[:, 1:5] - 1.0) * idx.head_range, 0.0)
                 lo, hi = _HR["resample_s"]
                 self.head_target[rs] = tgt[rs]
                 self.head_timer[rs] = lo + (hi - lo) * uh[rs, 5]
             if task == "main":      # rastgele bas hedefi yalniz ayaktayken (alpha < ALPHA_STAND_MAX)
                 gate = np.where(self.alpha < C.ALPHA_STAND_MAX, 1.0, 0.0)[:, None]
+                if self.gestures:   # jest (sonumleme dahil) suresince rastgele hedef 0
+                    self.gst, gout, gact, _ = T.gesture_step(np, self.gst, req, self.alpha, self.g_cutreq)
+                    self.g_cutreq[:] = 0.0
+                    gate = gate * (1.0 - gact)[:, None]
                 self.head_offset += (self.head_target * gate - self.head_offset) * (C.CTRL_DT / _HR["filter_tau"])
             else:
                 self.head_offset += (self.head_target - self.head_offset) * (C.CTRL_DT / _HR["filter_tau"])
             ctrl[:, idx.head_act_id] = self.default_head + self.head_offset
-        if task == "main":          # oturus scripti (HEAD_SIT) + rastgele bas
+        if task == "main":          # oturus scripti (HEAD_SIT) + rastgele bas (+ jest kanali: bas ve gaga)
             ctrl[:, idx.head_act_id] = self.default_head + self.head_offset + ref["head_offset"]
+            if gout is None and self.ext_gesture is not None:
+                gout = self.ext_gesture
+            if gout is not None:
+                ctrl[:, idx.head_act_id] += gout[:, :4]
+                ctrl[:, idx.other_act_id] += gout[:, 4:]
         ctrl[:, idx.action_act_id] = targets
         np.clip(ctrl, idx.ctrl_lo, idx.ctrl_hi, out=ctrl)
+        if self.slew_lim is not None:      # spec eki K6.1: toplam bas ctrl hiz siniri (jest varken assert)
+            hc = ctrl[:, self.hc_act]
+            if gout is not None:
+                rate = np.abs(hc - self.hc_prev)[self.step_count >= 1] / C.CTRL_DT
+                assert not len(rate) or np.all(rate <= self.slew_lim + 1e-6), \
+                    "bas ctrl hizi %s > %s" % (rate.max(axis=0).round(3).tolist(), self.slew_lim.tolist())
+            self.hc_prev[:] = hc
         if self.tr35:                       # PCA9685 adimi (kontrol adiminda bir kez)
             ctrl = ACT.quantize_pwm(np, ctrl, idx.act["pwm_res"], idx.ctrl_lo, idx.ctrl_hi)
 
@@ -925,8 +992,9 @@ class _EnvSlice(object):
                 ex = np.flatnonzero(self.seg_timer <= 0.0)
                 if len(ex):
                     uu = np.stack([self.rngs[j].random(T.NUM_SEGMENT_U) for j in ex])
-                    kd, cmd, dur = T.sample_segment(np, uu, self.command[ex])
+                    kd, cmd, dur = T.sample_segment(np, uu, self.command[ex], prev_kind=self.seg[ex])
                     self.seg[ex], self.command[ex], self.seg_timer[ex] = kd, cmd, dur
+                    self.g_cutreq[ex] = 1.0                 # segment degisimi jesti keser (spec eki K6.1)
 
         # 12.
         fell = term > 0.5
@@ -1064,8 +1132,10 @@ class VecEnv(object):
     model_variant      fizik modeli degisikligi (oynatma: main politikasi getup modelinde, devir icin ayni geomlar)
     head_force_peak    True: fizik alt adim alt adim (dinamik ayni); task_state()["head_force_peak"] (N,) = son kontrol
                        adimindaki alt adimlarin kafa-zemin normal kuvveti en buyugu (N; degerlendirme A4)
-    robot              None (config.ROBOT_PROFILE) | "xl330_27" | "tr35_b2" (aktuator + sensor modeli; modul notu)
+    robot              None (config.ROBOT_PROFILE) | "xl330_27" | "tr35_b2" (aktuator + sensor modeli; modul notu);
+                       tr35_b2 surecinde yalniz None | "tr35_b2"
     backlash           tr35: DS eklemlerinde seri bosluk eklemi (None/False: yok)
+    getup_head         None (C.GETUP_HEAD_DEFAULT) | "free" | "fixed" (yalniz getup; modul notu); self.getup_head
     """
 
     num_obs = C.NUM_OBS                 # sinif degerleri walk icin; ornek degerleri gorevden
@@ -1077,9 +1147,10 @@ class VecEnv(object):
                  push=True, fixed_command=None, start_method=None, scene_path=None, textures=None,
                  task="walk", terminate=True, reset_probs=None, max_episode_steps=None, progress=0.0,
                  episode_details=False, bank_n=None, model_variant=None, head_force_peak=False, robot=None,
-                 backlash=None):
+                 backlash=None, getup_head=None):
         self.spec = spec = TK.get_task(task)
-        self.robot = ACT.profile(robot)
+        self.robot = ACT.env_profile(robot)
+        self.getup_head = TK.getup_head_mode(getup_head, spec)
         self.backlash = bool(backlash)
         self.task = spec.name
         self.num_obs, self.num_critic_obs, self.num_actions = spec.num_obs, spec.num_critic_obs, spec.num_actions
@@ -1102,8 +1173,10 @@ class VecEnv(object):
         flags = dict(randomize=randomize, noise=noise, head_random=head_random, push=push, task=self.task,
                      terminate=terminate, reset_probs=None if reset_probs is None else dict(reset_probs),
                      max_episode_steps=max_episode_steps, progress=float(progress), model_variant=model_variant,
-                     head_force_peak=bool(head_force_peak), robot=self.robot, backlash=self.backlash)
-        banks = load_banks(spec, reset_probs, bank_n, self.model_variant) if self.task != "walk" else {}
+                     head_force_peak=bool(head_force_peak), robot=self.robot, backlash=self.backlash,
+                     getup_head=self.getup_head)
+        banks = load_banks(spec, reset_probs, bank_n, self.model_variant, self.robot, scene_path) \
+            if self.task != "walk" else {}
         self._progress = float(progress)
         self._core, self._conns, self._procs, self._broken, self._idx = None, [], [], False, None
         self._finalizer = None
@@ -1291,13 +1364,19 @@ class VecEnv(object):
         head_force_peak=True ise head_force_peak)."""
         return self._in_process("task_state()").task_state()
 
-    def set_state(self, i, qpos, qvel, ctrl=None, warmstart=None):
+    def set_state(self, i, qpos, qvel, ctrl=None, warmstart=None, alpha=0.0):
         """(num_workers=0) ortam i'yi verilen fiziksel duruma koyar (politika devri; last_action = 0,
-        alpha = 0, h_ref = H_HOME, bolum sayaclari sifir). Yeni (obs, critic) dondurur."""
+        alpha = 0 (komut katmani BEKLE -> KALKIYOR: alpha=1), h_ref = H_HOME, bolum sayaclari sifir). Yeni (obs,
+        critic) dondurur."""
         core = self._in_process("set_state()")
-        core.set_state(i, qpos, qvel, ctrl, warmstart)
+        core.set_state(i, qpos, qvel, ctrl, warmstart, alpha)
         core.refresh_obs()
         return self._io["obs"].copy(), self._io["critic"].copy()
+
+    def set_gesture(self, g):
+        """(num_workers=0) komut katmaninin jest ofseti (N,5) (T.GEST_CHANNELS, rad) bas/gaga ctrl'una eklenir (main,
+        head_random=False); None kapatir. Toplam bas ctrl hizi tr35'te assert edilir (spec eki K6.1)."""
+        self._in_process("set_gesture()").set_gesture(g)
 
     def mj_model(self, i):
         if self._core is None:
