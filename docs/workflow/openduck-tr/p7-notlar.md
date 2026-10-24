@@ -70,8 +70,13 @@ Gözlemler:
 `feet_phase` 3.0 (`OPENDUCK_TUNE`). main ön denemesi (t7-mainL, 3e8) bu ayarla koşuldu; getup varsayılanında (zaten 0.5
 gürültü ve `torque_sat` cezası) bırakıldı.
 
+t7-mainL (L ayarı, 3e8 adım): oturma / kalkma öğrenildi (oturuş 2.8 s, kalkış 2.5 s, düşme yok, yükseklik hatası
+1–3 mm); yerinde dönüş 0.77; ileri yürüme yok (0.00). İki kalça yaw servosu hâlâ stall'da (doygunluk %20, aksiyon
++7.6 / +9.3, kırpma 1.5): main'de `torque_ratio` −0.1 kas kasmayı önlemiyor.
+
 Açık:
-- Dönüş (yukarıda).
+- Dönüş (walk) ve ileri yürüme (main).
+- main kalça yaw kas kasması: daha güçlü tork cezası ya da hip_yaw'a özel doygunluk cezası.
 - Ayar, `tr35_constants` varsayılanına alınmadı (TUNE ile verilir); main/getup sonuçlarından sonra karar.
 - `--env-precision default` (TF32) hızı ölçülmedi; getup < 28k SPS (1e9 ≈ 10+ sa).
 - Mac'te CPU eğitimi: `p7-mac.md`.
