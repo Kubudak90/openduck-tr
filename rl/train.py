@@ -286,6 +286,10 @@ def parse_args(argv=None):
     p.add_argument("--getup-head", choices=("free", "fixed"), default=argparse.SUPPRESS,
                    help="getup: kafa serbest (politika) ya da sabit/toplanmis (HEAD_TUCK_DEG; spec 3.4); "
                         "varsayilan ortaminki (config.GETUP_HEAD_DEFAULT)")
+    p.add_argument("--init-noise-std", type=float, default=argparse.SUPPRESS,
+                   help="baslangic aksiyon gurultusu std (varsayilan gorevden, yoksa C.PPO; tr35 P7 ayari 0.5)")
+    p.add_argument("--entropy-coef", type=float, default=argparse.SUPPRESS,
+                   help="entropi katsayisi (varsayilan C.PPO)")
     a = p.parse_args(argv)
     cpus = effective_cpus()
     if a.workers is None:
@@ -303,11 +307,13 @@ def env_task_kwargs(task, getup_head=None):
 
 
 def task_ppo_cfg(task):
-    """Gorevin PPO varsayilanlari (TaskSpec gamma / ag boyutlari; walk: None = C.PPO aynen)."""
+    """Gorevin PPO varsayilanlari (TaskSpec gamma / ag boyutlari / init_noise_std; walk: None = C.PPO aynen)."""
     t = TK.get_task(task)
     cfg = {}
     if t.gamma is not None:
         cfg["gamma"] = t.gamma
+    if t.init_noise_std is not None:
+        cfg["init_noise_std"] = float(t.init_noise_std)
     if t.actor_hidden is not None:
         cfg["actor_hidden"] = list(t.actor_hidden)
     if t.critic_hidden is not None:
@@ -344,7 +350,9 @@ def main(argv=None):
         from . import export_c as EC
         post = lambda p: EC.safe_export(p, os.path.join(args.out, "c"))
     try:
-        runner = Runner(env, args.out, cfg=task_ppo_cfg(spec), seed=args.seed, save_interval=args.save_interval,
+        cfg = dict(task_ppo_cfg(spec) or {})
+        cfg.update({k: getattr(args, k) for k in ("init_noise_std", "entropy_coef") if hasattr(args, k)})
+        runner = Runner(env, args.out, cfg=cfg or None, seed=args.seed, save_interval=args.save_interval,
                         threads=args.threads, update_threads=args.update_threads, resume=args.resume,
                         meta_fn=lambda steps: policy_meta(steps, "cpu_torch", idx, spec.name, network=net.get("v"),
                                                           getup_head=getattr(args, "getup_head", None)),

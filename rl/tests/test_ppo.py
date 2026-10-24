@@ -540,9 +540,14 @@ def test_task_ppo_cfg_and_cli():
     from rl.train import task_ppo_cfg
     assert task_ppo_cfg("walk") is None
     g = task_ppo_cfg("getup")
-    assert g == {"gamma": 0.99, "actor_hidden": [512, 256, 128], "critic_hidden": [512, 256, 128]}
+    assert g == {"gamma": 0.99, "actor_hidden": [512, 256, 128], "critic_hidden": [512, 256, 128],
+                 "init_noise_std": TK.get_task("getup").init_noise_std}
     assert task_ppo_cfg("main") == {"gamma": TK.get_task("main").gamma}
     assert parse_args(["--out", "x"]).task == "walk" and parse_args(["--out", "x", "--task", "getup"]).task == "getup"
+    a = parse_args(["--out", "x"])
+    assert not hasattr(a, "init_noise_std") and not hasattr(a, "entropy_coef")
+    a = parse_args(["--out", "x", "--init-noise-std", "0.5", "--entropy-coef", "0.01"])
+    assert a.init_noise_std == 0.5 and a.entropy_coef == 0.01
 
 
 def test_real_env_task_smoke():
