@@ -3,7 +3,21 @@
 Kaynak: P1/P4/P6 birleştirme notları, P2-0 raporu (`p2-interface.md` §12). Her madde, sahibi olan adım
 tamamlanınca kapatılır.
 
+## P2d: ses modülü ve kafa kablo güzergâhı (P3'ten önce)
+
+- **head_yaw geçişi (bilinen kusur, `p2-entegrasyon.md` §10.3).** Giriş ve çıkış tüpleri geçiş noktasının 2d dışında
+  üst üste biner (D5). Donmuş geometride geçerli güzergâh yoktur. Kapanınca `check.py` 0 döner ve
+  `tests/cad/test_head_tr35_fc.py` içindeki `KNOWN` boşaltılır.
+- Ses modülünün 5 iletkeni neck, head_pitch, head_yaw ve head_roll geçişlerinin çapını büyütür (ek K3.6).
+
 ## P3: dışa aktarma, BOM, baskı seti
+
+- Tur 2 (`p2-entegrasyon.md` §10):
+  - MJCF çiftleri spec 3.2.2 v3.2'ye göre: çene ↔ boyun/trunk ve kafa ↔ kalça/kalça beşiği.
+  - Servis halkası notu: dinamik geçiş yayı bend_r'nin altında kalan geçişler (hip_roll, hip_pitch, neck,
+    head_pitch).
+  - head_yaw tutucu yaylarının montaj sırası: önce head_turn tablaya oturur, sonra yaylar vidalanır. Yaw ±80'e
+    çevrilerek vidalara erişilir.
 
 - `cad/docs.py`:
   - XL330 metinleri duruyor.
@@ -19,7 +33,8 @@ tamamlanınca kapatılır.
 
 ## G-CAD
 
-- Yer tutucu kütle aşağıdan yukarı 1847.9 g; ×1.05 ile 1940 g, sınırın 10 g altında.
+- ~~Yer tutucu kütle aşağıdan yukarı 1847.9 g; ×1.05 ile 1940 g, sınırın 10 g altında.~~ Gerçek geometri (tur 2):
+  1775.5 g × 1.05 = 1864.2 g. Ses modülü (+30 g bütçe, ek K3.1) dahil olunca ~1896 g.
 - Gerçek geometriyle aşılırsa kütle merdiveni uygulanır (spec §3.1).
 
 ## P5: TR-35 görevleri

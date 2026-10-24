@@ -17,9 +17,20 @@ Konfigde "check" bolumu varsa (TR-35, spec A1; P2-0) ayrica:
 4) Komsu eklem ciftleri pair_steps x pair_steps izgarada birlikte (pair_range: required | limits).
 5) Bacak-bacak: iki bacak hip_roll ve hip_yaw ic uclarinda, hip_pitch / knee uclari (leg_leg_range).
 Kablo demetleri (Item kind "harness") butun taramalara dahildir; ayni eklem gecisinin iki tupu
-("<eklem>_harness_in/out") gecis noktasinda bilerek birlesir ve birbirine karsi sayilmaz. Rapor sonunda sureler.
+("<eklem>_harness_in/out") gecis noktasinda bilerek birlesir: kesisimlerinin ayrik parcalarindan kutle merkezi gecis
+noktasina (params.harness.crossings, sag bacakta y aynasi) 2 d'den yakin olanlar sayilmaz, uzak olanlarin hacmi
+(> TOL) sayilir (spec A1 v3.2). Rapor sonunda sureler.
 Modellenen temaslar (check.contact_pairs, spec 3.2.2): 4) ve 5)'te birlesik uc pozlarda beklenen, MJCF'ye oz-carpisma
-cifti olarak giren link ciftleri sayilmaz, ayri listelenir; kablo demeti (contact_count_kinds) yine sayilir.
+cifti olarak giren link ciftleri sayilmaz, ayri listelenir; kablo demeti (contact_count_kinds) yine sayilir. 4)'te
+kapsam "module" iken de govde/kafa <-> uzuv kablo demeti temaslari sayilir (spec A1 "her zaman"), tek istisnayla
+("yapi once", spec A1 v3.2): pozda uzvun kendi yapisi (kablo disi parcalari) da modul disi bir parcaya giriyorsa
+HOME (stand) -> poz dogrusal eklem yolu en buyuk eklem degisiminin 1 derecelik adimlariyla taranir (path_poses); ilk
+modul disi temasin oldugu adimdaki temaslarin hepsi yapi ise (kablo yok) o pozun kablo temaslari sayilmaz, "yapi once
+(kablo bilgi)" diye ilk temas adimi ve parcalariyla ayri listelenir. Ilk adimda kablo da varsa ("kablo once") ya da
+pozda modul disi yapi temasi yoksa ("yalniz kablo") kablo temaslari sayilir. Sayilan carpismalar: bu kosulu gecemeyen
+kablo temaslari + butun modul ici carpismalar.
+Cikis kodu (__main__): sayilan toplam (tek eklem + komsu cift + bacak-bacak + ayni link + zarflar) > 0 ise 1, degilse 0
+(tools/build.sh --check bu durumda basarisiz olur).
 
 Modul suzgeci (P2a/b/c hizli dongu): OPENDUCK_CHECK_LINKS=legs | trunk | head | all | <link>,<link>... Yalniz en az
 bir parcasi secili link'lerde olan ciftler; pozlar secili modulun eklemleri (trunk: hepsi). 27 cm raporu suzgecsiz
@@ -29,6 +40,7 @@ bayt-esittir.
 """
 import collections
 import itertools
+import math
 import os
 import random
 import sys
@@ -158,9 +170,40 @@ def harness_crossing(it):
 
 
 def allowed_pair(ia, ib):
-    """Bilerek temas eden farkli link parcalari: ayni eklem gecisinin iki kablo tupu."""
+    """Bilerek temas eden farkli link parcalari: ayni eklem gecisinin iki kablo tupu (yalniz gecis noktasi
+    cevresinde, crossing_sphere)."""
     ca = harness_crossing(ia)
     return ca is not None and ca == harness_crossing(ib)
+
+
+def crossing_sphere(hcfg, jn):
+    """Ayni gecisin iki tupu icin temas istisnasi kuresi (spec A1 v3.2): eklem jn'in gecis noktasi (sifir poz, govde
+    cercevesi; konfig sol taraf, sag bacakta y aynasi) ve yaricap 2 x d. FreeCAD gerektirmez. Doner (nokta, r) ya da
+    None (gecis tanimsiz)."""
+    c = ((hcfg or {}).get("crossings") or {}).get(openduck.joint_key(jn))
+    if not c:
+        return None
+    x, y, z = (float(v) for v in c["cross"])
+    return (x, -y if jn.startswith("right_") else y, z), 2.0 * float(c["d"])
+
+
+def far_overlap(parts, center, r):
+    """Ayni gecis kesisiminin sayilan hacmi: kesisimin ayrik parcalarindan (hacim, kutle merkezi) kutle merkezi
+    gecis noktasina r'den uzak olanlarin hacim toplami ("gecis noktasinin 2 d cevresindeki temas"). FreeCAD
+    gerektirmez."""
+    return sum(v for v, c in parts if math.dist(c, center) > r)
+
+
+def _same_crossing_volume(model, jn, com, pls):
+    """Ayni gecisin iki tupu: kesisimin (com) far_overlap ile sayilan hacmi; gecis noktasi eklemin parent link'inde
+    (eklem ekseninde: iki link'te de sabit) pozlanir."""
+    sp = crossing_sphere(model.p.get("harness"), jn)
+    if sp is None or com.Volume <= 0.0:
+        return com.Volume
+    import FreeCAD as App
+    par = model.joint(jn)["parent"]
+    c = pls[par].multVec(App.Vector(*sp[0]) - model.links[par].origin)
+    return far_overlap([(s.Volume, tuple(s.CenterOfMass)) for s in com.Solids], tuple(c), sp[1])
 
 
 def contact_rules(model, section):
@@ -172,7 +215,7 @@ def contact_rules(model, section):
     rules = [r for r in ext.get("contact_pairs", []) if section in r.get("sections", ())]
     if not rules:
         return None
-    count = set(ext.get("contact_count_kinds", ["harness"]))
+    count = count_kinds(model)
     where = {it.name: (ln, it) for ln, l in model.links.items() for it in l.items}
     side = lambda ln: ln.split("_")[0] if ln.startswith(("left_", "right_")) else ""
 
@@ -221,23 +264,52 @@ def selected_joints(model, links):
     return out
 
 
-def check_pose(model, pose, links=None):
+def check_pose(model, pose, links=None, only=None):
+    """Pozdaki farkli link parca ciftlerinin kesisimleri [(hacim, a, b)]. links: en az bir parcasi bu link'lerde;
+    only(link_a, link_b) verilirse yalniz True dondugu ciftler. Ayni gecisin iki kablo tupunde yalniz gecis kuresi
+    disinda kalan hacim sayilir."""
     shapes = model.posed_shapes(pose)
+    pls = None
     hits = []
     for (la, ia, sa), (lb, ib, sb) in itertools.combinations(shapes, 2):
         if la == lb or not sa.BoundBox.intersect(sb.BoundBox):
             continue
         if links is not None and la not in links and lb not in links:
             continue
-        if allowed_pair(ia, ib):
+        if only is not None and not only(la, lb):
             continue
+        same = harness_crossing(ia) if allowed_pair(ia, ib) else None
         try:
-            vol = sa.common(sb).Volume
+            com = sa.common(sb)
+            if same is not None:
+                pls = pls or model.link_placements(pose)
+                vol = _same_crossing_volume(model, same, com, pls)
+            else:
+                vol = com.Volume
         except Exception:   # OCC nadiren basarisiz olur; raporla
             vol = -1.0
         if vol > TOL or vol < 0:
             hits.append((vol, ia.name, ib.name))
     return hits
+
+
+def path_poses(start, pose, step=1.0):
+    """start -> pose dogrusal eklem yolu: en buyuk eklem degisiminin step derecelik adimlari (n = tavan(max |d| /
+    step), en az 1); [(k, n, poz_k)], k = 1..n, son poz = pose. FreeCAD gerektirmez."""
+    names = sorted(set(start) | set(pose))
+    d = {j: pose.get(j, start.get(j, 0.0)) - start.get(j, 0.0) for j in names}
+    n = max(1, int(math.ceil(max(abs(v) for v in d.values()) / step - 1e-9)) if d else 1)
+    return [(k, n, {j: start.get(j, 0.0) + d[j] * k / float(n) for j in names}) for k in range(1, n + 1)]
+
+
+def first_contact(start, pose, contacts, step=1.0):
+    """path_poses boyunca contacts(poz) -> [(hacim, a, b)] ilk bos olmayan adim: (k, n, poz_k, temaslar) ya da None.
+    FreeCAD gerektirmez (contacts cagirana aittir)."""
+    for k, n, p in path_poses(start, pose, step):
+        hits = contacts(p)
+        if hits:
+            return k, n, p, hits
+    return None
 
 
 def same_link_overlaps(model, links=None):
@@ -258,20 +330,64 @@ def same_link_overlaps(model, links=None):
     return hits
 
 
-def _scan(model, poses, links, lines, label_w=26, scope=None, info=None, allow=None, modeled=None):
+def count_kinds(model):
+    """Her zaman sayilan parca turleri (check.contact_count_kinds, varsayilan kablo demeti; spec A1)."""
+    return set((model.cfg.get("check") or {}).get("contact_count_kinds", ["harness"]))
+
+
+def harness_rule(far, is_cable, first):
+    """Komsu cift izgarasinda modul disi temaslarin siniflandirmasi (spec A1 v3.2, "yapi once"). far: pozdaki modul
+    disi temaslar [(hacim, a, b)]; is_cable(a) kablo demeti mi; first() -> HOME -> poz yolunda ilk modul disi temas
+    (k, n, poz, temaslar) ya da None (yalniz gerekirse cagrilir). Doner (yapi, kablo, sinif, ilk): yapi = bilgi amacli
+    yapi temaslari; kablo = kablo demeti temaslari; sinif: None (kablo yok), "yalniz kablo" (pozda yapi temasi yok:
+    sayilir), "kablo once" (yoldaki ilk temas adiminda kablo var: sayilir) ya da "yapi once" (ilk temas adimindaki
+    temaslarin hepsi yapi: kablo temaslari sayilmaz, bilgi). FreeCAD gerektirmez."""
+    cab = lambda h: is_cable(h[1]) or is_cable(h[2])
+    out = [h for h in far if not cab(h)]
+    cable = [h for h in far if cab(h)]
+    if not cable:
+        return out, cable, None, None
+    if not out:
+        return out, cable, "yalniz kablo", None
+    fc = first()
+    if fc is not None and fc[3] and not any(cab(h) for h in fc[3]):
+        return out, cable, "yapi once", fc
+    return out, cable, "kablo once", fc
+
+
+def _scan(model, poses, links, lines, label_w=26, scope=None, info=None, allow=None, modeled=None, ext=None,
+          first=None, excused=None):
     """Pozlari tara, carpismalari satir satir yaz; carpisma sayisi. scope(poz adi) -> link kumesi verilirse yalniz iki
-    parcasi da o kumede olan carpismalar sayilir, digerleri info sayacina (bilgi amacli) gider. allow(a, b) gerekce
-    verirse (contact_rules) carpisma sayilmaz, modeled[(a, b)] = [poz sayisi, en buyuk hacim] olur."""
+    parcasi da o kumede olan carpismalar sayilir, digerleri info sayacina (bilgi amacli) gider; count_kinds turunden
+    (kablo demeti) parcasi olan modul disi carpisma harness_rule ile siniflanir: "yalniz kablo" ve "kablo once"
+    sayilir (satirinda isaretli), "yapi once" sayilmaz ve excused listesine (poz, ilk temas, kablo temaslari) gider;
+    first(poz adi, poz) -> HOME -> poz yolundaki ilk modul disi temas. ext[sinif] bu poz-cift sayilari. allow(a, b)
+    gerekce verirse (contact_rules) carpisma sayilmaz, modeled[(a, b)] = [poz sayisi, en buyuk hacim] olur."""
     n = 0
     item_link = {it.name: ln for ln, l in model.links.items() for it in l.items}
+    kind = {it.name: it.kind for l in model.links.values() for it in l.items}
+    count = count_kinds(model)
     for name, pose in poses:
         hits = check_pose(model, pose, links)
+        tag = {}
         if scope is not None:
             sc = scope(name)
-            out = [h for h in hits if not (item_link[h[1]] in sc and item_link[h[2]] in sc)]
+            far = [h for h in hits if not (item_link[h[1]] in sc and item_link[h[2]] in sc)]
+            out, cable, cls, fc = harness_rule(far, lambda a: kind[a] in count,
+                                               lambda: first(name, pose) if first is not None else None)
             hits = [h for h in hits if h not in out]
             for vol, a, b in out:
                 info[(a, b)] += 1
+            if cls == "yapi once":
+                hits = [h for h in hits if h not in cable]
+                if excused is not None:
+                    excused.append((name, fc, cable))
+            for h in cable:
+                if cls != "yapi once":
+                    tag[h] = "   [modul disi kablo: %s%s]" % (cls, "" if fc is None else ", ilk temas adim %d/%d"
+                                                              % (fc[0], fc[1]))
+            if ext is not None and cls is not None:
+                ext[cls] = ext.get(cls, 0) + len(cable)
         if allow is not None:
             ok = [h for h in hits if allow(h[1], h[2]) is not None]
             hits = [h for h in hits if h not in ok]
@@ -279,8 +395,8 @@ def _scan(model, poses, links, lines, label_w=26, scope=None, info=None, allow=N
                 c = modeled.setdefault((a, b), [0, 0.0])
                 c[0], c[1] = c[0] + 1, max(c[1], vol)
         n += len(hits)
-        for vol, a, b in sorted(hits, reverse=True):
-            lines.append("  %-*s %8.1f mm3  %s <-> %s" % (label_w, name, vol, a, b))
+        for h in sorted(hits, reverse=True):
+            lines.append("  %-*s %8.1f mm3  %s <-> %s%s" % (label_w, name, h[0], h[1], h[2], tag.get(h, "")))
     return n
 
 
@@ -440,9 +556,31 @@ def run(n_random=40):
             jmod = {j["name"]: model.link_module[j["child"]] for j in model.joints}
             mlinks = {md: set(lns) for md, lns in model.meta["modules"].items()}
             scope = lambda pname: mlinks[jmod[pname.split(",")[0].split("=")[0]]]
-        pmod = {}
-        n = _scan(model, pposes, links, lines, 40, scope, info, contact_rules(model, "pairs"), pmod)
+        pmod, pext, excused = {}, {}, []
+        stand = model.pose("stand")
+
+        def first(pname, pose):          # HOME -> poz yolunda ilk modul disi temas (uzvun modulu <-> diger)
+            sc = scope(pname)
+            return first_contact(stand, pose, lambda q: check_pose(model, q, links,
+                                                                   only=lambda la, lb: (la in sc) != (lb in sc)))
+        n = _scan(model, pposes, links, lines, 40, scope, info, contact_rules(model, "pairs"), pmod, pext,
+                  first if scope is not None else None, excused)
         lines.append("  -> %d poz, %d carpisma" % (len(pposes), n))
+        if scope is not None:
+            lines.append("  bunun modul disi kablo demeti temasi (sayilir, spec A1 v3.2): %d poz-cift; %d yalniz "
+                         "kablo, %d kablo once (HOME -> poz yolunda ilk temas kablo)"
+                         % (pext.get("yalniz kablo", 0) + pext.get("kablo once", 0), pext.get("yalniz kablo", 0),
+                            pext.get("kablo once", 0)))
+            lines.append("  yapi once (kablo bilgi; sayilmaz: HOME -> poz yolunda 1 derece adimla ilk modul disi temas "
+                         "uzvun yapisi): %d poz-cift, %d poz" % (pext.get("yapi once", 0), len(excused)))
+            for pname, (k, nst, q, fh), cab in excused:
+                js = [kv.split("=")[0] for kv in pname.split(",")]
+                lines.append("    %s: ilk temas adim %d/%d (%s)"
+                             % (pname, k, nst, ", ".join("%s=%.1f" % (j, q[j]) for j in js)))
+                for vol, a, b in sorted(fh, reverse=True):
+                    lines.append("      ilk temas %8.1f mm3  %s <-> %s" % (vol, a, b))
+                for vol, a, b in sorted(cab, reverse=True):
+                    lines.append("      kablo     %8.1f mm3  %s <-> %s" % (vol, a, b))
         n_mod = _modeled_lines(model, "pairs", pmod, lines)
         if scope is not None:
             lines.append("  modul disi temaslar (bilgi amacli; MJCF oz-carpisma ciftleri, spec 3.2.2): %d poz-cift"
@@ -481,7 +619,8 @@ def run(n_random=40):
     return design_hits + ext_hits, free, len(poses), len(bad), "\n".join(lines)
 
 
-if __name__ == "__main__":
+def main():
+    """Raporu yazar; cikis kodu: sayilan toplam (tek eklem + komsu cift + bacak-bacak + zarflar + ayni link) > 0 ise 1."""
     out = os.environ.get("OPENDUCK_CHECK_OUT", os.path.join(
         os.environ.get("OPENDUCK_OUT", os.path.join(HERE, "..", "build")), "interference.txt"))
     os.makedirs(os.path.dirname(out), exist_ok=True)
@@ -490,3 +629,13 @@ if __name__ == "__main__":
         f.write(txt + "\n")
     sys.stdout.write(txt + "\n")
     sys.stdout.write("sure (s): %s\n" % ", ".join("%s %.1f" % kv for kv in getattr(run, "timing", {}).items()))
+    counted = n_design + n_same
+    if counted:
+        sys.stderr.write("check.py: %d sayilan carpisma/cakisma (cikis kodu 1)\n" % counted)
+    sys.stdout.flush()       # freecadcmd SystemExit'te tamponu bosaltmaz (build.sh --check ciktisi)
+    sys.stderr.flush()
+    return 1 if counted else 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

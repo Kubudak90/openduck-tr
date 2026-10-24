@@ -11,8 +11,8 @@ turu kaydi (servos.SERVO_TYPES). Servo govdesi parcasinin adi "[left_|right_]<an
 import math
 
 import servos
-from geom import (V, _at_z, _parallel, bar_y, box, fillet, fillet_axis, frame, moved, rbox, shell_rbox, stadium_y,
-                  xcyl, ycyl, zcyl)
+from geom import (V, _at_z, _parallel, bar_y, box, fillet, fillet_axis, frame, moved, prism_xz, rbox, rotated,
+                  stadium_y, xcyl, ycyl, zcyl)
 
 HEAD_KEYS = ("neck_pitch", "head_pitch", "head_yaw", "head_roll", "mouth")
 
@@ -191,8 +191,9 @@ def build_xl330(m, sv):
 
 
 # ---------------------------------------------------------------------------
-# TR-35 yer tutucu (P2-0 arayuz dondurma; P2c bu bolumu boyun U-link'i, MG90S/SG90 cepleri, cene/alin tamponu ve
-# sabit etli kabuklarla degistirir)
+# TR-35 boyun + kafa (P2c). Arayuz: docs/workflow/openduck-tr/p2-interface.md (P2-0, donmus); yuk yolu ve MG90S mil
+# yuk hesabi: docs/workflow/openduck-tr/p2c-tampon.md. Olculer servo zarflarindan (servos.datums, horn cepleri),
+# donmus eklem noktalarindan ve params.head'den turetilir; vida olculeri mutlaktir (olceklenmez).
 # ---------------------------------------------------------------------------
 HEAD_CHAIN = (("neck_pitch", "trunk", "neck", (0, -1, 0), 30), ("head_pitch", "neck", "head_tilt", (0, 1, 0), 31),
               ("head_yaw", "head_tilt", "head_turn", (0, 0, 1), 32), ("head_roll", "head_turn", "head", (-1, 0, 0), 33),
@@ -204,45 +205,554 @@ HEAD_HORN_LINK = {"neck_pitch": "neck", "head_pitch": "head_tilt", "head_yaw": "
                   "mouth": "jaw"}
 
 
-def build_tr35_stub(m, sv):
-    """TR-35 boyun + kafa, P2-0 yer tutucu: eklemler (ID 30-34), boyun DS horn'u + idler pimi (trunk'tan shared),
-    MG90S/SG90 govde ve horn zarflari, sabit etli kafa kabugu (kutu, boyun deligi), cene/alin tamponu (neck link'te,
-    carpisma kutulu "neck_bumper"), butce kutleli braket bloklari ve kablo demetleri."""
-    from geom import harness_paths, tube
+def _horn_xf(m, key, toward):
+    """key servosunun kanonik cercevesindeki katiyi dunyaya (sifir poz) tasiyan f(sekil, kol=False). kol=True: horn
+    kolu `toward` yonune dondurulur (servo_parts'taki aciyla ayni; cep, kol vidalari)."""
+    o, h, f = m.servo_frame(key)
+    pl = frame(o, h, f)
+    a = servos.arm_angle_deg(h, f, toward) if toward is not None else 0.0
+
+    def xf(shape, arm=False):
+        s = moved(shape, pl)
+        return rotated(s, o, h, a) if arm and abs(a) > 1e-9 else s
+    return xf
+
+
+def _capture(t, xf, y0, y1, grow):
+    """Horn kol(lar)i + gobek dis hatti `grow` kadar buyuk, kanonik Y y0..y1 (horn'u saran braket govdesi)."""
+    return xf(servos.horn_pocket(t, grow, depth=-y0 - grow, over=y1), arm=True)
+
+
+def _horn_seat(t, xf, F, y1, from_inside=False):
+    """Horn'u braket plakasina gomen kesiciler (plaka kanonik Y: horn dis yuzu 0 .. y1): cep (kol + gobek,
+    pocket_clear), kol vidalari ve merkez vidasi erisim deligi. from_inside: vidalar horn tarafindan plakada kor
+    kilavuz delige (plakanin disi kapali); degilse plakadan gecip horn koluna, baslari havsada."""
+    hn = t["horn"]
+    cut = [xf(servos.horn_pocket(t, F["pocket_clear"], depth=hn["arm_t"], over=0.0), arm=True)]
+    if from_inside:
+        cut.append(xf(servos.horn_bolt_cutters(t, y1 - F["skin"], r=F["m17_pilot_d"] / 2.0), arm=True))
+    else:
+        cb = (F["m17_head_d"] / 2.0, y1 - F["m17_head_h"], y1 + 1.0)
+        cut.append(xf(servos.horn_bolt_cutters(t, y1 + 1.0, cb, r=F["m17_clear_d"] / 2.0), arm=True))
+    cut.append(xf(ycyl(F["center_screw_d"] / 2.0, 0, 0, -0.01, y1 + 1.0)))
+    return cut
+
+
+def _prism_y(profile, y0, y1):
+    """Y'de uzun bir XZ profil katisinin y0..y1 dilimi."""
+    return profile.common(box(-1e3, 1e3, y0, y1, -1e3, 1e3))
+
+
+def _hex_y(cx, cz, af, y0, y1):
+    """Somun yuvasi: XZ'de anahtar agzi af olan altigen, Y'de y0..y1."""
+    import Part
+    r = af / math.sqrt(3.0)
+    pts = [V(cx + r * math.cos(math.radians(30 + 60 * k)), y0, cz + r * math.sin(math.radians(30 + 60 * k)))
+           for k in range(7)]
+    return Part.Face(Part.makePolygon(pts)).extrude(V(0, y1 - y0, 0))
+
+
+def _slot_y(cx, z0, z1, r, y0, y1):
+    """XZ'de dikey oval delik (yaricap r, merkezler z0+r .. z1-r), Y'de y0..y1 (hafifletme)."""
+    if z1 - z0 < 2 * r + 1e-6:
+        return None
+    return stadium_y(cx, z0 + r, r, z1 - r, y0, y1).fuse(ycyl(r, cx, z1 - r, y0, y1)).removeSplitter()
+
+
+def _harness(m, H):
+    """Kafa modulu kablo demetleri: donmus gecisler (params.harness: gecis noktasi + cap) ve link ici guzergah
+    (params.head.harness_route). Moduller arasi gecis (neck_pitch: trunk -> neck) P2-0 giris/cikis parcalarini aynen
+    tutar, yalniz uzatilir (in_pre / out_post); kafa ici gecislerde (parent ve child kafa modulunde) P2-0'in kisa
+    yer tutucu in/out noktalari sahibin guzergahiyla degisir ("in" / "out"; arayuz: link ici guzergah sahibindir),
+    gecis noktasi ve cap degismez. Ayni demetin ardisik tuplari birlesme noktasinda es dogrusal biter (sifir hacimli
+    temas). Doner {link: [(ad, noktalar, cap, kutle_kg)]}."""
+    from geom import harness_paths
+    hc, rt = m.p["harness"], m.p["head"]["harness_route"]
+    out = {}
+    for jn, parent, child, _, _ in HEAD_CHAIN:
+        r = rt.get(jn, {})
+        own = parent != "trunk"
+        assert own or not ({"in", "out"} & set(r)), "%s: moduller arasi gecisin parcalari degistirilemez" % jn
+        for part, pts, d, _ in harness_paths(hc, jn):
+            cross = tuple(hc["crossings"][jn]["cross"])
+            if part == "in":
+                pts = ([tuple(q) for q in r["in"]] + [cross] if "in" in r else
+                       [tuple(q) for q in r.get("in_pre", [])] + pts)
+            else:
+                pts = ([cross] + [tuple(q) for q in r["out"]] if "out" in r else
+                       pts + [tuple(q) for q in r.get("out_post", [])])
+            L = sum(math.dist(a, b) for a, b in zip(pts, pts[1:]))
+            mass = L * hc["g_per_mm3"] * math.pi * d * d / 4.0 / 1000.0
+            out.setdefault(parent if part == "in" else child, []).append(("%s_harness_%s" % (jn, part), pts, d, mass))
+    return out
+
+
+def _harness_cut(hz, link, grow):
+    """link'teki kablo demetlerinin grow kadar kalin hali (ayni link'teki braketlerde kablo kanali)."""
+    from geom import tube
+    return [tube(pts, d / 2.0 + grow) for _, pts, d, _ in hz.get(link, [])]
+
+
+def _cut(shape, cutters):
+    cutters = [c for c in cutters if c is not None]
+    return shape.cut(cutters[0].fuse(cutters[1:]) if len(cutters) > 1 else cutters[0]) if cutters else shape
+
+
+def _metal(m, link, name, axis, pts, r, a0, a1, mass_g):
+    """Vida/pim zarfi (kind metal, aciklik deliklerinin icinde): eksen 'x'|'y'|'z' boyunca a0..a1, pts diger iki
+    koordinat (x: (y, z), y: (x, z), z: (x, y)); kutle adet basina mass_g."""
+    mk = {"x": lambda a, b: xcyl(r, a, b, a0, a1), "y": lambda a, b: ycyl(r, a, b, a0, a1),
+          "z": lambda a, b: zcyl(r, a, b, a0, a1)}[axis]
+    s = [mk(a, b) for a, b in pts]
+    m._add(link, name, s[0].fuse(s[1:]) if len(s) > 1 else s[0], "metal", mass_g * len(pts) / 1000.0)
+
+
+def _neck(m, sv, H, hz):
+    """Boyun U-link'i (neck, PETG): A kolu DS aluminyum kolu gomer (cep + 2 x M2.5 somunlu + M3 merkez vidasi) ve baski
+    kovaniyla trunk_base besik duvarlarina dayanir (+y eksenel), B kolu idler milini (M3 vida F623ZZ ic bileziginde,
+    somun + pirinc ara halka: -y eksenel) tasir; kopru head_pitch MG90S'in uzak ucunun altindan gecer.
+    head_pitch besigi: kopru (servo altinda -y'ye acik yarik, alt kulak yarikta), yan duvarlar ve ust kulak plakasi
+    kulaklarin horn tarafinda; servo arkadan (-y) takilir, 2 x M2 kulak vidasi arkadan. Duvarlar ve plaka yaw kablo
+    demetinin pitch ile donme bandinin (y <= 1) onunde kalir. head_pitch devrilme/eksenel yuku: MG90S horn'unun iki
+    yaninda baski yuzleri (ic: duvarlara vidali, dis: ayakli, kopruye vidali), aradaki head_tilt diski 0.3 mm
+    bosluklu doner (p2c-tampon.md). Cene/alin tamponu kopru onundeki govde dilinde TPU yastik (carpisma kutusu
+    "neck_bumper")."""
+    p, N, F, B, G = m.p, H["neck"], H["fit"], H["bumper"], H["mass_g"]
+    t, tp = sv["neck_pitch"], sv["head_pitch"]
+    nx, _, nz = p["j_neck_pitch"]
+    px, _, pz = p["j_head_pitch"]
+    hw, w = N["half_w"], N["wall_t"]
+    toward = p["trunk"]["neck_horn_toward"]
+    assert toward[2] >= math.cos(math.radians(30.0)) * math.sqrt(sum(c * c for c in toward)), \
+        "head.tr35_b2: boyun A kolu DS horn kolunu +z yonunde gomer (trunk.neck_horn_toward=%r)" % (toward,)
+    horn = m.shared["neck_pitch_horn"]
+    m._add("neck", "neck_pitch_horn", horn, "horn", m.horn_mass("neck_pitch"))
+    xf = _horn_xf(m, "neck_pitch", toward)
+    # arka idler mili (bacaklarla ayni, servos.ds_idler_screw): M3 imbus (bas B kolunun disinda), F623ZZ ic
+    # bileziginde mil; somun B kolunun rulmana bakan yuvasinda, pirinc ara halka ic bilezige: boyunun -y eksenel yuku
+    # somun -> ara halka -> ic bilezik -> trunk yuvasinin dudagi (servo milinde degil)
+    m._add("neck", "neck_pitch_idler_pin", xf(servos.ds_idler_screw(t, p["idler"]["bearing"])[0], arm=True), "metal",
+           G["idler_pin"] / 1000.0)
+    fy = p["servo_face"]["neck_pitch"][1]                     # DS horn -y: dunya y = fy - Y (kanonik)
+    st = servos.idler_stack(t, p["idler"]["bearing"])
+    M3 = p["fit"]
+    yb0, yb1 = sorted((fy - st["leg"][0], fy - st["leg"][1]))  # B kolu (idler pimi tarafi)
+    arm_t = t["horn"]["arm_t"]
+    ya0 = fy - N["leg_a_t"]                                   # A kolu dis yuzu (arayuz: >= -31.4)
+    ya_in = fy + arm_t + F["pocket_clear"]                    # DS kol cebinin ic yuzu
+    ya2 = ya0 + N["leg_t"]                                    # kol ustunde ince A kolu ic yuzu
+    # head_pitch MG90S (horn +y, uzak uc -z): dunya y = hf + Y, z = pz - Z
+    dp = servos.datums(tp)
+    hf = p["servo_face"]["head_pitch"][1]
+    w2 = dp["half_w"]
+    z_far = pz - dp["far_end_z"]
+    ytab0, ytab1 = hf + dp["tab"][0], hf + dp["tab"][1]
+    z_hole_near = pz - dp["tab_holes"][0][1]
+    zb1 = z_far - F["clear"]                                  # kopru ustu: servo uzak ucunun altinda
+    zb0 = zb1 - N["bridge_t"]
+    ztop = N["top_z"]
+    yr0 = hf - tp["horn"]["arm_t"] - F["pocket_clear"]         # head_tilt rotor diski bandi
+    yr1 = hf + H["tilt"]["rotor_t"]
+    yti1 = yr0 - F["gap"]                                     # ic baski yuzu
+    yti0 = yti1 - N["thrust_in_t"]
+    yto0 = yr1 + F["gap"]                                     # dis baski plakasi (+ kopruye oturan ayak)
+    yto1 = yto0 + N["thrust_out_t"]
+    yfo1 = yb0 - F["clear"]
+    lobe = tp["horn"]["arm_r"] + tp["horn"]["arm_tip_r"] + F["pocket_clear"] + F["pocket_wall"]
+    z_relief = min(zb1, pz - lobe - 2.0 * F["clear"])           # rotor alt kol ucu icin kopru cukuru
+    xw = w2 + F["clear"]
+    bx0, bx1, by0, by1, bz0, bz1 = B["box"]
+    tg = B["tongue"]                                          # govde dili yastiga gecer (x, yari y, z0, z1)
+
+    prof = ycyl(N["disc_r"], nx, nz, -1e3, 1e3).fuse(box(nx - hw, nx + hw, -1e3, 1e3, nz, zb1)).removeSplitter()
+    leg_a = _prism_y(prof, ya0, ya2).fuse(_capture(t, xf, fy - ya_in, fy - ya2,
+                                                   F["pocket_clear"] + F["pocket_wall"]))
+    leg_b = _prism_y(prof, yb0, yb1)
+    bridge = box(nx - hw, nx + hw, ya0, yb1, zb0, zb1)
+    walls = [box(px + xw, px + xw + w, N["wall_y0"], yti0, zb1 - 0.01, ztop),
+             box(px - xw - w, px - xw, N["wall_y0"], yti0, zb1 - 0.01, ztop)]
+    ytp0 = ytab1 + F["pocket_clear"]                          # ust kulak plakasi: kulagin horn tarafinda
+    ytp1 = ytp0 + N["tab_plate_t"]
+    tabp = box(px - xw - w, px + xw + w, ytp0, ytp1, pz + w2 + F["clear"], ztop)
+    z_hole_far = pz - dp["tab_holes"][1][1]
+    stem = box(nx + hw - 0.01, bx0, -B["stem_half_y"], B["stem_half_y"], zb0, bz1)
+    tongue = box(bx0 - 0.01, bx0 + tg[0], -tg[1], tg[1], tg[2], tg[3])
+    # baski kovani (A kolu, bacaklardaki servos.ds_thrust_sleeve gibi): horn gobegi cevresinde r (gobek + bosluk +
+    # 0.5) .. thrust_r, horn yuzunden thrust_y1'e (donmus boyun zarfinin icinde); trunk_base boyun besigi yan
+    # duvarlarinin uc yuzune (K_T cekirdek siniri) 0.2 mm. Boyunun +y (servoya dogru) eksenel yuku trunk_base'e gider.
+    r_sl0 = t["horn"]["hub_d"] / 2.0 + M3["clearance"] + 0.5
+    sleeve = ycyl(N["thrust_r"], nx, nz, fy - 0.01, N["thrust_y1"]).cut(ycyl(r_sl0, nx, nz, fy - 1.0, 0.0))
+    link = leg_a.fuse([leg_b, bridge, stem, tongue, tabp, sleeve] + walls).removeSplitter()
+    arm_holes = [(h.BoundBox.Center.x, h.BoundBox.Center.z)
+                 for h in servos.horn_bolt_holes(t, horn, ya0 - 1.0, ya0 + 1.0, 1.0)]
+    wscr = [(px + s * (xw + w / 2.0), z) for s in (1, -1) for z in (zb1 + N["thrust_in_screw_dz"],
+                                                                   ztop - N["thrust_in_screw_dz"])]
+    yfc = (yto1 + yfo1) / 2.0
+    oscr = [(px + s * N["thrust_out_screw_dx"], yfc) for s in (1, -1)]
+    r_sl = N["slot_r"]
+    arm_top = nz + t["horn"]["hole_r"][-1] + t["horn"]["arm_tip_r"] + F["pocket_clear"] + F["pocket_wall"]
+    cut = [xf(servos.horn_pocket(t, F["pocket_clear"], depth=arm_t, over=0.0), arm=True),
+           xf(servos.horn_bolt_cutters(t, fy - ya0 + 1.0, r=F["m25_clear_d"] / 2.0), arm=True),
+           ycyl(N["center_hole_r"], nx, nz, ya0 - 1.0, fy + 0.01),
+           xf(ycyl(M3["clear_d"] / 2.0, 0, 0, st["head"][0] - 1.0, st["leg"][1] + 1.0)),        # B kolu: M3 + somun
+           xf(servos.hex_prism_y(M3["nut_af"], 0.0, 0.0, st["leg"][1] - M3["nut_t"], st["leg"][1] + 0.01), arm=True),
+           box(px - w2 - F["pocket_clear"], px + w2 + F["pocket_clear"], ya2 + 0.01, ytp0, zb0 - 1.0, zb1 + 1.0),
+           box(nx - hw - 1.0, nx + hw + 1.0, yti1 - 0.01, yto0 + 0.01, z_relief, zb1 + 1.0),
+           ycyl(F["m2_pilot_d"] / 2.0, px, z_hole_near, ytp0 - 0.01, ytp1 + 0.01),
+           ycyl(F["m2_pilot_d"] / 2.0, px, z_hole_far, ytp0 - 0.01, ytp0 + N["tab_screw_depth"]),
+           _slot_y(nx, arm_top + w, zb0 - w, r_sl, ya0 - 1.0, ya2 + 0.01),
+           _slot_y(nx, nz + st["boss_r"] + w + 2.0, zb0 - w, r_sl, yb0 - 1.0, yb1 + 1.0)]
+    cut += [_hex_y(cx, cz, F["m25_nut_af"], ya0 - 1.0, ya0 + F["m25_nut_t"]) for cx, cz in arm_holes]
+    cut += [ycyl(F["m2_pilot_d"] / 2.0, x, z, yti0 - N["thrust_in_screw_depth"], yti0 + 0.01) for x, z in wscr]
+    cut += [zcyl(F["m2_pilot_d"] / 2.0, x, y, zb1 - N["thrust_out_screw_depth"], zb1 + 0.01) for x, y in oscr]
+    cut += [box(px - xh, px + xh, y0_, y1_, zb0 - 1.0, zb1 + 1.0) for xh, y0_, y1_ in N["bridge_holes"]]
+    cut += _harness_cut(hz, "neck", F["harness_clear"])
+    m._add("neck", "neck_link", _cut(link, cut), "bracket")
+    _metal(m, "neck", "head_pitch_tab_screws", "y", [(px, z_hole_near), (px, z_hole_far)],
+           F["m2_pilot_d"] / 2.0 - 0.05, ytab0, ytp0 + N["tab_screw_depth"] - 0.5, G["m2_screw"])
+    _metal(m, "neck", "neck_arm_screws", "y", arm_holes, F["m25_clear_d"] / 2.0 - 0.15, ya0 + F["m25_nut_t"] + 0.01,
+           ya_in - 0.01, G["m25_screw_nut"])
+    # baski yuzleri (ayri parcalar): ic yuz yan duvarlarin +y ucuna (4 x M2), dis plaka ayagiyla kopruye (2 x M2)
+    hub_r = tp["horn"]["hub_d"] / 2.0 + 2.0 * F["clear"]
+    tin = box(px - xw - w, px + xw + w, yti0, yti1, zb1, ztop)
+    tin = _cut(tin, [ycyl(hub_r, px, pz, yti0 - 1.0, yti1 + 1.0)] +
+               [ycyl(F["m2_clear_d"] / 2.0, x, z, yti0 - 1.0, yti1 + 1.0) for x, z in wscr])
+    m._add("neck", "head_pitch_thrust_in", tin, "bracket")
+    tout = box(px - hw, px + hw, yto0, yto1, zb1, ztop).fuse(
+        box(px - hw, px + hw, yto1 - 0.01, yfo1, zb1, zb1 + N["thrust_out_foot_t"]))
+    tout = _cut(tout, [ycyl(N["thrust_hole_r"], px, pz, yto0 - 1.0, yto1 + 1.0)] +
+                [zcyl(F["m2_clear_d"] / 2.0, x, y, zb1 - 1.0, zb1 + N["thrust_out_foot_t"] + 1.0) for x, y in oscr])
+    m._add("neck", "head_pitch_thrust_out", tout, "bracket")
+    _metal(m, "neck", "head_pitch_thrust_screws", "y", wscr, F["m2_pilot_d"] / 2.0 - 0.05,
+           yti0 - N["thrust_in_screw_depth"] + 0.5, yti1 - 0.01, G["m2_screw"])
+    _metal(m, "neck", "head_pitch_thrust_out_screws", "z", oscr, F["m2_pilot_d"] / 2.0 - 0.05,
+           zb1 - N["thrust_out_screw_depth"] + 0.5, zb1 + N["thrust_out_foot_t"] - 0.01, G["m2_screw"])
+    # cene/alin tamponu (TPU 95A): govde diline gecme; carpisma kutusu = yastik kutusu (MJCF geom "neck_bumper")
+    pad = box(bx0, bx1, by0, by1, bz0, bz1).cut(box(bx0 - 1.0, bx0 + tg[0], -tg[1], tg[1], tg[2], tg[3]))
+    m._add("neck", "neck_bumper", pad, "pad", None,
+           (V((bx0 + bx1) / 2.0, (by0 + by1) / 2.0, (bz0 + bz1) / 2.0),
+            ((bx1 - bx0) / 2.0, (by1 - by0) / 2.0, (bz1 - bz0) / 2.0), 0.0))
+    sp = m.servo_parts("head_pitch", horn_toward=H["horn_toward"]["head_pitch"])
+    m._add("neck", "head_pitch_servo", sp["body"], "servo", m.servo_mass("head_pitch"))
+
+
+def _tilt(m, sv, H, hz):
+    """Kafa egim cercevesi (head_tilt, PETG, tek parca L): head_pitch horn'unu gomen rotor diski (horn tarafi, baski
+    yuzleri arasinda doner), ondan yukari kol ve head_yaw horn'unu ustten gomen yatay tabla (yaw horn kollari y
+    boyunca; tablanin -y kismi yaw kablo demetinin donme yolunun (r 18.25) icinde kalir)."""
+    p, T, F = m.p, H["tilt"], H["fit"]
+    tp, ty = sv["head_pitch"], sv["head_yaw"]
+    px, _, pz = p["j_head_pitch"]
+    yx, yy, _ = p["j_head_yaw"]
+    hf = p["servo_face"]["head_pitch"][1]
+    yzf = p["servo_face"]["head_yaw"][2]                       # yaw horn dis yuzu (asagi bakar)
+    yr0 = hf - tp["horn"]["arm_t"] - F["pocket_clear"]
+    yr1 = hf + T["rotor_t"]
+    zc1 = yzf + ty["horn"]["arm_t"] + F["pocket_clear"]
+    zc0 = yzf - T["cross_t"]
+    xfp = _horn_xf(m, "head_pitch", H["horn_toward"]["head_pitch"])
+    xfy = _horn_xf(m, "head_yaw", H["horn_toward"]["head_yaw"])
+    R = T["rotor_r"]
+    grow = F["pocket_clear"] + F["pocket_wall"]
+    rotor = ycyl(R, px, pz, yr0, yr1).fuse(_capture(tp, xfp, yr0 - hf, yr1 - hf, grow))
+    hx = T["cross_neck_half_x"]
+    up = prism_xz([(px - R, pz), (px + R, pz), (px + hx, zc0 + 0.01), (px - hx, zc0 + 0.01)], yr0, yr1)
+    rcb = ty["horn"]["arm_r"] + ty["horn"]["arm_tip_r"] + grow
+    cross = zcyl(rcb, yx, yy, zc0, zc1).common(box(px - R, px + R, yy - rcb, yy + rcb, zc0, zc1))
+    cross = cross.fuse(box(yx - hx, yx + hx, yy, yr1, zc0, zc1))
+    tilt = rotor.fuse([up, cross]).removeSplitter()
+    cut = _horn_seat(tp, xfp, F, yr1 - hf) + _horn_seat(ty, xfy, F, yzf - zc0)
+    cut += _harness_cut(hz, "head_tilt", F["harness_clear"])
+    ret = _yaw_retainer(m, H, zc1)
+    cut += ret["pilots"]
+    m._add("head_tilt", "head_tilt_bracket", _cut(tilt, cut), "bracket")
+    for name, arc in ret["arcs"]:
+        m._add("head_tilt", name, arc, "bracket")
+    _metal(m, "head_tilt", "head_yaw_retainer_screws", "z", ret["screws"], F["m2_pilot_d"] / 2.0 - 0.05,
+           ret["screw_z"][0], ret["screw_z"][1], H["mass_g"]["m2_screw"])
+    for key in ("head_pitch", "head_yaw"):
+        sp = m.servo_parts(key, horn_toward=H["horn_toward"][key])
+        m._add("head_tilt", key + "_horn", sp["horn"], "horn", m.horn_mass(key))
+
+
+def _zsector(r0, r1, x, y, z0, z1, a0, a1):
+    """z ekseni etrafinda halka dilimi: r0..r1, z0..z1, aci a0..a1 (derece, +x'ten +y'ye)."""
+    import Part
+    s = Part.makeCylinder(r1, z1 - z0, V(x, y, z0), V(0, 0, 1), a1 - a0)
+    if r0 > 0.0:
+        s = s.cut(Part.makeCylinder(r0, z1 - z0 + 2.0, V(x, y, z0 - 1.0), V(0, 0, 1), 360.0))
+    return rotated(s, (x, y, z0), (0, 0, 1), a0)
+
+
+def _yaw_retainer(m, H, zc1):
+    """head_yaw eksenel tutucusu (head_tilt, PETG, iki yay): head_turn halkasinin flansi (_turn) tabla ustu (zc1) ile
+    yaylarin dudagi arasinda 0.3 mm bosluklarla tutulur. Kafa asagi (agirlik): halka -> tabla; kafa yukari (ters
+    durus, kalkma, darbe): flans -> dudak -> 2 x M2 / yay -> tabla. MG90S mili yalniz tork + radyal tasir. Yaylar
+    tablanin +-y tarafinda (tabla x'te +-12, head_tilt zarfi), flans 360 derece (yaw +-80'de her yay altinda flans
+    kalir). Doner {"arcs": [(ad, kati)], "pilots": tabla delikleri, "screws": [(x, y)], "screw_z": (z0, z1)}."""
+    p, U, R, F = m.p, H["turn"], H["tilt"]["retainer"], H["fit"]
+    yx, yy, _ = p["j_head_yaw"]
+    zf0 = zc1 + F["gap"]                                       # flans alti (halka alti)
+    zl0 = zf0 + U["flange_t"] + F["gap"]                       # dudak alti
+    zl1 = zl0 + R["lip_t"]
+    rw0 = U["flange_r"] + F["gap"]                             # yay duvari ic yuzu (flansa radyal bosluk)
+    # dis ust kenar pahi: head_roll'da head_frame guvertesinin ic kenari yaylarin dis ustune iner
+    import Part
+    r_ch, h_ch = R["chamfer"]
+    k = h_ch / (R["r"][1] - r_ch)
+    ro = R["r"][1] + 1.0
+    tri = Part.Face(Part.makePolygon([V(yx + r_ch, yy, zl1 + 0.01), V(yx + ro, yy, zl1 + 0.01),
+                                      V(yx + ro, yy, zl1 - k * (ro - r_ch)), V(yx + r_ch, yy, zl1 + 0.01)]))
+    chamfer = tri.revolve(V(yx, yy, 0.0), V(0, 0, 1), 360.0)
+    arcs, pilots, screws = [], [], []
+    for name, c in (("head_yaw_retainer_left", 90.0), ("head_yaw_retainer_right", 270.0)):
+        a0, a1 = c - R["half_deg"], c + R["half_deg"]
+        arc = _zsector(rw0, R["r"][1], yx, yy, zc1, zl1, a0, a1).fuse(
+            _zsector(R["r"][0], R["r"][1], yx, yy, zl0, zl1, a0, a1)).removeSplitter()
+        arc = arc.cut(chamfer)
+        pts = [(yx + R["screw_r"] * math.cos(math.radians(c + s * R["screw_deg"])),
+                yy + R["screw_r"] * math.sin(math.radians(c + s * R["screw_deg"]))) for s in (-1, 1)]
+        hole = [zcyl(F["m2_clear_d"] / 2.0, x, y, zc1 - 1.0, zl1 + 1.0) for x, y in pts]
+        hole += [zcyl(R["head_d"] / 2.0, x, y, zl1 - R["head_h"], zl1 + 1.0) for x, y in pts]
+        arcs.append((name, _cut(arc, hole)))
+        pilots += [zcyl(F["m2_pilot_d"] / 2.0, x, y, zc1 - R["screw_depth"], zc1 + 0.01) for x, y in pts]
+        screws += pts
+    return {"arcs": arcs, "pilots": pilots, "screws": screws,
+            "screw_z": (zc1 - R["screw_depth"] + 0.5, zl1 - R["head_h"] - 0.01)}
+
+
+def _turn(m, sv, H, hz):
+    """Kafa donus cercevesi (head_turn, PETG): yaw MG90S kulak cercevesi (kulaklar ustten vidali), head_tilt tablasi
+    uzerinde 0.3 mm bosluklu baski halkasi (yaw eksenel/devrilme yuku), arka plaka (roll horn'unu gomer, kollar y
+    boyunca) ve on plaka + roll pimi (kafa cercevesinin on yatagina; roll mili egilme almaz)."""
+    p, U, F = m.p, H["turn"], H["fit"]
+    ty, tr = sv["head_yaw"], sv["head_roll"]
+    yx, yy, _ = p["j_head_yaw"]
+    rz = p["j_head_roll"][2]
+    dy = servos.datums(ty)
+    yzf = p["servo_face"]["head_yaw"][2]                       # yaw: dunya z = yzf - Y, y = yy - Z, x = yx - X
+    rxf = p["servo_face"]["head_roll"][0]                      # roll: dunya x = rxf + Y, y = -Z, z = rz - X
+    w2 = dy["half_w"]
+    zc1 = yzf + ty["horn"]["arm_t"] + F["pocket_clear"]        # head_tilt tablasi ustu
+    z_tower = yzf - dy["tower_top"]
+    ztf1 = yzf - dy["tab"][1]                                  # kulaklarin horn tarafi yuzu
+    ztf0 = ztf1 - U["frame_t"]
+    yt0, yt1 = yy - dy["tab_z"][1] - U["frame_margin"], yy - dy["tab_z"][0] + U["frame_margin"]
+    yw0, yw1 = yy - dy["far_end_z"] - F["pocket_clear"], yy - dy["near_end_z"] + F["pocket_clear"]
+    xfr0, xfr1 = yx - w2 - F["pocket_clear"] - U["frame_side"], yx + w2 + F["pocket_clear"] + U["frame_side"]
+    ring = zcyl(U["ring_r"][1], yx, yy, zc1 + F["gap"], z_tower - F["clear"]).cut(
+        zcyl(U["ring_r"][0], yx, yy, zc1, z_tower))
+    # eksenel tutma flansi (_yaw_retainer yaylarinin dudagi altinda): +x'te head_turn zarfi icin kirpik
+    flange = zcyl(U["flange_r"], yx, yy, zc1 + F["gap"], zc1 + F["gap"] + U["flange_t"]).cut(
+        zcyl(U["ring_r"][1] - 0.01, yx, yy, zc1, z_tower)).common(
+        box(yx - U["flange_r"] - 1.0, yx + U["flange_x"], yy - U["flange_r"] - 1.0, yy + U["flange_r"] + 1.0,
+            zc1, z_tower))
+    ring = ring.fuse(flange)
+    rm = sum(U["ring_r"]) / 2.0
+    posts = [zcyl(U["post_r"], yx + rm * math.cos(math.radians(a)), yy + rm * math.sin(math.radians(a)),
+                  z_tower - F["clear"] - 0.01, ztf0 + 0.01) for a in U["post_deg"]]
+    tframe = box(xfr0, xfr1, yt0, yt1, ztf0, ztf1)
+    xr0, xr1 = rxf - tr["horn"]["arm_t"] - F["pocket_clear"], rxf + U["rear_t"]
+    xfrr = _horn_xf(m, "head_roll", H["horn_toward"]["head_roll"])
+    grow = F["pocket_clear"] + F["pocket_wall"]
+    rear = _capture(tr, xfrr, xr0 - rxf, xr1 - rxf, grow).fuse(box(xr0, xr1, U["bar_y"][0], U["bar_y"][1], ztf0, rz))
+    bar = box(xr1 - 0.01, xfr0 + 0.01, U["bar_y"][0], U["bar_y"][1], ztf0, ztf1)
+    xf0 = yx + w2 + U["front_gap"]
+    xf1 = xf0 + U["front_t"]
+    front = xcyl(U["front_r"], 0.0, rz, xf0, xf1).fuse(box(xf0, xf1, -U["front_r"], U["front_r"], ztf0, rz))
+    pin = xcyl(U["pin_r"], 0.0, rz, xf1 - 0.01, U["pin_x1"])
+    turn = tframe.fuse([ring, rear, bar, front, pin] + posts).removeSplitter()
+    holes = [(yx, yy - z) for _, z in dy["tab_holes"]]
+    cut = [box(yx - w2 - F["pocket_clear"], yx + w2 + F["pocket_clear"], yw0, yw1, ztf0 - 1.0, ztf1 + 1.0)]
+    cut += [zcyl(F["m2_pilot_d"] / 2.0, x, y, ztf0 - 0.01, ztf1 + 0.01) for x, y in holes]
+    cut += _horn_seat(tr, xfrr, F, xr1 - rxf)
+    cut += _harness_cut(hz, "head_turn", F["harness_clear"])
+    m._add("head_turn", "head_turn_bracket", _cut(turn, cut), "bracket")
+    sp = m.servo_parts("head_yaw", horn_toward=H["horn_toward"]["head_yaw"])
+    m._add("head_turn", "head_yaw_servo", sp["body"], "servo", m.servo_mass("head_yaw"))
+    sp = m.servo_parts("head_roll", horn_toward=H["horn_toward"]["head_roll"])
+    m._add("head_turn", "head_roll_horn", sp["horn"], "horn", m.horn_mass("head_roll"))
+    return {"pin_x": (xf1, U["pin_x1"]), "pin_r": U["pin_r"]}
+
+
+def _head(m, sv, H, hz, turn):
+    """Kafa (head): sabit etli PLA kaput (alti acik kubbe) + turuncu ust gaga; PETG kafa cercevesi: halka tabla, roll
+    MG90S kulak plakasi, gaga SG90 kulak plakasi, roll pimi on yatagi ve cene blogu (tampon temas yuzu); gaga sag
+    pim yatagi (ayri parca, kaput duvarina vidali)."""
+    p, S, R_, F = m.p, H["shell"], H["frame"], H["fit"]
+    tr, ts = sv["head_roll"], sv["mouth"]
+    rz = p["j_head_roll"][2]
+    mx, _, mz = p["j_mouth"]
+    dr, dm = servos.datums(tr), servos.datums(ts)
+    rxf = p["servo_face"]["head_roll"][0]                      # roll: x = rxf + Y, y = -Z, z = rz - X
+    myf = p["servo_face"]["mouth"][1]                          # gaga: y = myf + Y, x = mx + Z, z = mz - X
+    w, W2 = p["wall"], p["head_w"] / 2.0
+    hx0, hx1 = S["x"]
+    hz0, hz1 = S["z"]
+    Rs = S["r"]
+    # kaput: sabit et (dis/ic yuvarlatilmis kutu esmerkezli), alti acik
+    outer = rbox(hx0, hx1, -W2, W2, hz0, hz1, Rs, Rs)
+    hood = outer.cut(rbox(hx0 + w, hx1 - w, -W2 + w, W2 - w, hz0 - 1.0, hz1 - w, Rs - w, Rs - w))
+    J = H["jaw"]
+    hood_cut = [ycyl(J["hub_r"] + J["wall_hole_gap"], mx, mz, W2 - w - 1.0, W2 + 1.0),
+                ycyl(J["pin_r"] + J["wall_hole_gap"], mx, mz, -W2 - 1.0, -W2 + w + 1.0)]
+    # cerceve vidalari (kaput duvarindan halka tablanin kenarina, 4 x M2) ve sag pim yatagi vidalari
+    dz = (R_["deck_z"][0] + R_["deck_z"][1]) / 2.0
+    fscr_y = [(x, sy) for x in R_["screw_x"] for sy in (1, -1)]
+    span = lambda sy, a, b: tuple(sorted((sy * a, sy * b)))
+    hood_cut += [ycyl(F["m2_clear_d"] / 2.0, x, dz, *span(sy, W2 - w - 1.0, W2 + 1.0)) for x, sy in fscr_y]
+    bscr = [(mx + s * J["bushing_screw_dx"], mz) for s in (1, -1)]
+    hood_cut += [ycyl(F["m2_clear_d"] / 2.0, x, z, -W2 - 1.0, -W2 + w + 1.0) for x, z in bscr]
+    m._add("head", "head_hood", _cut(hood, hood_cut), "shell")
+    # ust gaga (turuncu): ust + yanlar + uc, alti ve arkasi acik; arka ucu kaputun dis yuzeyine oturur
+    bx0, bx1, bw, bz0, bz1, br, brt = (S["bill"][k] for k in ("x0", "x1", "half_w", "z0", "z1", "r", "r_top"))
+    bill = rbox(bx0, bx1, -bw, bw, bz0, bz1, br, brt).cut(
+        rbox(bx0 - 1.0, bx1 - w, -bw + w, bw - w, bz0 - 1.0, bz1 - w, br - w, max(brt - w, 0.0)))
+    m._add("head", "upper_bill", bill.cut(outer), "trim")
+
+    # kafa cercevesi (PETG): halka tabla (head_turn + head_tilt gecis acikligi), roll kulak plakasi, gaga kulak
+    # plakasi, on yatak duvari (roll pimi), cene blogu
+    d0, d1 = R_["deck_z"]
+    gap = R_["wall_gap"]
+    yin = W2 - w - gap                                         # kaput ic duvari (duz yan bolge)
+    ox0, ox1, oy0, oy1 = R_["opening"]
+    qx0, qx1, qy0, qy1 = R_["deck_outer"]
+    b = R_["arm_w"] / 2.0
+    deck = box(qx0, qx1, qy0, qy1, d0, d1).cut(box(ox0, ox1, oy0, oy1, d0 - 1.0, d1 + 1.0))
+    ym_out = myf + dm["tab"][1] + R_["cradle_t"]               # gaga kulak plakasinin dis yuzu
+    deck = deck.fuse([box(x - b, x + b, qy1 - 0.01, yin, d0, d1) for x in R_["screw_x"]] +
+                     [box(x - b, x + b, qy1 - 0.01, ym_out, d0, d1) for x in R_["mouth_arm_x"]] +
+                     [box(x - b, x + b, -yin, qy0 + 0.01, d0, d1) for x in R_["screw_x"]])
+    # roll MG90S: kulaklarin horn tarafinda plaka (servo arkadan takilir, vidalar arkadan)
+    rw2 = dr["half_w"]
+    xr0 = rxf + dr["tab"][1]
+    xr1 = xr0 + R_["cradle_t"]
+    ry0, ry1 = -dr["tab_z"][1] - R_["cradle_margin"], -dr["tab_z"][0] + R_["cradle_margin"]
+    rcz1 = rz + rw2 + F["pocket_clear"] + R_["cradle_side"]
+    rcr = box(xr0, xr1, ry0, ry1, d0, rcz1)
+    rcr = _cut(rcr, [box(xr0 - 1.0, xr1 + 1.0, -dr["far_end_z"] - F["pocket_clear"], -dr["near_end_z"] +
+                         F["pocket_clear"], rz - rw2 - F["pocket_clear"], rz + rw2 + F["pocket_clear"])] +
+               [xcyl(F["m2_pilot_d"] / 2.0, -z, rz, xr0 - 0.01, xr1 + 0.01) for _, z in dr["tab_holes"]])
+    # gaga SG90: kulaklarin horn tarafinda plaka
+    mw2 = dm["half_w"]
+    ym0 = myf + dm["tab"][1]
+    ym1 = ym0 + R_["cradle_t"]
+    mx0, mx1 = mx + dm["tab_z"][0] - R_["cradle_margin"], mx + dm["tab_z"][1] + R_["cradle_margin"]
+    mcz1 = mz + mw2 + F["pocket_clear"] + R_["cradle_side"]
+    mcr = box(mx0, mx1, ym0, ym1, d0, mcz1)
+    mcr = _cut(mcr, [box(mx + dm["near_end_z"] - F["pocket_clear"], mx + dm["far_end_z"] + F["pocket_clear"],
+                         ym0 - 1.0, ym1 + 1.0, mz - mw2 - F["pocket_clear"], mz + mw2 + F["pocket_clear"])] +
+               [ycyl(F["m2_pilot_d"] / 2.0, mx + z, mz, ym0 - 0.01, ym1 + 0.01) for _, z in dm["tab_holes"]])
+    # on yatak duvari: head_turn roll piminin yatagi (ust yarisi vidali kapak, montaj icin)
+    fw0 = turn["pin_x"][0] + F["clear"] * 2.0
+    fw1 = fw0 + R_["bush_t"]
+    fwall = xcyl(R_["bush_r"], 0.0, rz, fw0, fw1).fuse(box(fw0, fw1, -R_["bush_r"], R_["bush_r"], d0, rz))
+    fwall = fwall.cut(xcyl(turn["pin_r"] + R_["bush_gap"], 0.0, rz, fw0 - 1.0, fw1 + 1.0))
+    # cene blogu (tampon temas yuzu): halka tablanin onunden kafa tabanina
+    cx0, cx1, chy = R_["chin"]
+    chin = box(cx0, cx1, -chy, chy, p["head_bot"] + R_["chin_bot_gap"], d1).fuse(
+        box(qx1 - 0.01, cx0 + 0.01, -chy, chy, d0, d1))
+    # roll eksenel baski halkasi: head_turn arka plakasinin arkasinda 0.3 mm (kafa ileri itilince roll mili basi
+    # almaz; geri yonde on plaka / on yatak duvari dayanir), roll kulak plakasindan iki dikmeyle
+    RT = R_["roll_thrust"]
+    xa1 = rxf - tr["horn"]["arm_t"] - F["pocket_clear"] - F["gap"]
+    xa0 = xa1 - RT["t"]
+    rring = xcyl(RT["r"][1], 0.0, rz, xa0, xa1).cut(xcyl(RT["r"][0], 0.0, rz, xa0 - 1.0, xa1 + 1.0))
+    ph = RT["post"][0] / 2.0
+    rposts = [box(xr1 - 0.01, xa0 + 0.01, -ph, ph, rz + s * RT["post"][1] - ph, rz + s * RT["post"][1] + ph)
+              for s in (1, -1)]
+    hframe = deck.fuse([rcr, mcr, fwall, chin, rring] + rposts).removeSplitter()
+    hframe = _cut(hframe, [ycyl(F["m2_pilot_d"] / 2.0, x, dz, *span(sy, W2 - w - gap - R_["screw_depth"],
+                                                                    W2 - w - gap + 0.01)) for x, sy in fscr_y] +
+                  _harness_cut(hz, "head", F["harness_clear"]))
+    m._add("head", "head_frame", hframe, "bracket")
+    # gaga sag pim yatagi (ayri, kaput sag duvarina 2 x M2)
+    yb0 = -W2 + w + J["bushing_wall_gap"]
+    bush = box(mx - J["bushing_half"], mx + J["bushing_half"], yb0, yb0 + J["bushing_t"], mz - J["bushing_half"],
+               mz + J["bushing_half"])
+    bush = _cut(bush, [ycyl(J["pin_r"] + J["pin_gap"], mx, mz, yb0 - 1.0, yb0 + J["bushing_t"] + 1.0)] +
+                [ycyl(F["m2_pilot_d"] / 2.0, x, z, yb0 - 0.01, yb0 + J["bushing_t"] - 1.0) for x, z in bscr])
+    m._add("head", "jaw_pin_bushing", bush, "bracket")
+    G = H["mass_g"]
+    rs = F["m2_pilot_d"] / 2.0 - 0.05                          # vida zarfi kilavuz deligin icinde
+    for sy, tag in ((1, "left"), (-1, "right")):
+        _metal(m, "head", "head_frame_screws_" + tag, "y", [(x, dz) for x, s_ in fscr_y if s_ == sy], rs,
+               *(span(sy, W2 - w - gap - R_["screw_depth"] + 0.5, W2 - 0.3) + (G["m2_screw"],)))
+    _metal(m, "head", "jaw_pin_bushing_screws", "y", bscr, rs, -W2 + 0.3, yb0 + J["bushing_t"] - 1.5, G["m2_screw"])
+    for key in ("head_roll", "mouth"):
+        sp = m.servo_parts(key, horn_toward=H["horn_toward"][key])
+        m._add("head", key + "_servo", sp["body"], "servo", m.servo_mass(key))
+
+
+def _jaw(m, sv, H, hz):
+    """Gaga (jaw): ic gobek parcasi (PETG; SG90 horn'unu iceride gomer, gobegi kaput sol duvar deliginden cikar) +
+    turuncu alt gaga (PLA; disaridan iki kol, kollari birlestiren cene cubugu, sabit etli alt gaga tepsisi; sag kolda
+    pim kafanin pim yatagina). Gobek ile sol kol 2 x M2 eksenel vidayla birlesir."""
+    p, J, F = m.p, H["jaw"], H["fit"]
+    ts = sv["mouth"]
+    mx, _, mz = p["j_mouth"]
+    myf = p["servo_face"]["mouth"][1]
+    w, W2 = p["wall"], p["head_w"] / 2.0
+    xfm = _horn_xf(m, "mouth", H["horn_toward"]["mouth"])
+    yp0 = myf - ts["horn"]["arm_t"] - F["pocket_clear"]
+    yp1 = W2 - w - J["plate_wall_gap"]
+    yh1 = W2 + J["arm_gap"]
+    grow = F["pocket_clear"] + F["pocket_wall"]
+    hub = _capture(ts, xfm, yp0 - myf, yp1 - myf, grow).fuse(ycyl(J["hub_r"], mx, mz, yp1 - 0.01, yh1))
+    jscr = [(mx + s * J["hub_screw_dx"], mz) for s in (1, -1)]
+    hub = _cut(hub, _horn_seat(ts, xfm, F, yp1 - myf, from_inside=True) +
+               [ycyl(F["m2_pilot_d"] / 2.0, x, z, yh1 - J["hub_screw_depth"], yh1 + 0.01) for x, z in jscr])
+    m._add("jaw", "jaw_hub", hub, "bracket")
+    # alt gaga: kollar (|y| W2+gap .. +arm_t) mil ekseninden cene cubuguna, cubuk, tepsi
+    at = J["arm_t"]
+    lx0, lx1, lw, lz0, lz1, lr = (J["bill"][k] for k in ("x0", "x1", "half_w", "z0", "z1", "r"))
+    bar_x = lx0 + J["bar_w"] / 2.0
+    bar_z = lz0 + J["bar_h"] / 2.0
+    parts = []
+    for sy in (1, -1):
+        y0, y1 = (yh1, yh1 + at) if sy > 0 else (-yh1 - at, -yh1)
+        parts.append(bar_y((mx, mz), (bar_x, bar_z), J["arm_w"] / 2.0, y0, y1))
+        parts.append(ycyl(J["hub_r"], mx, mz, y0, y1))
+    parts.append(box(lx0, lx0 + J["bar_w"], -yh1 - at, yh1 + at, lz0, lz0 + J["bar_h"]))
+    tray = rbox(lx0, lx1, -lw, lw, lz0, lz1, lr, 0.0, J["bill"]["r_bot"])
+    tray = tray.cut(rbox(lx0 + w, lx1 - w, -lw + w, lw - w, lz0 + w, lz1 + 1.0, lr - w, 0.0,
+                         max(J["bill"]["r_bot"] - w, 0.0)))
+    parts.append(tray)
+    parts.append(ycyl(J["pin_r"], mx, mz, -yh1 - 0.01, -W2 + w + J["bushing_wall_gap"] + J["bushing_t"] -
+                      J["pin_tip_gap"]))
+    low = parts[0].fuse(parts[1:]).removeSplitter()
+    low = _cut(low, [ycyl(F["m2_clear_d"] / 2.0, x, z, yh1 - 0.01, yh1 + at + 0.01) for x, z in jscr] +
+               [ycyl(F["center_screw_d"] / 2.0, mx, mz, yh1 - 0.01, yh1 + at + 0.01)])
+    m._add("jaw", "lower_bill", low, "trim")
+    _metal(m, "jaw", "jaw_hub_screws", "y", jscr, F["m2_pilot_d"] / 2.0 - 0.05, yh1 - J["hub_screw_depth"] + 0.5,
+           yh1 + at - 0.01, H["mass_g"]["m2_screw"])
+    sp = m.servo_parts("mouth", horn_toward=H["horn_toward"]["mouth"])
+    m._add("jaw", "mouth_horn", sp["horn"], "horn", m.horn_mass("mouth"))
+
+
+def build_tr35(m, sv):
+    """TR-35 boyun + kafa (P2c): eklemler (ID 30-34), boyun U-link'i + head_pitch besigi + baski yuzleri + tampon
+    (neck), egim cercevesi (head_tilt), donus cercevesi + roll pimi (head_turn), kafa cercevesi + sabit etli kaput +
+    ust gaga (head), gaga (jaw) ve link ici guzergahli kablo demetleri. Ayrintilar ve yuk hesabi: p2c-tampon.md."""
+    from geom import tube
     servos.require(m, sv, ("neck_pitch",), "DS32XX", "head.tr35_b2")
     servos.require(m, sv, ("head_pitch", "head_yaw", "head_roll"), "MG90S", "head.tr35_b2")
     servos.require(m, sv, ("mouth",), "SG90", "head.tr35_b2")
     p, H = m.p, m.p["head"]
     for jn, parent, child, axis, sid in HEAD_CHAIN:
         m._joint(jn, parent, child, p["j_" + jn], axis, m.limits[jn], m.home.get(jn, 0.0), sid)
-    m._add("neck", "neck_pitch_horn", m.shared["neck_pitch_horn"], "horn", m.horn_mass("neck_pitch"))
-    m._add("neck", "neck_pitch_idler_pin", m.shared["neck_pitch_idler_pin"], "metal", H["mass_g"]["idler_pin"] / 1000.0)
-    for key in ("head_pitch", "head_yaw", "head_roll", "mouth"):
-        sp = m.servo_parts(key, horn_toward=H["horn_toward"].get(key))
-        m._add(HEAD_BODY_LINK[key], key + "_servo", sp["body"], "servo", m.servo_mass(key))
-        m._add(HEAD_HORN_LINK[key], key + "_horn", sp["horn"], "horn", m.horn_mass(key))
-    # kafa kabugu: sabit etli kutu (PLA), altta boyun deligi; P2c gercek kaput/alt kabuk/gaga
-    hx0, hx1 = p["head_x"]
-    W2 = p["head_w"] / 2.0
-    zt, zb, w = p["head_top"], p["head_bot"], p["wall"]
-    shell = shell_rbox(hx0, hx1, -W2, W2, zb, zt, w, 18.0, 14.0, 6.0)
-    hy = p["j_head_yaw"]
-    shell = shell.cut(zcyl(H["neck_hole_r"], hy[0], hy[1], zb - 1.0, zb + w + 1.0))
-    m._add("head", "head_shell", shell, "shell", H["shell_mass_g"] / 1000.0)
-    # tampon (spec 3.1): kafa darbesini boyun U-link'ine aktarir; MJCF'de boyun govdesine bagli carpisma geomu
-    # (ad "neck_bumper"; "neck_collision" RL getup varyantinin ek geomudur, kullanilmaz). Disa aktarma P3.
-    bc, bh = H["bumper"]["center"], H["bumper"]["half"]
-    bump = box(bc[0] - bh[0], bc[0] + bh[0], bc[1] - bh[1], bc[1] + bh[1], bc[2] - bh[2], bc[2] + bh[2])
-    m._add("neck", "neck_bumper", bump, "pad", None, (V(*bc), tuple(bh), 0.0))
-    # alt gaga yer tutucusu (jaw) ve braket kutle bloklari
-    jb = H["jaw_block"]
-    m._add("jaw", "lower_bill", box(*jb), "trim", H["jaw_mass_g"] / 1000.0)
-    for link, (c, half, mass_g) in H["mass_blocks"].items():
-        blk = box(c[0] - half[0], c[0] + half[0], c[1] - half[1], c[1] + half[1], c[2] - half[2], c[2] + half[2])
-        m._add(link, link + "_bracket", blk, "bracket", mass_g / 1000.0)
-    for jn, parent, child, _, _ in HEAD_CHAIN:
-        for part, pts, d, mass in harness_paths(p["harness"], jn):
-            m._add(parent if part == "in" else child, "%s_harness_%s" % (jn, part), tube(pts, d / 2.0), "harness", mass)
+    hz = _harness(m, H)
+    _neck(m, sv, H, hz)
+    _tilt(m, sv, H, hz)
+    turn = _turn(m, sv, H, hz)
+    _head(m, sv, H, hz, turn)
+    _jaw(m, sv, H, hz)
+    for link, rows in hz.items():
+        for name, pts, d, mass in rows:
+            m._add(link, name, tube(pts, d / 2.0), "harness", mass)
+    # tampon MJCF'de boyun govdesine bagli carpisma geomu (export: meta["collision_geoms"]; "neck" collision_links'e
+    # eklenmez, RL getup varyanti kendi neck_collision'ini ekler)
+    m.meta["collision_geoms"] = list(m.meta.get("collision_geoms", [])) + ["neck_bumper"]
 
 
-GENERATORS = {"xl330_27": build_xl330, "tr35_b2": build_tr35_stub}
+GENERATORS = {"xl330_27": build_xl330, "tr35_b2": build_tr35}

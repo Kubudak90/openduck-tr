@@ -14,8 +14,8 @@ import math
 import Part
 
 import servos
-from geom import (V, _parallel, box, fillet, fillet_axis, hull2d, mirror_y, prism_xz, rbox, rotated, stadium_y,
-                  xcyl, ycyl, zcyl)
+from geom import (V, _parallel, box, fillet, fillet_axis, frame, hull2d, mirror_y, moved, prism_xz, rbox, rotated,
+                  stadium_y, xcyl, ycyl, zcyl)
 
 LEG_KEYS = ("hip_yaw", "hip_roll", "hip_pitch", "knee", "ankle")
 
@@ -178,7 +178,11 @@ def build_xl330(m, sv):
 
 
 # ---------------------------------------------------------------------------
-# TR-35 yer tutucu (P2-0 arayuz dondurma; P2a bu bolumu gercek besik/U-link/doner tabla/ayakla degistirir)
+# TR-35 (P2a): DS besik (stator) + U-link (rotor) + F623ZZ arka idler (M3 mil), hip_yaw doner tabla mili + pim/yarik
+# kaplin (yalniz tork), ayak (U-link + plaka) + TPU taban, eklem gecisi kablo demetleri. Sol bacak sifir pozda govde
+# cercevesinde kurulur; olculer servo zarfindan (servos.datums / ds_stator / ds_rotor_cuts) ve konfigden
+# (params.legs) turetilir, baglanti elemanlari mutlak M3 (params.fit). Sag bacak = mirror_y (27 cm kurali).
+# Agirlik: braket hacmi x params.print.bracket.density_eff (+ modellenmeyen vida/kol vidasi payi params.legs.mass_g).
 # ---------------------------------------------------------------------------
 LEG_AXES = {"hip_yaw": (0, 0, -1), "hip_roll": (1, 0, 0), "hip_pitch": (0, 1, 0), "knee": (0, -1, 0),
             "ankle": (0, 1, 0)}
@@ -189,6 +193,7 @@ LEG_CHAIN = (("hip_yaw", "trunk", "hip"), ("hip_roll", "hip", "hip_cradle"), ("h
 LEG_BODY_LINK = {"hip_roll": "hip", "hip_pitch": "thigh", "knee": "thigh", "ankle": "shin"}
 LEG_HORN_LINK = {"hip_yaw": "hip", "hip_roll": "hip_cradle", "hip_pitch": "hip_cradle", "knee": "shin",
                  "ankle": "foot"}
+DS_KEYS = ("hip_roll", "hip_pitch", "knee", "ankle")
 
 
 def harness_items(m, key, parent, child):
@@ -202,57 +207,599 @@ def harness_items(m, key, parent, child):
     return out
 
 
-def build_tr35_stub(m, sv):
-    """TR-35 bacaklari, P2-0 yer tutucu: eklemler (sol ID 20-24, sag 10-14; eksen/isaret 27 cm ile ayni), servo/horn/
-    idler zarflari (servos.py), doner tabla mili + kaplin (kalca yaw), yerlesim kutulari yerine butceden kutleli
-    kucuk braket bloklari, ayak plakasi + TPU taban (carpisma kutusu) ve kablo demetleri. Bracket geometrisi P2a."""
-    servos.require(m, sv, ("hip_roll", "hip_pitch", "knee", "ankle"), "DS32XX", "legs.tr35_b2")
+def _cross(a, b):
+    return (a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0])
+
+
+def _unit(v):
+    n = math.sqrt(sum(c * c for c in v))
+    return tuple(c / n for c in v)
+
+
+def _circ(c, r, n=28):
+    """(u, v) duzleminde c merkezli r yaricapli cokgen noktalari (dis bukey zarf icin)."""
+    return [(c[0] + r * math.cos(2.0 * math.pi * k / n), c[1] + r * math.sin(2.0 * math.pi * k / n)) for k in range(n)]
+
+
+def _hull_xz(groups, y0, y1):
+    """XZ'de nokta gruplarinin dis bukey zarfi, Y'de y0..y1."""
+    return prism_xz(hull2d([q for g in groups for q in g]), y0, y1)
+
+
+def prism_yz(pts, x0, x1):
+    """YZ duzleminde (y, z) cokgen, X yonunde x0..x1 ekstrude."""
+    poly = Part.makePolygon([V(x0, y, z) for y, z in pts] + [V(x0, pts[0][0], pts[0][1])])
+    return Part.Face(poly).extrude(V(x1 - x0, 0, 0))
+
+
+def _hull_yz(groups, x0, x1):
+    return prism_yz(hull2d([q for g in groups for q in g]), x0, x1)
+
+
+def _fuse(parts):
+    s = parts[0]
+    for q in parts[1:]:
+        s = s.fuse(q)
+    return s.removeSplitter()
+
+
+def _cut(s, cuts):
+    for c in cuts:
+        s = s.cut(c)
+    return s
+
+
+def _sector_xz(c, r0, a0, a1, y0, y1, r1=400.0, step=10.0):
+    """XZ'de c merkezli, r0..r1 yaricapli, a0..a1 (derece, +x'ten +z'ye) halka dilimi; Y'de y0..y1 (kesici)."""
+    n = max(2, int(math.ceil(abs(a1 - a0) / step)) + 1)
+    angs = [math.radians(a0 + (a1 - a0) * k / (n - 1.0)) for k in range(n)]
+    outer = [(c[0] + r1 * math.cos(a), c[1] + r1 * math.sin(a)) for a in angs]
+    inner = [(c[0] + r0 * math.cos(a), c[1] + r0 * math.sin(a)) for a in reversed(angs)]
+    return prism_xz(outer + inner, y0, y1)
+
+
+def _halfplanes_xz(c, dist, a0, a1, y0, y1, step=7.5, size=300.0):
+    """XZ'de c'den normal yonu a (a0..a1, derece) ve uzakligi dist olan yari duzlemlerin birlesimi (kesici)."""
+    n = max(2, int(math.ceil(abs(a1 - a0) / step)) + 1)
+    out = []
+    for kk in range(n):
+        a = math.radians(a0 + (a1 - a0) * kk / (n - 1.0))
+        u, v = (math.cos(a), math.sin(a)), (-math.sin(a), math.cos(a))
+        pts = [(c[0] + u[0] * s + v[0] * t, c[1] + u[1] * s + v[1] * t)
+               for s, t in ((dist, -size), (dist + size, -size), (dist + size, size), (dist, size))]
+        out.append(prism_xz(pts, y0, y1))
+    return _fuse(out)
+
+
+class _Frame(object):
+    """Servo kanonik cercevesi (X genislik, Y mil -> horn, Z uzak uc) -> govde cercevesi (sol taraf, sifir poz).
+    arm: horn kolunun konfig yonune (params.legs.horn_toward) donus acisi (kanonik Y etrafinda)."""
+
+    def __init__(self, m, key, toward=None):
+        self.key = key
+        self.t = m.servo_type(key)
+        self.o, self.h, self.f = m.servo_frame(key)
+        self.g = _cross(self.h, self.f)
+        self.pl = frame(self.o, self.h, self.f)
+        self.d = servos.datums(self.t, m.p["idler"]["bearing"])
+        self.toward = toward
+        self.arm = servos.arm_angle_deg(self.h, self.f, toward) if toward is not None else 0.0
+
+    def w(self, X, Y, Z):
+        return tuple(self.o[i] + X * self.g[i] + Y * self.h[i] + Z * self.f[i] for i in range(3))
+
+    def xz(self, X, Y, Z):
+        q = self.w(X, Y, Z)
+        return (q[0], q[2])
+
+    def put(self, s, arm=False):
+        if arm and abs(self.arm) > 1e-9:
+            s = rotated(s, (0, 0, 0), (0, 1, 0), self.arm)
+        return moved(s, self.pl)
+
+    def arm_tip(self, r):
+        """Kol ekseni uzerinde (horn yuzunde) eksenden r uzaktaki nokta (dunya)."""
+        a = math.radians(self.arm)
+        return self.w(r * math.sin(a), 0.0, r * math.cos(a))
+
+
+def _routes(m, L, F):
+    """Kablo demeti guzergahlari (sol taraf): donmus gecis (params.harness) + link ici guzergah
+    (params.legs.harness_route[anahtar] = {"in": [...] gecis girisinden once, "out": [...] cikistan sonra, "gland":
+    demetin bittigi servo (rakor ucuna kanonik +Z yonunde es eksenli, 0.2 mm aralik)}). Ayni link'teki iki gecis
+    tupunun birlesimi (joins = [[A, B], ...]: A'nin cikisi -> B'nin girisi) duz bir parca uzerinde 0.2 mm aralikla es
+    eksenli kesilir: ayni link ici cakisma olmaz, demet surekli. Guzergah noktasi [x, y, z, r] ise o kose r yaricapli
+    yayla yuvarlanir (route.fillet; bukulme yaricapi, uc noktalar ve r'siz koseler keskin). Doner {anahtar: {"in",
+    "out": noktalar, "d": cap}}."""
+    import route
+    hc = m.p["harness"]["crossings"]
+    rt = L["harness_route"]
+    out = {}
+    rad = {}                                   # kose noktasi -> fillet yaricapi (guzergahta 4. eleman)
+    pts = lambda qs: [tuple(q[:3]) for q in qs]
+    for key in ("hip_yaw", "hip_roll", "hip_pitch", "knee"):
+        c, r = hc[key], rt.get(key, {})
+        for q in r.get("in", []) + r.get("out", []):
+            if len(q) > 3:
+                rad[tuple(q[:3])] = float(q[3])
+        out[key] = {"d": float(c["d"]),
+                    "in": pts(r.get("in", [])) + pts(c["in"]) + [tuple(c["cross"])],
+                    "out": [tuple(c["cross"])] + pts(c["out"]) + pts(r.get("out", [])),
+                    # donmus cikis parcasi (gecis + out noktalari) ve link ici uzantinin capi (kollar ayrildiktan sonra
+                    # demet incelir: out_d; yoksa d)
+                    "n_out": 1 + len(c["out"]), "out_d": float(r.get("out_d", c["d"]))}
+        if r.get("gland"):
+            fr = F[r["gland"]]
+            cb = fr.t["cable"]
+            gy = fr.d["rear_face"] + cb["h"]
+            zt = fr.d["near_end_z"] - cb["gland_out"]
+            out[key]["out"] += [fr.w(0, gy, zt - c["d"] / 2.0 - 0.4), fr.w(0, gy, zt - 0.2)]
+    for a, b, mode in rt["joins"]:
+        A, B = out[a], out[b]
+        ra, rb = A["out_d"] / 2.0, B["d"] / 2.0
+        P, Q = A["out"][-1], B["in"][0]
+        if mode == "mid":                      # PQ duz parcasinin ortasinda kes
+            u = _unit(tuple(Q[i] - P[i] for i in range(3)))
+            Lpq = math.dist(P, Q)
+            assert Lpq / 2.0 >= max(ra, rb) + 0.3, "kablo birlesimi %s->%s: PQ cok kisa (%.1f)" % (a, b, Lpq)
+            M = tuple((P[i] + Q[i]) / 2.0 for i in range(3))
+            A["out"].append(tuple(M[i] - 0.1 * u[i] for i in range(3)))
+            B["in"].insert(0, tuple(M[i] + 0.1 * u[i] for i in range(3)))
+        elif mode == "a":                      # A'nin ucunda: B, A'nin son parcasi dogrultusunda baslar
+            u = _unit(tuple(P[i] - A["out"][-2][i] for i in range(3)))
+            B["in"][0:0] = [tuple(P[i] + 0.2 * u[i] for i in range(3)), tuple(P[i] + (rb + 0.4) * u[i] for i in range(3))]
+        else:                                  # B'nin basinda: A, B'nin ilk parcasi dogrultusunda yaklasir
+            u = _unit(tuple(B["in"][1][i] - Q[i] for i in range(3)))
+            A["out"] += [tuple(Q[i] - (ra + 0.4) * u[i] for i in range(3)), tuple(Q[i] - 0.2 * u[i] for i in range(3))]
+    if rad:
+        for v in out.values():
+            for part in ("in", "out"):
+                if any(q in rad for q in v[part][1:-1]):
+                    assert part == "in" or v["out_d"] == v["d"], "fillet: out_d'li cikista n_out kayar"
+                    v[part] = route.fillet(v[part], [rad.get(q, 0.0) if 0 < i < len(v[part]) - 1 else 0.0
+                                                     for i, q in enumerate(v[part])])
+    return out
+
+
+def _tube_item(link, name, pts, d, gmm3, n0=None, d1=None):
+    """Kablo demeti Item'i: pts boyunca cap d; n0 verilirse ilk n0 nokta d, kalani (uzanti) d1 capinda."""
+    from geom import tube
+    mass = lambda q, dd: sum(math.dist(a, b) for a, b in zip(q, q[1:])) * gmm3 * math.pi * dd * dd / 4.0 / 1000.0
+    if n0 is None or d1 is None or abs(d1 - d) < 1e-9 or n0 >= len(pts):
+        return (link, name, tube(pts, d / 2.0), "harness", mass(pts, d))
+    a, b = pts[:n0], pts[n0 - 1:]
+    return (link, name, tube(a, d / 2.0).fuse(tube(b, d1 / 2.0)).removeSplitter(), "harness",
+            mass(a, d) + mass(b, d1))
+
+
+def _tube_clear(pts, d, grow):
+    from geom import tube
+    return tube(pts, d / 2.0 + grow)
+
+
+def _bracket_mass(m, shape, extra_g):
+    return shape.Volume * m.p["print"]["bracket"]["density_eff"] + extra_g / 1000.0
+
+
+# --------------------------------------------------------------------------- hip (yaw rotoru, roll statoru)
+def _hip(m, F, L, fit, R):
+    p, H, C = m.p, L["hip"], L["coupler"]
+    cl = fit["clearance"]
+    tt = servos.turntable_stack(p["turntable"])
+    shaft_r = tt["bearing_rec"]["d"] / 2.0
+    yx, yy = p["j_hip_yaw"][0], p["j_hip_yaw"][1]
+    ztop = tt["z_mate"] - p["turntable"]["gap"]               # kalca flansi ustu (birlesme duzlemi - 0.5)
+    r = F["hip_roll"]
+    d, st = r.d, r.d["idler"]
+    # roll servosu +y (dis) yanindan kayar: plaka ustte, ic ray (kulak duzlemi, iceride kalin blok) uzak rafi tasir,
+    # arka duvar yalniz idler yuvasina iner. Servonun uzak ucu altinda/disinda parca yok: hip_cradle U-link'i roll +-20
+    # boyunca orada doner, uyluk demeti (y 41..48) roll -20'de servo uzak kosesinin supurdugu bandi gorur.
+    sh = servos.ds_stator(r.t, fit, L["shelf_t"], bearing=p["idler"]["bearing"], insert="X+", far="tap")
+    x_tab = r.w(0, d["tab"][0], 0)[0]                         # kulak alt yuzu = raf ustu
+    x_r0, x_r1 = sorted((r.w(0, st["seat"][0], 0)[0], r.w(0, st["seat"][1], 0)[0]))   # arka duvar (idler yuvasi)
+    z_top = r.w(0, 0, d["tab_z"][0])[2]                       # yakin kulak ucu = plaka ustu
+    z_pl = r.w(0, 0, d["near_end_z"])[2] + cl                 # servo yakin yuzu + bosluk = plaka alti
+    z_far = r.w(0, 0, d["tab_z"][1])[2]                       # uzak raf alti (kilavuzlu: kulak ucunda)
+    z_rw = r.w(0, 0, st["seat_r"] + H["rear_below"])[2]       # arka duvar alti (yuva halkasinin altinda)
+    y0, y1 = r.w(-d["half_w"], 0, 0)[1], r.w(d["half_w"], 0, 0)[1]
+    parts = [r.put(sh["near"]), r.put(sh["far"]), r.put(sh["seat"]),
+             box(x_r0, x_tab, H["y_in"], y1, z_pl, z_top),                             # servo ustu plaka
+             box(yx - H["conn"][0], x_tab, yy - H["conn"][1], H["y_in"] + 1.0, z_pl, z_top),   # flans -> plaka
+             zcyl(H["r"], yx, yy, H["boss_bot"], ztop),                                   # flans + mil gobegi
+             zcyl(H["shoulder_r"], yx, yy, ztop - 0.01, tt["z_mate"]),                  # alt ic bilezik omzu
+             box(x_tab - H["rail_t"], x_tab, H["rail_y0"], y0 + 0.01, z_far, z_pl + 0.01),   # ic ray
+             box(x_r0, x_r1, y0, y1, z_rw, z_pl + 0.01)]                                # arka duvar (yuva)
+    hb = _fuse(parts)
+    cuts = [r.put(c) for c in sh["cuts"]]
+    cuts.append(zcyl(shaft_r + 0.02, yx, yy, H["shaft_bot"] - 0.01, tt["z_mate"] + 0.01))
+    cuts += _hip_cross_cuts(m, H, fit, shaft_r)
+    cuts.append(_tube_clear(R["hip_yaw"]["out"], R["hip_yaw"]["d"], L["harness_clear"]))
+    cuts.append(_tube_clear(R["hip_roll"]["in"], R["hip_roll"]["d"], L["harness_clear"]))
+    for nb in H["notches"]:                                    # plaka kenar centikleri [x0, x1, y0, y1]
+        cuts.append(box(nb[0], nb[1], nb[2], nb[3], z_pl - 1.0, z_top + 1.0))
+    # yaw kablo yarigi: govdedeki (sabit) giris tupu kalcaya gore yaw araligi (+ pay) boyunca supurur
+    ya = H["yaw_slot_deg"]
+    tin = _tube_clear(R["hip_yaw"]["in"], R["hip_yaw"]["d"], L["harness_clear"])
+    cuts += [rotated(tin, (yx, yy, 0.0), (0, 0, 1), -ya + 2.0 * ya * k / 4.0) for k in range(5)]
+    rw = H["rail_window"]                                      # ic ray: kulak duzlemine dik pencere (I kesit)
+    cuts.append(box(x_tab - H["rail_t"] + rw[0], x_tab - rw[0], H["rail_y0"] - 1.0, y0 + 1.0,
+                    z_far + rw[1], z_pl - rw[1]))
+    hb = _cut(hb, cuts)
+    items = [("hip", "hip_bracket", hb, "bracket", _bracket_mass(m, hb, L["mass_g"]["fasteners"]["hip"])),
+             ("hip", "hip_roll_servo", r.put(servos.canon(r.t)[0]), "servo", m.servo_mass("hip_roll")),
+             ("hip", "hip_roll_tab_screws", r.put(sh["screws"]), "metal", sh["screw_g"] / 1000.0)]
+    ip = m.servo_parts("hip_roll")
+    items.append(("hip", "hip_roll_idler_bearing", ip["idler_bearing"], "metal",
+                  servos.BEARINGS[p["idler"]["bearing"]]["mass_g"] / 1000.0))
+    # doner tabla mili (Al 6061 d10): alt ucu kalca gobeginde M3 capraz vida (tork + asagi eksenel yuk), ust ucu ust ic
+    # bilezigin shaft_gap altinda; kaplin halkasi (PETG) bilezige basar, M3 havsa vida (mil ucunda kilavuz) + kama
+    # (mil ucundaki testere yarigi) ile mile bagli. Yukari yuk: gobek omzu -> alt ic bilezik; asagi yuk: capraz vida ->
+    # mil -> ust vida -> kaplin -> ust ic bilezik. ES3054 tek kolu kaplin yariginda: yalniz tork (eksenel/radyal serbest).
+    sh_top = tt["upper"][1] - C["shaft_gap"]
+    zp, kw = H["pin_z"], C["key_w"]
+    shaft = zcyl(shaft_r, yx, yy, H["shaft_bot"], sh_top)
+    shaft = _cut(shaft, [xcyl(H["pin_hole_d"] / 2.0, yy, zp, yx - shaft_r - 1.0, yx + shaft_r + 1.0),
+                         zcyl(fit["tap_d"] / 2.0, yx, yy, sh_top - C["tap_depth"], sh_top + 1.0),
+                         box(yx - shaft_r - 1.0, yx + shaft_r + 1.0, yy - kw / 2.0 - 0.05, yy + kw / 2.0 + 0.05,
+                             sh_top - C["key_depth"], sh_top + 1.0)])
+    items.append(("hip", "hip_yaw_shaft", shaft, "metal", shaft.Volume * servos.AL_G_MM3 / 1000.0))
+    items.append(("hip", "hip_yaw_coupler", _coupler(m, C, tt, fit), "bracket", None))
+    scr = _hip_screws(m, H, C, tt, fit)
+    items.append(("hip", "hip_yaw_screws", scr, "metal", scr.Volume * servos.STEEL_G_MM3 / 1000.0))
+    return items
+
+
+def _hip_pin_x(m, H):
+    """Capraz vida basinin oturma yuzu (x) ve ucu (x): gobek +x kenarindan spot yuzey, M3 x pin_len."""
+    yx = m.p["j_hip_yaw"][0]
+    xh = yx + H["r"] - H["pin_spot"]
+    return xh, xh - H["pin_len"]
+
+
+def _hip_cross_cuts(m, H, fit, shaft_r):
+    """Kalca gobegi capraz vida kesicileri: bas spot yuzeyi (+x), bosluk deligi (+x duvari), kilavuz (-x duvari, kor)."""
+    yx, yy = m.p["j_hip_yaw"][0], m.p["j_hip_yaw"][1]
+    zp = H["pin_z"]
+    xh, xt = _hip_pin_x(m, H)
+    hr = servos.M3_HEAD["d"] / 2.0 + 0.3
+    return [xcyl(hr, yy, zp, xh, xh + 8.0),
+            xcyl(fit["clear_d"] / 2.0, yy, zp, yx + shaft_r - 0.5, xh + 0.01),
+            xcyl(fit["tap_d"] / 2.0, yy, zp, xt - 0.2, yx - shaft_r + 0.5)]
+
+
+def _hip_screws(m, H, C, tt, fit):
+    """hip_yaw mil vidalari (celik, tek kati): ust M3 x 8 havsa bas (DIN 7991; bas kaplin halkasinda gomulu, mil
+    ucundaki kilavuza) + alt M3 x pin_len capraz vida (bas +x, ucu -x gobek duvarinda kilavuz)."""
+    yx, yy = m.p["j_hip_yaw"][0], m.p["j_hip_yaw"][1]
+    z1 = tt["horn_face"] - C["top_gap"]                     # kaplin halkasi ustu
+    kh = C["csk_h"]
+    head = Part.makeCone(1.45, C["csk_d"] / 2.0 - 0.1, kh, V(yx, yy, z1 - kh), V(0, 0, 1))
+    top = head.fuse(zcyl(1.2, yx, yy, z1 - C["screw_len"], z1 - kh + 0.01))
+    xh, xt = _hip_pin_x(m, H)
+    zp = H["pin_z"]
+    cross = xcyl(servos.M3_HEAD["d"] / 2.0, yy, zp, xh, xh + servos.M3_HEAD["h"]).fuse(xcyl(1.2, yy, zp, xt, xh + 0.01))
+    return top.fuse(cross).removeSplitter()
+
+
+def _coupler(m, C, tt, fit):
+    """hip_yaw pim/yarik kaplini (PETG): ust rulman ic bileziginde oturan halka + ES3054 tek kolunu kol yonunde
+    yanlardan saran catal. Halka mile merkez M3 havsa vida (mil ucunda kilavuz) ve mil ucundaki yariga giren kama ile
+    bagli (tork pozitif); kol yarikta radyal ve eksenel serbest (yalniz tork). Horn vidasi basi horn gobeginde gomulu
+    (Adim 0'da dogrulanir). Hepsi doner tabla rotor bolgesinde (r <= 15, z <= 28.3 + halka)."""
+    ft = _Frame(m, "hip_yaw", m.p["trunk"]["hip_yaw_horn_toward"])
+    t = ft.t
+    hn = t["horn"]
+    cl = C["slot"]
+    # kanonik (hip_yaw): horn dis yuzu Y = 0 (z = horn_face), +Y asagi; kol Y -arm_t..0; kaplin Y >= top_gap
+    y_ring0 = C["top_gap"]
+    y_ring1 = tt["horn_face"] - tt["upper"][1]                   # ust rulman ust yuzu (kanonik Y)
+    ring = ycyl(C["r"], 0, 0, y_ring0, y_ring1 - C["seat_h"]).fuse(
+        ycyl(C["seat_r"], 0, 0, y_ring1 - C["seat_h"] - 0.01, y_ring1))
+    outer = servos._horn_outline(t, -hn["arm_t"] - C["top_up"], y_ring0 + 0.01, cl + C["wall"])
+    lim = box(-50, 50, -10, 10, hn["hub_d"] / 2.0 + cl + 0.3, hn["hole_r"][-1])   # catal: gobek disi .. kol ucu
+    tines = outer.common(lim)
+    # yarik halka ustunun (top_gap) 0.02 altina kadar: catal tabani kalmaz, kol altinda >= top_gap eksenel bosluk
+    slot = servos._horn_outline(t, -hn["arm_t"] - C["top_up"] - 1.0, y_ring0 + 0.02, cl)
+    slot2 = slot.copy()
+    slot2.translate(V(0, 0, C["float"]))                         # radyal serbestlik (kol yonunde)
+    cp = ring.fuse(tines).removeSplitter()
+    cp = ft.put(cp.cut(slot.fuse(slot2)), arm=True)
+    # kama (dunya cercevesi, x yonunde): mil ucundaki yariga (genislik key_w + 0.1) iner; merkez vida deligi + havsa
+    yx, yy = m.p["j_hip_yaw"][0], m.p["j_hip_yaw"][1]
+    sh_top = tt["upper"][1] - C["shaft_gap"]
+    rk = tt["bearing_rec"]["d"] / 2.0 - 0.3
+    key = box(yx - rk, yx + rk, yy - C["key_w"] / 2.0, yy + C["key_w"] / 2.0, sh_top - C["key_depth"] + 0.1,
+              tt["upper"][1] + 0.01)
+    z1 = tt["horn_face"] - C["top_gap"]
+    cp = cp.fuse(key).removeSplitter()
+    cp = cp.cut(zcyl(fit["clear_d"] / 2.0, yx, yy, sh_top - C["key_depth"] - 1.0, z1 + 1.0))
+    cp = cp.cut(Part.makeCone(fit["clear_d"] / 2.0, C["csk_d"] / 2.0 + 0.2, C["csk_h"] + 0.2,
+                              V(yx, yy, z1 - C["csk_h"] - 0.2 + 0.01), V(0, 0, 1)))
+    return cp
+
+
+# --------------------------------------------------------------------------- hip_cradle (roll + pitch rotoru)
+def _hip_cradle(m, F, L, fit, R):
+    p, K = m.p, L["hip_cradle"]
+    r, q = F["hip_roll"], F["hip_pitch"]
+    ra = L["plate_a"]["hip_roll"]
+    rc, qc = r.o, q.o                                    # roll ekseni (y, z) / pitch ekseni (x, z)
+    x_a0, x_a1 = r.w(0, 0, 0)[0], r.w(0, ra, 0)[0]       # roll A kolu (horn yuzu disinda)
+    stR = r.d["idler"]
+    x_b0, x_b1 = sorted((r.w(0, stR["leg"][0], 0)[0], r.w(0, stR["leg"][1], 0)[0]))   # roll B kolu
+    y_b0, y_b1 = sorted((q.w(0, q.d["idler"]["leg"][0], 0)[1], q.w(0, q.d["idler"]["leg"][1], 0)[1]))
+    y_bm0 = q.w(0, L["plate_a"]["hip_pitch"], 0)[1]      # pitch A kolu dis yuzu (horn yuzu - plaka)
+    y_bm1 = q.w(0, q.d["case_top"], 0)[1] - L["rotor_gap"]   # pitch servo ust yuzu - bosluk
+    z0, z1 = rc[2] - K["boss_r"], rc[2] + K["boss_r"]    # on plaka yuksekligi = roll gobegi
+    tipR = r.arm_tip(r.t["horn"]["hole_r"][-1])
+    # roll U-link: A kolu (horn) ve B kolu (idler) roll servosunun uzak ucunun altinda alt kopruyle birlesir (hip
+    # besiginin roll +-20 supurmesinin altinda; kopru yalniz eksenin dis tarafinda: roll -20'de ic kose orta
+    # duzleme yaklasmaz). Pitch ekseninin arkasinda, uyluk demeti bandinda (y 41..48) parca yok.
+    ub1 = rc[2] - K["u_depth"]
+    ub0 = ub1 - K["u_t"]                                 # kopru derinligi: idler payi (dikey yukun %58'i) U'dan gecer
+    uy0, uy1 = rc[1] + K["u_y"][0], rc[1] + K["u_y"][1]
+    ubot = [(uy0, ub0), (uy1, ub0), (uy1, ub1), (uy0, ub1)]
+    lega = _hull_yz([_circ((rc[1], rc[2]), K["boss_r"]), ubot], x_a0, x_a1)
+    lega = lega.fuse(_hull_yz([_circ((rc[1], rc[2]), K["boss_r"]), _circ((tipR[1], tipR[2]), K["tip_r"])], x_a0, x_a1))
+    front = lega.fuse(box(x_a0, x_a1, K["front_y0"], y_b1, z0, z1))                 # on plaka (pitch U koprusu)
+    legb = _hull_yz([_circ((rc[1], rc[2]), K["legb_r"]), ubot], x_b0, x_b1)
+    ut = K["u_thick"]                                    # U kollarinin alt yarisi kalin (kose egilmesi)
+    zt0 = rc[2] - K["boss_r"] - ut
+    ubr = _fuse([box(x_b0 - ut, x_a1 + ut, uy0, uy1, ub0, ub1),
+                 box(x_a1 - 0.01, x_a1 + ut, uy0, uy1, ub0, zt0), box(x_b0 - ut, x_b0 + 0.01, uy0, uy1, ub0, zt0)])
+    fl, wb = K["u_flange"], K["u_web"] / 2.0             # kopru I kesit: ust/alt flans + orta govde
+    ym = (uy0 + uy1) / 2.0
+    for ya, yb in ((uy0 - 1.0, ym - wb), (ym + wb, uy1 + 1.0)):
+        ubr = ubr.cut(box(x_b0 + ut, x_a1 - ut, ya, yb, ub0 + fl, ub1 - fl))
+    ring = r.put(servos._horn_outline(r.t, -r.t["horn"]["arm_t"], 0.0, fit["clearance"] + L["ring_w"]), arm=True)
+    # pitch A kolu (y_bm0..y_bm1, XZ): pitch gobegi -> on plaka; pitch B kolu (XZ): idler -> on plaka
+    bz0, bz1 = qc[2] - K["beam_hz"], qc[2] + K["beam_hz"]
+    beam = _hull_xz([_circ((qc[0], qc[2]), K["boss_r"]), [(x_a1, bz0), (x_a1, bz1)]], y_bm0, y_bm1)
+    legbp = _hull_xz([_circ((qc[0], qc[2]), K["legb_r"]),
+                      [(x_a0 - K["legbp_w"], z0), (x_a1, z0), (x_a1, z1), (x_a0 - K["legbp_w"], z1)]], y_b0, y_b1)
+    sleeves = [fr.put(servos.ds_thrust_sleeve(fr.t, fit)) for fr in (r, q)]   # eksenel yuk -> servo govdesi
+    hc = _fuse([front, ring, beam, legb, ubr, legbp] + sleeves)
+    cuts = [r.put(c, arm=True) for c in servos.ds_rotor_cuts(r.t, fit, ra, p["idler"]["bearing"])]
+    cuts += [q.put(c, arm=True) for c in servos.ds_rotor_cuts(q.t, fit, L["plate_a"]["hip_pitch"],
+                                                              p["idler"]["bearing"])]
+    cuts.append(_tube_clear(R["hip_roll"]["out"], R["hip_roll"]["d"], L["harness_clear"]))
+    cuts.append(_tube_clear(R["hip_pitch"]["in"], R["hip_pitch"]["d"], L["harness_clear"]))
+    ch = K["chamfer"]                                     # on plaka alt dis kenari pahi (incik pitch -70/diz 65)
+    cuts.append(prism_xz([(x_a1 + 1.0, z0 - 1.0), (x_a1 - ch - 1.0, z0 - 1.0), (x_a1 + 1.0, z0 + ch + 1.0)],
+                         K["front_y0"], y_b1 + 1.0))
+    # hafifletme: on plakada pitch A ve B kollari arasinda n pencere; roll U kollarinda birer pencere
+    wn, wr, ww = K["window"]["n"], K["window"]["rib"], K["window"]["wall"]
+    wy0, wy1 = y_bm1 + wr, y_b0 - wr
+    wl = (wy1 - wy0 - (wn - 1) * wr) / wn
+    for i in range(wn):
+        cuts.append(box(x_a0 - 1.0, x_a1 + 1.0, wy0 + i * (wl + wr), wy0 + i * (wl + wr) + wl, z0 + ww, z1 - ww))
+    hc = _cut(hc, cuts)
+    items = [("hip_cradle", "hip_cradle_bracket", hc, "bracket",
+              _bracket_mass(m, hc, L["mass_g"]["fasteners"]["hip_cradle"]))]
+    for key, fr in (("hip_roll", r), ("hip_pitch", q)):
+        sp = m.servo_parts(key, horn_toward=L["horn_toward"][key])
+        scr, g = servos.ds_idler_screw(fr.t, p["idler"]["bearing"])
+        items += [("hip_cradle", key + "_horn", sp["horn"], "horn", m.horn_mass(key)),
+                  ("hip_cradle", key + "_idler_pin", fr.put(scr, arm=True), "metal", g / 1000.0)]
+    return items
+
+
+# --------------------------------------------------------------------------- thigh (pitch + diz statoru)
+def _ds_frame(fr, fit, L):
+    """Kulak duzlemi cercevesi (kanonik): raflar + iki yan cubuk (X +-, raf kalinliginda)."""
+    d = fr.d
+    sh = servos.ds_stator(fr.t, fit, L["shelf_t"], bearing=None)
+    yt0 = d["tab"][0]
+    w = d["half_w"] + fit["clearance"]
+    z0, z1 = d["tab_z"][0], d["tab_z"][1] + servos.DS_FAR_EXT
+    bars = [box(s0, s1, yt0 - L["shelf_t"], yt0, z0, z1) for s0, s1 in ((w, w + L["bar_w"]), (-w - L["bar_w"], -w))]
+    # raf <-> yan cubuk baglantisi (raflar govde genisliginde, cubuklar govde + bosluk disinda): yalniz govde boyu
+    # disindaki raf Z araliklarinda (govde kesicisine girmez)
+    near, far = fr.t["shaft"]["near"], fr.t["body"]["l"] - fr.t["shaft"]["near"]
+    cl = fit["clearance"]
+    for za, zb in ((z0, -near - cl), (far + cl, z1)):
+        bars += [box(d["half_w"] - 0.01, w + 0.01, yt0 - L["shelf_t"], yt0, za, zb),
+                 box(-w - 0.01, -d["half_w"] + 0.01, yt0 - L["shelf_t"], yt0, za, zb)]
+    return sh, _fuse([sh["near"], sh["far"]] + bars)
+
+
+def _ds_post(fr, fit, L, side, za, zb):
+    """Kulak duzlemi (raf alti) -> idler taban plakasi direk (kanonik X tarafi side = +-1, Z za..zb)."""
+    d = fr.d
+    st = d["idler"]
+    w = d["half_w"] + fit["clearance"]
+    x0, x1 = (w, w + L["bar_w"]) if side > 0 else (-w - L["bar_w"], -w)
+    return box(x0, x1, st["seat"][0], d["tab"][0] - L["shelf_t"] + 0.01, za, zb)
+
+
+def _thigh(m, F, L, fit, R):
+    p, T = m.p, L["thigh"]
+    q, k = F["hip_pitch"], F["knee"]
+    shq, frq = _ds_frame(q, fit, L)
+    shk, frk = _ds_frame(k, fit, L)
+    parts = [q.put(frq), k.put(frk), q.put(shq["seat"]), k.put(shk["seat"])]
+    st = q.d["idler"]
+    ys0, ys1 = sorted((q.w(0, st["seat"][0], 0)[1], q.w(0, st["seat"][1], 0)[1]))
+    qa, ka = (q.o[0], q.o[2]), (k.o[0], k.o[2])
+    parts.append(_hull_xz([_circ(qa, T["strut_r"]), _circ(ka, T["strut_r"])], ys0, ys1))    # taban dikmesi
+    for key, side, za, zb in T["posts"]:
+        fr = q if key == "hip_pitch" else k
+        post = fr.put(_ds_post(fr, fit, L, side, za, zb))
+        parts.append(post)
+        bb = post.BoundBox
+        c = ((bb.XMin + bb.XMax) / 2.0, (bb.ZMin + bb.ZMax) / 2.0)
+        parts.append(_hull_xz([_circ(qa if key == "hip_pitch" else ka, T["strut_r"]), _circ(c, T["strut_r"])],
+                              ys0, ys1))
+    th = _fuse(parts)
+    cuts = [q.put(c) for c in shq["cuts"]] + [k.put(c) for c in shk["cuts"]]
+    # incik supurmesi: diz ekseni etrafinda r >= keep_r, aci araligi (diz cevresi, govde Y bandinda)
+    kr = T["shin_keep"]
+    cuts.append(_sector_xz(ka, kr["r"], kr["a"][0], kr["a"][1], kr["y"][0], kr["y"][1]))
+    cuts.append(_tube_clear(R["hip_pitch"]["out"], R["hip_pitch"]["d"], L["harness_clear"]))
+    cuts.append(_tube_clear(R["knee"]["in"], R["knee"]["d"], L["harness_clear"]))
+    th = _cut(th, cuts)
+    items = [("thigh", "thigh_bracket", th, "bracket", _bracket_mass(m, th, L["mass_g"]["fasteners"]["thigh"]))]
+    for key, fr, sh in (("hip_pitch", q, shq), ("knee", k, shk)):
+        ip = m.servo_parts(key)
+        items += [("thigh", key + "_servo", fr.put(servos.canon(fr.t)[0]), "servo", m.servo_mass(key)),
+                  ("thigh", key + "_tab_screws", fr.put(sh["screws"]), "metal", sh["screw_g"] / 1000.0),
+                  ("thigh", key + "_idler_bearing", ip["idler_bearing"], "metal",
+                   servos.BEARINGS[p["idler"]["bearing"]]["mass_g"] / 1000.0)]
+    return items
+
+
+# --------------------------------------------------------------------------- shin (diz rotoru, bilek statoru)
+def _shin(m, F, L, fit, R):
+    p, S = m.p, L["shin"]
+    k, a = F["knee"], F["ankle"]
+    ka, aa = (k.o[0], k.o[2]), (a.o[0], a.o[2])
+    tipK = k.arm_tip(k.t["horn"]["hole_r"][-1])
+    ya0 = k.w(0, L["plate_a"]["knee"], 0)[1]                  # diz A kolu dis yuzu
+    ya1 = k.w(0, k.d["case_top"], 0)[1] - L["rotor_gap"]
+    stK = k.d["idler"]
+    yb0, yb1 = sorted((k.w(0, stK["leg"][0], 0)[1], k.w(0, stK["leg"][1], 0)[1]))
+    sha, fra = _ds_frame(a, fit, L)
+    # A kolu (XZ): diz gobegi + kol ucu + bilek yuvasina inen omurga
+    lega = _hull_xz([_circ(ka, S["boss_r"]), _circ((tipK[0], tipK[2]), S["tip_r"])], ya0, ya1)
+    spine = _hull_xz([_circ(ka, S["spine_r"][0]), _circ(aa, S["spine_r"][1])], ya0 + S["spine_dy"], ya1)
+    # bilek besigi: kulak cercevesi + yuva + X- yan duvar (yuva -> kulak duzlemi; yuva duzleminde yuva halkasina
+    # perde) + U-link koprusu: omurgadan diz B koluna uzanan direk (bilek servosunun X+ yaninda, diz kablosunun
+    # disinda; kulak rafi yan cubuguna baglanti). Diz U-link yuk yolu: A kolu -> omurga -> direk -> B kolu.
+    dw = a.d
+    wst = dw["idler"]
+    ww = dw["half_w"] + fit["clearance"]
+    wall = a.put(_ds_post(a, fit, L, -1, S["wall_z"][0], S["wall_z"][1]).fuse(
+        box(-ww - L["bar_w"], -wst["seat_r"] + 1.0, wst["seat"][0], wst["seat"][1], S["web_z"][0], S["web_z"][1])))
+    pa = S["post"]                                            # kanonik [X, Z, r] (bilek cercevesi)
+    pc = a.xz(pa[0], 0, pa[1])
+    y_sp0 = ya0 + S["spine_dy"]
+    post = ycyl(pa[2], pc[0], pc[1], y_sp0, yb0 + 0.01)
+    post = post.fuse(_hull_xz([_circ(pc, pa[2]), _circ((aa[0], pc[1]), pa[2])], y_sp0, ya1))   # omurgaya kok
+    post = post.fuse(a.put(box(ww + L["bar_w"] - 0.01, pa[0], dw["tab"][0] - L["shelf_t"], dw["tab"][0],
+                               pa[1] - pa[2] + 1.0, pa[1] + pa[2] - 1.0)))                   # raf cubuguna
+    legb = _hull_xz([_circ(ka, S["legb_r"]), _circ(pc, pa[2])], yb0, yb1)
+    # B kolu dis yuz nervuru (diz idler M3 basinin disinda baslar): direk -> idler kolu egilme kesiti (el hesabi)
+    rt, r0, rr = S["legb_rib"]
+    u = _unit((pc[0] - ka[0], pc[1] - ka[1], 0.0))
+    rib = _hull_xz([_circ((ka[0] + u[0] * r0, ka[1] + u[1] * r0), rr), _circ(pc, pa[2])], yb1 - 0.01, yb1 + rt)
+    sleeve = k.put(servos.ds_thrust_sleeve(k.t, fit))
+    parts = [lega, spine, a.put(fra), a.put(sha["seat"]), wall, post, legb, rib, sleeve]
+    sn = _fuse(parts)
+    cuts = [k.put(c, arm=True) for c in servos.ds_rotor_cuts(k.t, fit, L["plate_a"]["knee"], p["idler"]["bearing"])]
+    cuts += [a.put(c) for c in sha["cuts"]]
+    # ayak supurmesi: bilek ekseni etrafinda ayak plakasinin (ust yuzu, eksenden ~22 mm) bilek araligi boyunca
+    # tarayacagi yari duzlemler (normal acisi a0..a1) -> incik orada fk.r'den yakin kalir
+    fk = S["foot_keep"]
+    cuts.append(_halfplanes_xz(aa, fk["r"], fk["a"][0], fk["a"][1], fk["y"][0], fk["y"][1]))
+    lb = S["legb_keep"]                                       # ayak B kolu supurmesi (bilek ic tarafi, Y bandi)
+    cuts.append(ycyl(lb["r"], aa[0], aa[1], lb["y"][0], lb["y"][1]))
+    cuts.append(_sector_xz(aa, 0.0, lb["a"][0], lb["a"][1], lb["y"][0], lb["y"][1]))
+    # diz cevresi: uyluk diz besigi bolgesi (govde Y bandinda r < keep); baski kovani haric (eksenel simetrik, servo
+    # ust yuzune THRUST_GAP: diz eksenel yuku servo govdesine gider, mile degil)
+    tk = S["thigh_keep"]
+    cuts.append(ycyl(tk["r"], ka[0], ka[1], tk["y"][0], tk["y"][1]).cut(sleeve))
+    cuts.append(_tube_clear(R["knee"]["out"], R["knee"]["d"], L["harness_clear"]))
+    cuts.append(ycyl(S["post_bore"], pc[0], pc[1], ya1 + 1.0, yb0 - 2.0))     # direk ici bos (boru, kutle)
+    sn = _cut(sn, cuts)
+    items = [("shin", "shin_bracket", sn, "bracket", _bracket_mass(m, sn, L["mass_g"]["fasteners"]["shin"]))]
+    sp = m.servo_parts("knee", horn_toward=L["horn_toward"]["knee"])
+    scr, g = servos.ds_idler_screw(k.t, p["idler"]["bearing"])
+    ip = m.servo_parts("ankle")
+    items += [("shin", "knee_horn", sp["horn"], "horn", m.horn_mass("knee")),
+              ("shin", "knee_idler_pin", k.put(scr, arm=True), "metal", g / 1000.0),
+              ("shin", "ankle_servo", a.put(servos.canon(a.t)[0]), "servo", m.servo_mass("ankle")),
+              ("shin", "ankle_tab_screws", a.put(sha["screws"]), "metal", sha["screw_g"] / 1000.0),
+              ("shin", "ankle_idler_bearing", ip["idler_bearing"], "metal",
+               servos.BEARINGS[p["idler"]["bearing"]]["mass_g"] / 1000.0)]
+    return items
+
+
+# --------------------------------------------------------------------------- foot (bilek rotoru + taban)
+def _foot(m, F, L, fit):
+    p, FT = m.p, L["foot"]
+    a = F["ankle"]
+    aa = (a.o[0], a.o[2])
+    an = p["j_ankle"]
+    z_sole = an[2] - p["sole_below_ankle"]
+    z_pl0 = z_sole + p["sole_t"]
+    z_pl1 = z_pl0 + FT["plate_t"]
+    fx0, fx1 = an[0] + p["foot_x"][0], an[0] + p["foot_x"][1]
+    fy0, fy1 = FT["yc"] - p["foot_w"] / 2.0, FT["yc"] + p["foot_w"] / 2.0
+    plate = rbox(fx0, fx1, fy0, fy1, z_pl0, z_pl1, FT["corner_r"])
+    sole = rbox(fx0, fx1, fy0, fy1, z_sole, z_pl0, FT["corner_r"], 0.0, 1.5)
+    c = (0.5 * (fx0 + fx1), FT["yc"], z_sole)
+    cant = p["sole_cant_deg"]
+    plate, sole = rotated(plate, c, (1, 0, 0), cant), rotated(sole, c, (1, 0, 0), cant)
+    st = a.d["idler"]
+    ya0, ya1 = sorted((a.w(0, 0, 0)[1], a.w(0, L["plate_a"]["ankle"], 0)[1]))      # A kolu (horn yuzu disinda)
+    yb0, yb1 = sorted((a.w(0, st["leg"][0], 0)[1], a.w(0, st["leg"][1], 0)[1]))    # B kolu
+    tip = a.arm_tip(a.t["horn"]["hole_r"][-1])
+    ca = math.radians(cant)
+    top = lambda y: z_sole + (y - FT["yc"]) * math.sin(ca) + (z_pl1 - z_sole) * math.cos(ca)   # egik plaka ustu
+    zba = top(ya0) - FT["leg_dip"]                             # kollar plakaya gomulur (alt yuzune ulasmaz)
+    zbb = top(yb0) - FT["leg_dip"]
+    lega = _hull_xz([_circ(aa, FT["boss_r"]), _circ((tip[0], tip[2]), FT["tip_r"]),
+                     [(aa[0] + FT["lega_x"][0], zba), (aa[0] + FT["lega_x"][1], zba)]], ya0, ya1)
+    ring = a.put(servos._horn_outline(a.t, -a.t["horn"]["arm_t"], 0.0, fit["clearance"] + L["ring_w"]), arm=True)
+    legb = _hull_xz([_circ(aa, FT["legb_r"]), [(aa[0] + FT["legb_x"][0], zbb), (aa[0] + FT["legb_x"][1], zbb)]],
+                    yb0, yb1)
+    fb = _fuse([plate, lega, ring, legb, a.put(servos.ds_thrust_sleeve(a.t, fit))])
+    cuts = [a.put(c, arm=True) for c in servos.ds_rotor_cuts(a.t, fit, L["plate_a"]["ankle"], p["idler"]["bearing"])]
+    # plaka ustu hafifletme cepleri (taban tarafi tam, ust 'floor' kalir), kollar arasinda; egimle birlikte
+    pk = FT["pockets"]
+    nx, ny = pk["n"]
+    px0, px1 = fx0 + pk["rim"], fx1 - pk["rim"]
+    py0, py1 = yb1 + pk["rim"], ya0 - L["ring_w"] - pk["rim"] - a.t["horn"]["arm_t"]
+    wx = (px1 - px0 - (nx - 1) * pk["rib"]) / nx
+    wy = (py1 - py0 - (ny - 1) * pk["rib"]) / ny
+    for i in range(nx):
+        for j in range(ny):
+            x0 = px0 + i * (wx + pk["rib"])
+            y0 = py0 + j * (wy + pk["rib"])
+            cuts.append(rotated(box(x0, x0 + wx, y0, y0 + wy, z_pl0 + pk["floor"], z_pl1 + 1.0), c, (1, 0, 0), cant))
+    fb = _cut(fb, cuts)
+    cc = V(c[0], c[1] - 0.5 * p["sole_t"] * math.sin(ca), z_sole + 0.5 * p["sole_t"] * math.cos(ca))
+    sp = m.servo_parts("ankle", horn_toward=L["horn_toward"]["ankle"])
+    scr, g = servos.ds_idler_screw(a.t, p["idler"]["bearing"])
+    return [("foot", "foot_bracket", fb, "bracket", _bracket_mass(m, fb, L["mass_g"]["fasteners"]["foot"])),
+            ("foot", "ankle_horn", sp["horn"], "horn", m.horn_mass("ankle")),
+            ("foot", "ankle_idler_pin", a.put(scr, arm=True), "metal", g / 1000.0),
+            ("foot", "sole", sole, "sole", None, (cc, ((fx1 - fx0) / 2, (fy1 - fy0) / 2, p["sole_t"] / 2), cant))]
+
+
+def _harness_items(m, L, R):
+    """Kablo demeti Item'lari: her gecis icin <anahtar>_harness_in (parent) ve _out (child) (link ici guzergah
+    dahil, sol taraf)."""
+    gmm3 = m.p["harness"]["g_per_mm3"]
+    out = []
+    for key, parent, child in LEG_CHAIN:
+        if key not in R:          # bilek: gecis yok (bilek servosu incikte, kablosu diz gecisinde)
+            continue
+        hr = R[key]
+        out.append(_tube_item(parent, key + "_harness_in", hr["in"], hr["d"], gmm3))
+        out.append(_tube_item(child, key + "_harness_out", hr["out"], hr["d"], gmm3, hr["n_out"], hr["out_d"]))
+    return out
+
+
+def build_tr35(m, sv):
+    """TR-35 bacaklari (P2a): eklemler (sol ID 20-24, sag 10-14; eksen/isaret 27 cm ile ayni) ve parcalar:
+    hip (doner tabla mili + kaplin + roll besigi), hip_cradle (roll/pitch U-link), thigh (pitch + diz besigi), shin
+    (diz U-link + bilek besigi), foot (bilek U-link + plaka + TPU taban), kablo demetleri."""
+    servos.require(m, sv, DS_KEYS, "DS32XX", "legs.tr35_b2")
     servos.require(m, sv, ("hip_yaw",), "ES3054", "legs.tr35_b2")
     p, L = m.p, m.p["legs"]
+    fit = p["fit"]
     lim = m.limits
-    tt = servos.turntable_stack(p["turntable"])
-    yaw_o = p["j_hip_yaw"]
-    items = []        # (link anahtari, ad, sekil, tur, kutle[, carpisma kutusu])
-
-    # hip: doner tabla mili (rotor) + pim/yarik kaplin surucusu + kalca plakasi + roll servosu (govde)
-    b = tt["bearing_rec"]
-    z0 = tt["z_mate"] - p["turntable"]["gap"]
-    items.append(("hip", "hip_yaw_shaft", zcyl(b["d"] / 2.0, yaw_o[0], yaw_o[1], z0, tt["shaft_top"]), "metal",
-                  L["mass_g"]["hip_yaw_shaft"] / 1000.0))
-    plate = zcyl(L["hip_plate"]["r"], yaw_o[0], yaw_o[1], z0 - p["plate_t"], z0)     # doner tabla flansi
-    items.append(("hip", "hip_plate", plate, "bracket", None))
-    for key in ("hip_roll", "hip_pitch", "knee", "ankle"):
-        sp = m.servo_parts(key, horn_toward=L["horn_toward"].get(key))
-        bl, hl = LEG_BODY_LINK[key], LEG_HORN_LINK[key]
-        items += [(bl, key + "_servo", sp["body"], "servo", m.servo_mass(key)),
-                  (bl, key + "_idler_seat", sp["idler_seat"], "bracket", None),
-                  (bl, key + "_idler_bearing", sp["idler_bearing"], "metal",
-                   servos.BEARINGS[p["idler"]["bearing"]]["mass_g"] / 1000.0),
-                  (hl, key + "_horn", sp["horn"], "horn", m.horn_mass(key)),
-                  (hl, key + "_idler_pin", sp["idler_pin"], "metal", L["mass_g"]["idler_pin"] / 1000.0)]
-    # yer tutucu braket bloklari: link basina butce kutlesi, carpismayan kucuk kutu (P2a gercek parcayla degistirir)
-    for link, (c, half, mass_g) in L["mass_blocks"].items():
-        blk = box(c[0] - half[0], c[0] + half[0], c[1] - half[1], c[1] + half[1], c[2] - half[2], c[2] + half[2])
-        items.append((link, link + "_bracket", blk, "bracket", mass_g / 1000.0))
-    # ayak: plaka (bilek U-link tabani) + TPU taban; taban carpisma kutusu (MJCF <ayak>_collision, RL sozlesmesi)
-    an = p["j_ankle"]
-    ft = L["foot"]
-    z_sole = an[2] - p["sole_below_ankle"]
-    fx0, fx1 = an[0] + p["foot_x"][0], an[0] + p["foot_x"][1]
-    fy0, fy1 = ft["yc"] - p["foot_w"] / 2.0, ft["yc"] + p["foot_w"] / 2.0
-    body = rbox(fx0, fx1, fy0, fy1, z_sole + p["sole_t"], z_sole + p["sole_t"] + ft["plate_t"], 9.0)
-    sole = rbox(fx0, fx1, fy0, fy1, z_sole, z_sole + p["sole_t"], 9.0, 0.0, 1.5)
-    c = (0.5 * (fx0 + fx1), ft["yc"], z_sole)
-    cant = p["sole_cant_deg"]
-    body, sole = rotated(body, c, (1, 0, 0), cant), rotated(sole, c, (1, 0, 0), cant)
-    ca = math.radians(cant)
-    cc = V(c[0], c[1] - 0.5 * p["sole_t"] * math.sin(ca), z_sole + 0.5 * p["sole_t"] * math.cos(ca))
-    items += [("foot", "foot_plate", body, "bracket", None),
-              ("foot", "sole", sole, "sole", None, (cc, ((fx1 - fx0) / 2, (fy1 - fy0) / 2, p["sole_t"] / 2), cant))]
-    # kablo demetleri (eklem gecisleri)
-    for jn, parent, child in LEG_CHAIN:
-        for link, name, shape, mass in harness_items(m, jn, parent, child):
-            items.append((link, name, shape, "harness", mass))
+    F = {key: _Frame(m, key, L["horn_toward"].get(key)) for key in DS_KEYS}
+    R = _routes(m, L, F)
+    items = []
+    items += _hip(m, F, L, fit, R)
+    items += _hip_cradle(m, F, L, fit, R)
+    items += _thigh(m, F, L, fit, R)
+    items += _shin(m, F, L, fit, R)
+    items += _foot(m, F, L, fit)
+    for link, name, shape, kind, mass in _harness_items(m, L, R):
+        items.append((link, name, shape, kind, mass))
 
     for side, sy, ids in (("left", 1, 20), ("right", -1, 10)):
         S = side + "_"
@@ -277,4 +824,289 @@ def build_tr35_stub(m, sv):
             m._add(lk, S + name, shape, kind, mass, cbox)
 
 
-GENERATORS = {"xl330_27": build_xl330, "tr35_b2": build_tr35_stub}
+# --------------------------------------------------------------------------- el hesabi (spec A1, p2a-el-hesabi.md)
+# Yuk durumlari: (dikey carpan x W, yatay oran (x ve y ayri ayri +-), basinc merkezi): durus = tek ayak W + 0.2 W
+# yatay, basinc merkezi tabanin herhangi bir yerinde (merkez + 4 kose); dusme = tek ayak 2 W + 0.3 x 2 W yatay, merkez.
+# W = targets.mass_max_kg x g (sert sinir 1.95 kg; bacak agirligi dusulmez: tutucu taraf).
+LOAD_CASES = (("durus", 1.0, 0.2, "kose"), ("dusme", 2.0, 0.3, "merkez"))
+G = 9.81
+# Tipik katalog / malzeme degerleri (MPa, N). Rulman: Cr, C0r (6800ZZ ~ SKF 61800-2Z, F623ZZ ~ 623ZZ). PETG baski:
+# katman ici cekme 40, katmanlar arasi 25, ezilme (yatak basinci) 50. Al 6061-T6 akma 240. Celik vida 8.8 akma 640.
+BEARING_RATING = {"6800ZZ": (1720.0, 830.0), "F623ZZ": (480.0, 180.0)}
+MAT = {"petg_layer": 25.0, "petg_inlayer": 40.0, "petg_bear": 50.0, "al_yield": 240.0, "steel_yield": 640.0}
+M3_CORE_D, M25_AS = 2.39, 3.39          # M3 cekirdek capi, M2.5 gerilme alani (mm, mm2)
+
+
+def _v3(v):
+    return (v.x, v.y, v.z) if hasattr(v, "x") else tuple(v)
+
+
+def load_report(m):
+    """Bacak yuk yolu el hesabi (sol bacak, HOME/stand pozu; FreeCAD). Zemin kuvveti tabanin basinc merkezine
+    uygulanir, her eklemde eksenel kuvvet, eksen torku, eksene dik moment; DS eklemlerinde U-link'in iki mesnedi:
+    A (horn gobegi / spline) ve B (F623ZZ idler) radyal tepkileri; hip_yaw doner tablasinin iki 6800ZZ tepkisi;
+    vida, kol, idler mili, mil ve baski parcasi gerilmeleri. Doner {"W", "cases", "ds", "turntable", "checks"};
+    checks: [(ad, deger, sinir, emniyet katsayisi)]."""
+    import FreeCAD as App
+    Vv = App.Vector
+    p, L = m.p, m.p["legs"]
+    W = m.cfg["targets"]["mass_max_kg"] * G
+    pose = m.pose("stand")
+    pls = m.link_placements(pose)
+    J = {j["name"]: j for j in m.joints}
+    worldpt = lambda ln, q: pls[ln].multiply(App.Placement(Vv(*q) - m.links[ln].origin, App.Rotation())).Base
+    # taban basinc merkezleri (dunya, stand pozu): merkez + 4 kose (egik taban plakasinin alt yuzu)
+    FT, an = L["foot"], p["j_ankle"]
+    z_sole = an[2] - p["sole_below_ankle"]
+    fx0, fx1 = an[0] + p["foot_x"][0], an[0] + p["foot_x"][1]
+    fy0, fy1 = FT["yc"] - p["foot_w"] / 2.0, FT["yc"] + p["foot_w"] / 2.0
+    c = Vv(0.5 * (fx0 + fx1), FT["yc"], z_sole)
+    rot = App.Rotation(Vv(1, 0, 0), p["sole_cant_deg"])
+    pts = {"merkez": [c]}
+    pts["kose"] = [c] + [c + rot.multVec(Vv(x - c.x, y - c.y, 0)) for x in (fx0, fx1) for y in (fy0, fy1)]
+    cop = {k: [worldpt("left_foot", _v3(q)) for q in v] for k, v in pts.items()}
+    loads = {}
+    for name, fz, fh, where in LOAD_CASES:
+        loads[name] = [(P, Vv(sx * fh * fz * W, sy * fh * fz * W, fz * W)) for P in cop[where]
+                       for sx in (-1, 1) for sy in (-1, 1)]
+    F = {key: _Frame(m, key, L["horn_toward"].get(key)) for key in DS_KEYS}
+    t = m.servo_type("hip_roll")
+    st = servos.datums(t, p["idler"]["bearing"])["idler"]
+    hn = t["horn"]
+    yA = -(hn["h"][1] - hn["h"][0]) / 2.0                    # spline kavrama merkezi (horn gobegi ortasi)
+    yB = st["axis"]                                          # idler rulman merkezi
+    e_spl = yA - servos.datums(t)["boss_top"]                # spline kuvveti -> servo ic yatagi (boss ustu) kolu
+    e_pin = st["axis"] - sum(st["leg"]) / 2.0                # idler rulman merkezi -> B kolu orta duzlemi
+    stall = t["electrical"]["stall_torque"]
+    legb = _legb_sections(m, F, L)
+    ds = {}
+    for key in DS_KEYS:
+        j = J["left_" + key]
+        O = worldpt(j["parent"], j["origin"])
+        a = pls[j["parent"]].Rotation.multVec(Vv(*j["axis"]))
+        h = pls["left_" + LEG_BODY_LINK[key]].Rotation.multVec(Vv(*m.p["servo_dir"][key][0]))
+        rec = {}
+        for name, _, _, _ in LOAD_CASES:
+            r = {"Fax": 0.0, "T": 0.0, "Mp": 0.0, "RA": 0.0, "RB": 0.0, "M_cant": 0.0}
+            for P, Fv in loads[name]:
+                Mv = (P - O).cross(Fv)
+                Fax = Fv.dot(a)
+                Frad = Fv - a * Fax
+                Mp = Mv - a * Mv.dot(a)
+                rhs = h.cross(Mp) * -1.0                     # = yA RA + yB RB (R eksene dik)
+                RB = (rhs - Frad * yA) * (1.0 / (yB - yA))
+                RA = Frad - RB
+                Mc = (Mv - (h * yA).cross(Frad))             # tek mesnet (idler'siz) spline'daki moment
+                Mc = Mc - a * Mc.dot(a)
+                for k_, v_ in (("Fax", abs(Fax)), ("T", abs(Mv.dot(a)) / 1000.0), ("Mp", Mp.Length / 1000.0),
+                               ("RA", RA.Length), ("RB", RB.Length), ("M_cant", Mc.Length / 1000.0)):
+                    r[k_] = max(r[k_], v_)
+            r["M_shaft"] = r["RA"] * e_spl / 1000.0          # spline tasmasi (ic yatak - kavrama) momenti
+            rec[name] = r
+        ds[key] = rec
+    # hip_yaw doner tablasi
+    tt = servos.turntable_stack(p["turntable"])
+    H, C = L["hip"], L["coupler"]
+    yx, yy = p["j_hip_yaw"][0], p["j_hip_yaw"][1]
+    zl, zu = sum(tt["lower"]) / 2.0, sum(tt["upper"]) / 2.0
+    s = zu - zl
+    d_sh = tt["bearing_rec"]["d"]
+    ztop = tt["z_mate"] - p["turntable"]["gap"]
+    Lb = ztop - H["shaft_bot"]                               # mil - gobek kavrama boyu
+    ax = Vv(0, 0, 1)
+    tts = {}
+    for name, _, _, _ in LOAD_CASES:
+        r = {"Fax": 0.0, "Mz": 0.0, "M_l": 0.0, "Rl": 0.0, "Ru": 0.0, "M_boss": 0.0, "M_pin": 0.0, "Fr": 0.0}
+        for P, Fv in loads[name]:
+            Ol = Vv(yx, yy, zl)
+            Mv = (P - Ol).cross(Fv)
+            Fax = Fv.dot(ax)
+            Frad = Fv - ax * Fax
+            Mp = Mv - ax * Mv.dot(ax)
+            Fu = Vv(-Mp.y, Mp.x, 0) * (1.0 / s)              # (0,0,s) x Fu = -Mp: ust rulman tepkisi
+            Fl = Frad * -1.0 - Fu
+            mb = (P - Vv(yx, yy, ztop)).cross(Fv)
+            mpn = (P - Vv(yx, yy, H["pin_z"])).cross(Fv)
+            for k_, v_ in (("Fax", abs(Fax)), ("Mz", abs(Mv.dot(ax)) / 1000.0), ("M_l", Mp.Length / 1000.0),
+                           ("Rl", Fl.Length), ("Ru", Fu.Length), ("Fr", Frad.Length),
+                           ("M_boss", (mb - ax * mb.dot(ax)).Length / 1000.0),
+                           ("M_pin", (mpn - ax * mpn.dot(ax)).Length / 1000.0)):
+                r[k_] = max(r[k_], v_)
+        tts[name] = r
+    # kontroller (dusme durumu, emniyet katsayisi = sinir / deger)
+    D = "dusme"
+    chk = []
+    add = lambda n, v, lim: chk.append((n, v, lim, lim / v if v > 1e-9 else float("inf")))
+    Cr6800, C06800 = BEARING_RATING[p["turntable"]["bearing"]]
+    Cr623, C0623 = BEARING_RATING[p["idler"]["bearing"]]
+    T_yaw = max(tts[D]["Mz"], m.servo_type("hip_yaw")["electrical"]["stall_torque"])
+    add("6800ZZ statik yuk (N)", max(tts[D]["Rl"], tts[D]["Ru"]) + 0.5 * tts[D]["Fax"], C06800)
+    add("mil egilme, alt rulman (MPa)", tts[D]["M_l"] * 1000.0 / (math.pi * d_sh ** 3 / 32.0), MAT["al_yield"])
+    w_net = math.pi * d_sh ** 3 / 32.0 - H["pin_hole_d"] * d_sh ** 2 / 6.0
+    add("mil egilme, capraz delik net kesit (MPa)", tts[D]["M_pin"] * 1000.0 / w_net, MAT["al_yield"])
+    add("kalca gobegi yatak basinci (MPa)", 6.0 * tts[D]["M_boss"] * 1000.0 / (d_sh * Lb * Lb)
+        + tts[D]["Fr"] / (d_sh * Lb), MAT["petg_bear"])
+    add("capraz vida kesme (MPa)", T_yaw * 1000.0 / d_sh / (math.pi * M3_CORE_D ** 2 / 4.0), 0.6 * MAT["steel_yield"])
+    ra = max(ds[k][D]["RA"] for k in DS_KEYS)
+    rb = max(ds[k][D]["RB"] for k in DS_KEYS)
+    T_ds = max(max(ds[k][D]["T"] for k in DS_KEYS), stall)
+    fax = max(ds[k][D]["Fax"] for k in DS_KEYS)
+    add("F623ZZ statik yuk (N)", rb + 0.5 * fax, C0623)
+    sig_pin = rb * e_pin / (math.pi * M3_CORE_D ** 3 / 32.0)
+    add("idler M3 mili egilme (MPa)", sig_pin, MAT["steel_yield"])
+    f_tab = T_ds * 1000.0 / t["holes"]["pitch_l"] / 2.0 + (ra + fax) / 4.0
+    add("kulak vidasi PETG yatak basinci (MPa)", f_tab / (3.0 * L["shelf_t"]), MAT["petg_bear"])
+    r1, r2 = hn["hole_r"]
+    f_m25 = T_ds * 1000.0 * r2 / (r1 * r1 + r2 * r2)
+    add("kol M2.5 vida kesme, butun tork vidada (MPa)", f_m25 / M25_AS, 0.6 * MAT["steel_yield"])
+    add("kol M2.5 PETG yatak basinci (MPa)", f_m25 / (2.5 * min(L["plate_a"].values())), MAT["petg_bear"])
+    l_arm = r2 + hn["arm_tip_r"] - hn["hub_d"] / 2.0
+    f_pk = T_ds * 1000.0 / (hn["hub_d"] / 2.0 + l_arm / 2.0)
+    add("kol cebi yan duvar basinci (MPa)", 2.0 * f_pk / (l_arm * hn["arm_t"]), MAT["petg_bear"])
+    add("B kolu PETG yatak basinci, M3 (MPa)", rb / (3.0 * st["leg"][1] - 3.0 * st["leg"][0]), MAT["petg_bear"])
+    add("idler yuvasi PETG yatak basinci (MPa)", rb / (st["bearing_rec"]["D"] * (st["seat"][1] - st["seat"][0] - 1.0)),
+        MAT["petg_bear"])
+    for key in DS_KEYS:          # duzlem ici (R_B) + duzlem disi (eksenel, idler yonunde) egilme, en kotu kesit
+        sig = max(6.0 * ds[key][D]["RB"] * lb / (tt_ * bw * bw) + 6.0 * ds[key][D]["Fax"] * lb / (bw * tt_ * tt_)
+                  for lb, bw, tt_ in legb[key])
+        add("%s U-link B kolu kesit egilme (MPa)" % key, sig, MAT["petg_layer"])
+    lp, dp, di, lv = legb["_knee_post"]      # diz B kolu direk (boru): egilme R_B x boy + burulma R_B x kol (v. Mises)
+    wb = math.pi * (dp ** 4 - di ** 4) / (32.0 * dp)
+    sb = ds["knee"][D]["RB"] * lp / wb
+    tb = ds["knee"][D]["RB"] * lv / (2.0 * wb)
+    add("diz B kolu direk egilme + burulma (MPa)", math.sqrt(sb * sb + 3.0 * tb * tb), MAT["petg_layer"])
+    es_r = m.servo_type("hip_yaw")["horn"]["arm_r"]
+    return {"W": W, "cases": LOAD_CASES, "ds": ds, "turntable": tts, "checks": chk,
+            "geo": {"yA": yA, "yB": yB, "span_AB": yA - yB, "e_spline": e_spl, "e_pin": e_pin, "tt_spacing": s,
+                    "boss_len": Lb, "legb": legb, "T_ds": T_ds, "T_yaw": T_yaw,
+                    "es_drive_N": m.servo_type("hip_yaw")["electrical"]["stall_torque"] * 1000.0 / es_r,
+                    "cop": {k: [tuple(round(x, 1) for x in _v3(q)) for q in v] for k, v in cop.items()}}}
+
+
+def _legb_sections(m, F, L):
+    """U-link B kolu (idler tarafi) kritik kesitleri: {eklem: [(kol boyu mm, kesit genisligi b, kalinlik t), ...]}
+    (R_B ve eksenel kuvvet idler ekseninde; egilme kolun rijit birlesimine kadar) + diz B kolu direk boyu (mm, d)."""
+    r, q, k, a = F["hip_roll"], F["hip_pitch"], F["knee"], F["ankle"]
+    K, S, FT = L["hip_cradle"], L["shin"], L["foot"]
+    st = k.d["idler"]
+    lt = st["leg"][1] - st["leg"][0]
+    pa = S["post"]
+    pc = a.xz(pa[0], 0, pa[1])
+    an = m.p["j_ankle"]
+    z_pl1 = an[2] - m.p["sole_below_ankle"] + m.p["sole_t"] + FT["plate_t"]
+    uy = K["u_y"][1] - K["u_y"][0]
+    y_post0 = k.w(0, L["plate_a"]["knee"], 0)[1] + S["spine_dy"]   # direk koku: omurga
+    yb0 = min(k.w(0, st["leg"][0], 0)[1], k.w(0, st["leg"][1], 0)[1])
+    return {"hip_roll": [(K["boss_r"] + K["u_thick"], uy, lt), (K["u_depth"], uy, lt + K["u_thick"])],
+            "hip_pitch": [(abs(q.o[0] - (r.o[0] - K["legbp_w"])), 2.0 * K["boss_r"], lt)],
+            "knee": [(math.dist((k.o[0], k.o[2]), pc) - pa[2], 2.0 * pa[2], lt + S["legb_rib"][0])],
+            "ankle": [(abs(a.o[2] - z_pl1), FT["legb_x"][1] - FT["legb_x"][0], lt)],
+            "_knee_post": (abs(yb0 - y_post0), 2.0 * pa[2], 2.0 * S["post_bore"], math.dist((k.o[0], k.o[2]), pc))}
+
+
+def load_markdown(rep):
+    """load_report -> markdown tablolari (p2a-el-hesabi.md)."""
+    out = ["| Eklem | Durum | Eksenel F (N) | Eksen torku (N.m) | Dik moment Mp (N.m) | R_A spline (N) | "
+           "R_B idler (N) | Spline tasma momenti (N.m) | Idler'siz spline momenti (N.m) |",
+           "|---|---|---|---|---|---|---|---|---|"]
+    for key, rec in rep["ds"].items():
+        for name, r in rec.items():
+            out.append("| %s | %s | %.1f | %.2f | %.2f | %.1f | %.1f | %.3f | %.2f |" % (
+                key, name, r["Fax"], r["T"], r["Mp"], r["RA"], r["RB"], r["M_shaft"], r["M_cant"]))
+    out += ["", "| Doner tabla | Eksenel F (N) | Yaw torku (N.m) | Mp alt rulman (N.m) | R alt (N) | R ust (N) | "
+            "M gobek ustu (N.m) | M capraz delik (N.m) |", "|---|---|---|---|---|---|---|---|"]
+    for name, r in rep["turntable"].items():
+        out.append("| %s | %.1f | %.2f | %.2f | %.1f | %.1f | %.2f | %.2f |" % (
+            name, r["Fax"], r["Mz"], r["M_l"], r["Rl"], r["Ru"], r["M_boss"], r["M_pin"]))
+    out += ["", "| Kontrol (dusme, 2 W) | Deger | Sinir | Emniyet |", "|---|---|---|---|"]
+    for n, v, lim, sf in rep["checks"]:
+        out.append("| %s | %.1f | %.0f | %.1f |" % (n, v, lim, sf))
+    return "\n".join(out)
+
+
+def print_report(m, overhang_deg=45.0, tol=0.3):
+    """Bacak baski parcalari (sol taraf; sag = ayna): kutu olculeri (256 mm kupe sigma), tek kati mi, eksen yonlu 6
+    baski yonu (+ ayakta egik taban yonu) icinden, tabla temas alani >= 100 mm2 olanlarda tabla - sarkma alani en
+    buyuk olani ve o yondeki sarkma
+    alani (normali yukari yone gore > overhang_deg asagi bakan, tablada olmayan ucgenler; delik tavanlari ve kisa
+    kopruler dahil: destek ihtiyacinin ust siniri). Doner [{"name", "kind", "dims", "solids", "best": (yon, tabla mm2,
+    sarkma mm2), "all": {...}}]."""
+    import openduck
+    dirs = {"+x": (1, 0, 0), "-x": (-1, 0, 0), "+y": (0, 1, 0), "-y": (0, -1, 0), "+z": (0, 0, 1), "-z": (0, 0, -1)}
+    # yon adi = baski sirasinda yukari bakan govde ekseni (tablada olan yuz bunun tersine bakar)
+    cth = math.cos(math.radians(90.0 - overhang_deg))
+    out = []
+    for ln, l in m.links.items():
+        if m.link_module.get(ln) != "legs" or not ln.startswith("left_"):
+            continue
+        for it in l.items:
+            if it.kind not in openduck.PRINT_KINDS:
+                continue
+            tris = []
+            for f in it.shape.Faces:
+                vs, ts = f.tessellate(tol)
+                if not ts:
+                    continue
+                u0, u1, v0, v1 = f.ParameterRange
+                nf = f.normalAt(0.5 * (u0 + u1), 0.5 * (v0 + v1))
+                flip = None
+                for i, j, k in ts:
+                    a, b, c = vs[i], vs[j], vs[k]
+                    n = (b - a).cross(c - a)
+                    ar = n.Length / 2.0
+                    if ar < 1e-9:
+                        continue
+                    n = n * (1.0 / n.Length)
+                    if flip is None:
+                        flip = n.dot(nf) < 0 if f.Surface.__class__.__name__ == "Plane" else False
+                    if flip:
+                        n = n * -1.0
+                    tris.append((a, b, c, n, ar))
+            res = {}
+            dd = dict(dirs)
+            if ln.endswith("_foot"):          # egik ayak plakasi / taban: plaka alt yuzu tablada
+                ca = math.radians(m.p["sole_cant_deg"])
+                dd["taban"] = (0.0, -math.sin(ca), math.cos(ca))
+            for dn, dv in dd.items():
+                d = App_V(dv)
+                zmin = min(min(a.dot(d), b.dot(d), c.dot(d)) for a, b, c, _, _ in tris)
+                bed = over = 0.0
+                for a, b, c, n, ar in tris:
+                    nd = n.dot(d)
+                    if nd < -0.999 and max(a.dot(d), b.dot(d), c.dot(d)) < zmin + 0.05:
+                        bed += ar
+                    elif nd < -cth:
+                        over += ar
+                res[dn] = (round(bed, 1), round(over, 1))
+            ok = [k for k, v in res.items() if v[0] >= 100.0] or list(res)       # kararli tabla yuzu
+            best = max(ok, key=lambda k: res[k][0] - res[k][1])
+            bb = it.shape.BoundBox
+            out.append({"name": it.part, "kind": it.kind, "dims": (bb.XLength, bb.YLength, bb.ZLength),
+                        "solids": len(it.shape.Solids), "best": (best,) + res[best], "all": res,
+                        "volume": it.shape.Volume, "mass_g": it.mass_kg(m.p) * 1000.0})
+    return out
+
+
+def App_V(v):
+    import FreeCAD as App
+    return App.Vector(*v)
+
+
+# Baski yonu / destek notlari (sol parca; sag parca ayna). Yon: print_report'un tabla yonu ("-z" = parcanin -z yuzu
+# tablada). p2a-el-hesabi.md tablosuna yazilir.
+PRINT_NOTES = {
+    "hip_bracket": "PETG; outer (+y) side on the bed; supports under the roll-servo top plate and the yaw boss; "
+                   "100 % infill around the yaw bore (boss bearing pressure is the weakest drop-case item)",
+    "hip_yaw_coupler": "PETG (0.5 g); fork end (-x) or tine tops on the bed, supports under the ring",
+    "hip_cradle_bracket": "PETG; U-bridge underside on the bed; supports under the roll legs' upper halves and the "
+                          "pitch U front plate",
+    "thigh_bracket": "PETG; idler-seat face (+y) on the bed; supports under the ear-plane shelves and posts",
+    "shin_bracket": "PETG; knee leg A outer face (-y) on the bed; supports under the ankle cradle frame, the knee "
+                    "post web and the B leg",
+    "foot_bracket": "PETG; plate underside on the bed (5 deg cant: print the plate flat), no supports except the "
+                    "horn pocket roof",
+    "sole": "TPU 95A; flat on the bed, no supports",
+}
+
+
+GENERATORS = {"xl330_27": build_xl330, "tr35_b2": build_tr35}
