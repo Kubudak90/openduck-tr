@@ -282,7 +282,10 @@ Script: /private/tmp/claude-501/-Users-huseyinarslan-Desktop-ads-z-klas-r-2/8217
 | 8 | ADC1_CH7, R_hip_pitch wiper | |
 | 9 | ADC1_CH8, R_knee wiper | |
 | 10 | ADC1_CH9, R_ankle wiper | |
-| 11–14 | Optional ADC2 ground-sense for L/R knee and ankle (thin wire from each servo's pot-low end, 10 kΩ + 100 nF, 0 dB attenuation) | Usable only with Wi-Fi off (datasheet). Otherwise spare |
+| 11 | UART1 TX → 1 kΩ → DF2301Q C/R (module RX) | Voice module, spec addendum K3 (P6e pin choice; bench uses the same pin) |
+| 12 | UART1 RX ← 1 kΩ ← DF2301Q D/T (module TX) | Voice module. Add a 1 kΩ/2 kΩ divider only if the measured TX idle level is > 3.6 V (G-SES-a) |
+| 13 | Output → head LED (3 mm LED + 330 Ω, 5th harness conductor) | Wake/reject indicator (addendum K3.5) |
+| 14 | Optional ADC2 ground-sense for one knee (thin wire from the pot-low end, 10 kΩ + 100 nF, 0 dB attenuation) | Usable only with Wi-Fi off (datasheet). Was 11–14 for both knees and ankles before P6e took 11–13 |
 | 15 | Input ← PCA#2 ch15 (via 1 kΩ) | Oscillator calibration, measure the period with MCPWM capture |
 | 16 | Input ← PCA#1 ch15 (via 1 kΩ) | Oscillator calibration |
 | 17 | I2C SDA | 400 kHz. Devices: PCA#1 0x40, PCA#2 0x41 (A0 bridged), INA226 0x45 (A0 = A1 = VS). Board pull-ups are 10 kΩ each, so about 3.3 kΩ in parallel |
@@ -390,7 +393,7 @@ Compare with the training noise: 0.01 rad (0.57°) on q and 0.5 rad/s on qd.
 6. Recheck the HOME pose on the assembled robot.
 
 ### Optional upgrade
-- Ground-sense on ADC2 (GPIO11–14) for the four highest-current joints. Firmware subtracts the servo-local ground. Exact if the pot is fed from an internal regulator. Wi-Fi must be off.
+- Ground-sense on ADC2 (GPIO11–14) for the four highest-current joints (after P6e only GPIO14 is free: 11–13 carry the voice module, see §2). Firmware subtracts the servo-local ground. Exact if the pot is fed from an internal regulator. Wi-Fi must be off.
 - Or a differential external ADC (not costed).
 
 ## 4. Inputs for sim and RL
