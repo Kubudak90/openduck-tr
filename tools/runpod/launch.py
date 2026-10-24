@@ -460,6 +460,13 @@ def pod_env(a, name, token, train_args, linger, expires, code=None, gitd=None):
         env["OPENDUCK_ROBOT"] = robot
         if getattr(a, "kappa", None) is not None:
             env["OPENDUCK_KAPPA"] = fnum(float(a.kappa))
+    for kv in getattr(a, "env", None) or []:
+        k, sep, v = kv.partition("=")
+        if not sep or not re.match(r"^[A-Za-z_][A-Za-z0-9_]*$", k):
+            die("--env: KEY=DEGER bekleniyor (%r)" % kv)
+        if k in env:
+            die("--env: %s baslaticinin kendi degiskeni" % k)
+        env[k] = v
     return env
 
 
@@ -1176,6 +1183,8 @@ def build_parser():
     s.add_argument("--linger-hours", type=float, default=None,
                    help="bitince pod bu kadar sunar sonra kendini siler (0 = asla; varsayilan 2, --keep ile 0)")
     s.add_argument("--pip", action="append", help="ek pip paketi (tekrarlanabilir)")
+    s.add_argument("--env", action="append",
+                   help="poda ek ortam degiskeni KEY=DEGER (tekrarlanabilir; or. OPENDUCK_TUNE='{...}')")
     s.add_argument("--python", help="pod python surumu (varsayilan 3.12)")
     s.add_argument("--secret", default="github_token", help="--source git: GitHub token'li RunPod secret adi")
     s.add_argument("--git-repo", help="owner/repo (varsayilan origin)")

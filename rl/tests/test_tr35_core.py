@@ -19,6 +19,7 @@ import sys
 import tempfile
 
 import numpy as np
+import pytest
 
 from rl import config as C
 from rl import tasks as TK
@@ -170,6 +171,27 @@ def test_tr35_constants_formulas():
     d2 = copy.deepcopy(d)
     d2["home"]["source"] = "family"
     assert C.tr35_constants(d2)["HOME_OVERRIDE"] == d2["home"]
+
+
+def test_tr35_tune_overrides(monkeypatch):
+    """OPENDUCK_TUNE: yalniz adi verilen gorev/terim agirliklari degisir, TUNE kaydedilir; bilinmeyen ValueError."""
+    _, path = _boot()
+    d = C.load_derived(path)
+    monkeypatch.delenv("OPENDUCK_TUNE", raising=False)
+    base = C.tr35_constants(d)
+    assert base["TUNE"] == {}
+    tune = {"walk": {"torque_ratio": -0.3, "action_rate": -0.1}, "getup_late": {"joint_vel": -1.0}}
+    monkeypatch.setenv("OPENDUCK_TUNE", json.dumps(tune))
+    k = C.tr35_constants(d)
+    assert k["TUNE"] == tune and k["REWARD_WEIGHTS"]["torque_ratio"] == -0.3 and k["REWARD_WEIGHTS"]["action_rate"] == -0.1
+    assert k["GETUP_REWARD_LATE"]["joint_vel"] == -1.0
+    for n in ("REWARD_WEIGHTS", "MAIN_REWARD_WEIGHTS", "GETUP_REWARD_WEIGHTS", "GETUP_REWARD_LATE"):
+        changed = {t for t, v in k[n].items() if v != base[n][t]}
+        assert changed == {"REWARD_WEIGHTS": {"torque_ratio", "action_rate"}, "GETUP_REWARD_LATE": {"joint_vel"}}.get(n, set())
+    for bad in ({"sit": {"alive": 1}}, {"walk": {"torq": 1}}):
+        monkeypatch.setenv("OPENDUCK_TUNE", json.dumps(bad))
+        with pytest.raises(ValueError):
+            C.tr35_constants(d)
 
 
 def _broken(d, fn):

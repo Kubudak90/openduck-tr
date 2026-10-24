@@ -361,6 +361,7 @@ SELF_COLLISION_PAIRS = ()          # tr35 main/getup: oz-carpisma geom ciftleri 
 GETUP_HEAD_MODES = ("free", "fixed")
 GETUP_HEAD_DEFAULT = "free"        # getup_head=None: bas politikada; "fixed": HEAD_TUCK_DEG, bas aksiyonlari 0
 GETUP_HEAD_SCALE = None            # tr35: getup bas aksiyon olcegi ust siniri (rad; head_pitch/yaw/roll)
+TUNE = {}                          # tr35: OPENDUCK_TUNE odul agirligi degisiklikleri (_tune; P7 ayari)
 MOVING_EPS = 0.05                  # walk: moving = |komut| > bu
 RAIL_SOFT_A = 15.0                 # A, LEG ray talebi cezasinin yumusak esigi (A4: > 15 A suresi <= %2)
 MAIN["stand_gz"] = -0.9            # kalkis/ayakta dikligi (MAIN["seat_gz"] oturus kosulundan ayri)
@@ -610,7 +611,28 @@ def tr35_constants(derived, kappa=None):
     f = fl(d["mass"]["total_kg"]) / 0.6763                              # xl330 toplam kutlesi 0.6763 kg
     dr.update(trunk_added_mass=tuple(v * f for v in dr["trunk_added_mass"]), trunk_com_offset=0.010, push_vel=0.20)
     o["DOMAIN_RAND"] = dr                                               # actuators.DR_OVERRIDES bunun ustune
+    o["TUNE"] = _tune(o)
     return o
+
+
+def _tune(o):
+    """P7 odul ayari kancasi: OPENDUCK_TUNE (JSON) {"walk"|"main"|"getup"|"getup_late": {terim: agirlik}} ilgili
+    agirlik sozlugunu yerinde gunceller (yalniz var olan terimler; bilinmeyen gorev/terim ValueError). Kullanilan
+    degerleri dondurur (config.json'a TUNE olarak gecer); degisken yoksa {}."""
+    raw = os.environ.get("OPENDUCK_TUNE", "").strip()
+    if not raw:
+        return {}
+    tables = {"walk": o["REWARD_WEIGHTS"], "main": o["MAIN_REWARD_WEIGHTS"], "getup": o["GETUP_REWARD_WEIGHTS"],
+              "getup_late": o["GETUP_REWARD_LATE"]}
+    tune = json.loads(raw)
+    for task, ws in tune.items():
+        if task not in tables:
+            raise ValueError("OPENDUCK_TUNE: bilinmeyen gorev %r (%s)" % (task, ", ".join(tables)))
+        bad = sorted(set(ws) - set(tables[task]))
+        if bad:
+            raise ValueError("OPENDUCK_TUNE[%s]: bilinmeyen terim %s" % (task, ", ".join(bad)))
+        tables[task].update({k: float(v) for k, v in ws.items()})
+    return tune
 
 
 if ROBOT_PROFILE == "tr35_b2":
