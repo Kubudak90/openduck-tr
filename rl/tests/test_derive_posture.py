@@ -55,13 +55,19 @@ def _dp():
     return _MOD["dp"]
 
 
+COMMITTED_SCENE = os.path.join(ROOT, "build", "tr35_b2", "sim", "scene.xml")
+
+
 def tr35_scene():
-    """$OPENDUCK_TR35_SCENE if set; otherwise build the P2-0 stub once per process into a temp dir with tools/golden.py
-    (freecadcmd, no check); no freecadcmd -> pytest.skip."""
+    """$OPENDUCK_TR35_SCENE if set; else the committed CAD build (build/tr35_b2/sim/scene.xml, P5b; not a stub);
+    otherwise (OPENDUCK_TR35_SCENE=stub or no committed build) build the tr35 config once per process into a temp dir
+    with tools/golden.py and derive with --stub (freecadcmd, no check); no freecadcmd -> pytest.skip."""
     if "scene" not in _SCENE:
         env = os.environ.get("OPENDUCK_TR35_SCENE")
-        if env:
+        if env and env != "stub":
             _SCENE.update(scene=env, stub=False)
+        elif env != "stub" and os.path.isfile(COMMITTED_SCENE):
+            _SCENE.update(scene=COMMITTED_SCENE, stub=False)
         else:
             golden = _load("golden_tr35_t", os.path.join(ROOT, "tools", "golden.py"))
             if golden.find_freecadcmd() is None:

@@ -52,6 +52,9 @@ P0 ─► P6 (öncelikli: Adım 0'ı açar)
 - P2a, P2b ve P2c, P2-0'ın dondurduğu arayüzden başlar (`p2-interface.md`, `configs/tr35_b2.json`).
 - P5b (P5'in geometriye bağlı kısmı), G-CAD ve P5a'dan sonra başlar. P5k ve P6e şimdi, P5a üstünde paralel yürür.
 - P2d, dalga 2 entegrasyonundan sonra ve P3'ten önce gelir. G-SES-b robot kurulunca yapılır (ek K2).
+- Hızlı yol (kullanıcı kararı, 2026-10-24): P7 ön sürüm eğitimleri G-CAD beklenmeden dalga-2 CAD'i üzerinde başlar.
+  P5b'nin geometriye bağlı ilk maddeleri bunun için yapıldı (P5b-ön, `p5b-notlar.md`). P2d ve P3'ten sonra P5b-son
+  sabitleri yeniden türetir; P9 kabul eğitimleri G-BENCH'i bekler.
 
 ## Riskli adımlar (insan onayı)
 

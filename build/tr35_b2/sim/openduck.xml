@@ -1,0 +1,483 @@
+<!-- OpenDuck - cad/openduck.py tarafindan uretildi; elle duzenlemeyin. -->
+<mujoco model="openduck">
+  <compiler angle="radian" meshdir="meshes" autolimits="true" inertiafromgeom="false"/>
+  <option timestep="0.002" integrator="implicitfast"/>
+  <default>
+    <default class="openduck">
+      <default class="visual"><geom type="mesh" contype="0" conaffinity="0" group="2" density="0"/></default>
+      <default class="collision"><geom type="box" contype="0" conaffinity="1" group="3" density="0" friction="0.9 0.02 0.01" rgba="1 0 0 0.3"/></default>
+      <default class="es3054">
+        <joint damping="0.04256" armature="0.000643" frictionloss="0.001715"/>
+        <position kp="6.551" forcerange="-0.343 0.343"/>
+      </default>
+      <default class="ds32xx">
+        <joint damping="0.5035" armature="0.0054" frictionloss="0.0144"/>
+        <position kp="55" forcerange="-2.88 2.88"/>
+      </default>
+      <default class="mg90s">
+        <joint damping="0.01649" armature="0.000405" frictionloss="0.00108"/>
+        <position kp="4.125" forcerange="-0.216 0.216"/>
+      </default>
+      <default class="sg90">
+        <joint damping="0.01686" armature="0.000332" frictionloss="0.000885"/>
+        <position kp="3.38" forcerange="-0.177 0.177"/>
+      </default>
+    </default>
+  </default>
+  <asset>
+    <material name="shell" rgba="0.93 0.9 0.84 1"/>
+    <material name="trim" rgba="1 0.5 0.16 1"/>
+    <material name="bracket" rgba="0.62 0.64 0.67 1"/>
+    <material name="sole" rgba="0.22 0.26 0.32 1"/>
+    <material name="pad" rgba="0.3 0.34 0.42 1"/>
+    <material name="face" rgba="0.8 0.79 0.76 1"/>
+    <material name="lens" rgba="0.03 0.03 0.04 1"/>
+    <material name="glass" rgba="0.35 0.55 0.85 1"/>
+    <material name="led" rgba="0.95 0.1 0.1 1"/>
+    <material name="servo" rgba="0.12 0.12 0.13 1"/>
+    <material name="horn" rgba="0.35 0.35 0.37 1"/>
+    <material name="pcb" rgba="0.1 0.45 0.2 1"/>
+    <material name="pcb2" rgba="0.1 0.25 0.65 1"/>
+    <material name="chip" rgba="0.08 0.08 0.08 1"/>
+    <material name="battery" rgba="0.18 0.18 0.2 1"/>
+    <material name="metal" rgba="0.7 0.7 0.72 1"/>
+    <material name="harness" rgba="0.85 0.2 0.15 1"/>
+    <mesh name="left_hip_yaw_servo" file="left_hip_yaw_servo.stl" scale="0.001 0.001 0.001"/>
+    <mesh name="left_hip_yaw_bearing_lo" file="left_hip_yaw_bearing_lo.stl" scale="0.001 0.001 0.001"/>
+    <mesh name="left_hip_yaw_bearing_hi" file="left_hip_yaw_bearing_hi.stl" scale="0.001 0.001 0.001"/>
+    <mesh name="right_hip_yaw_servo" file="right_hip_yaw_servo.stl" scale="0.001 0.001 0.001"/>
+    <mesh name="right_hip_yaw_bearing_lo" file="right_hip_yaw_bearing_lo.stl" scale="0.001 0.001 0.001"/>
+    <mesh name="right_hip_yaw_bearing_hi" file="right_hip_yaw_bearing_hi.stl" scale="0.001 0.001 0.001"/>
+    <mesh name="neck_pitch_servo" file="neck_pitch_servo.stl" scale="0.001 0.001 0.001"/>
+    <mesh name="neck_pitch_idler_seat" file="neck_pitch_idler_seat.stl" scale="0.001 0.001 0.001"/>
+    <mesh name="neck_pitch_idler_bearing" file="neck_pitch_idler_bearing.stl" scale="0.001 0.001 0.001"/>
+    <mesh name="trunk_base" file="trunk_base.stl" scale="0.001 0.001 0.001"/>
+    <mesh name="buck_hood" file="buck_hood.stl" scale="0.001 0.001 0.001"/>
+    <mesh name="belly_duct" file="belly_duct.stl" scale="0.001 0.001 0.001"/>
+    <mesh name="torso_shell_left" file="torso_shell_left.stl" scale="0.001 0.001 0.001"/>
+    <mesh name="torso_shell_right" file="torso_shell_right.stl" scale="0.001 0.001 0.001"/>
+    <mesh name="torso_top" file="torso_top.stl" scale="0.001 0.001 0.001"/>
+    <mesh name="deck_cover" file="deck_cover.stl" scale="0.001 0.001 0.001"/>
+    <mesh name="battery_strap" file="battery_strap.stl" scale="0.001 0.001 0.001"/>
+    <mesh name="battery_door" file="battery_door.stl" scale="0.001 0.001 0.001"/>
+    <mesh name="battery_4s_lipo" file="battery_4s_lipo.stl" scale="0.001 0.001 0.001"/>
+    <mesh name="buck_20a" file="buck_20a.stl" scale="0.001 0.001 0.001"/>
+    <mesh name="xl4015" file="xl4015.stl" scale="0.001 0.001 0.001"/>
+    <mesh name="aux_bus_cap" file="aux_bus_cap.stl" scale="0.001 0.001 0.001"/>
+    <mesh name="esp32_s3_devkitc" file="esp32_s3_devkitc.stl" scale="0.001 0.001 0.001"/>
+    <mesh name="pca9685_1" file="pca9685_1.stl" scale="0.001 0.001 0.001"/>
+    <mesh name="pca9685_2" file="pca9685_2.stl" scale="0.001 0.001 0.001"/>
+    <mesh name="imu_mpu6500" file="imu_mpu6500.stl" scale="0.001 0.001 0.001"/>
+    <mesh name="divider_board" file="divider_board.stl" scale="0.001 0.001 0.001"/>
+    <mesh name="main_switch" file="main_switch.stl" scale="0.001 0.001 0.001"/>
+    <mesh name="servo_hub" file="servo_hub.stl" scale="0.001 0.001 0.001"/>
+    <mesh name="ina226" file="ina226.stl" scale="0.001 0.001 0.001"/>
+    <mesh name="leg_bus_cap_1" file="leg_bus_cap_1.stl" scale="0.001 0.001 0.001"/>
+    <mesh name="leg_bus_cap_2" file="leg_bus_cap_2.stl" scale="0.001 0.001 0.001"/>
+    <mesh name="xt30_pair" file="xt30_pair.stl" scale="0.001 0.001 0.001"/>
+    <mesh name="fuse_15a" file="fuse_15a.stl" scale="0.001 0.001 0.001"/>
+    <mesh name="vbat_cap" file="vbat_cap.stl" scale="0.001 0.001 0.001"/>
+    <mesh name="overshoot_clamp" file="overshoot_clamp.stl" scale="0.001 0.001 0.001"/>
+    <mesh name="lipo_alarm" file="lipo_alarm.stl" scale="0.001 0.001 0.001"/>
+    <mesh name="power_latch" file="power_latch.stl" scale="0.001 0.001 0.001"/>
+    <mesh name="ads1115_1" file="ads1115_1.stl" scale="0.001 0.001 0.001"/>
+    <mesh name="ads1115_2" file="ads1115_2.stl" scale="0.001 0.001 0.001"/>
+    <mesh name="mp1584" file="mp1584.stl" scale="0.001 0.001 0.001"/>
+    <mesh name="left_hip_trunk_wiring" file="left_hip_trunk_wiring.stl" scale="0.001 0.001 0.001"/>
+    <mesh name="left_hip_power_wiring" file="left_hip_power_wiring.stl" scale="0.001 0.001 0.001"/>
+    <mesh name="left_hip_signal_wiring" file="left_hip_signal_wiring.stl" scale="0.001 0.001 0.001"/>
+    <mesh name="right_hip_trunk_wiring" file="right_hip_trunk_wiring.stl" scale="0.001 0.001 0.001"/>
+    <mesh name="right_hip_power_wiring" file="right_hip_power_wiring.stl" scale="0.001 0.001 0.001"/>
+    <mesh name="right_hip_signal_wiring" file="right_hip_signal_wiring.stl" scale="0.001 0.001 0.001"/>
+    <mesh name="neck_trunk_wiring" file="neck_trunk_wiring.stl" scale="0.001 0.001 0.001"/>
+    <mesh name="neck_power_wiring" file="neck_power_wiring.stl" scale="0.001 0.001 0.001"/>
+    <mesh name="neck_signal_wiring" file="neck_signal_wiring.stl" scale="0.001 0.001 0.001"/>
+    <mesh name="battery_lead_wiring" file="battery_lead_wiring.stl" scale="0.001 0.001 0.001"/>
+    <mesh name="trunk_fasteners" file="trunk_fasteners.stl" scale="0.001 0.001 0.001"/>
+    <mesh name="left_hip_yaw_harness_in" file="left_hip_yaw_harness_in.stl" scale="0.001 0.001 0.001"/>
+    <mesh name="right_hip_yaw_harness_in" file="right_hip_yaw_harness_in.stl" scale="0.001 0.001 0.001"/>
+    <mesh name="neck_pitch_harness_in" file="neck_pitch_harness_in.stl" scale="0.001 0.001 0.001"/>
+    <mesh name="left_hip_yaw_horn" file="left_hip_yaw_horn.stl" scale="0.001 0.001 0.001"/>
+    <mesh name="left_hip_bracket" file="left_hip_bracket.stl" scale="0.001 0.001 0.001"/>
+    <mesh name="left_hip_roll_servo" file="left_hip_roll_servo.stl" scale="0.001 0.001 0.001"/>
+    <mesh name="left_hip_roll_tab_screws" file="left_hip_roll_tab_screws.stl" scale="0.001 0.001 0.001"/>
+    <mesh name="left_hip_roll_idler_bearing" file="left_hip_roll_idler_bearing.stl" scale="0.001 0.001 0.001"/>
+    <mesh name="left_hip_yaw_shaft" file="left_hip_yaw_shaft.stl" scale="0.001 0.001 0.001"/>
+    <mesh name="left_hip_yaw_coupler" file="left_hip_yaw_coupler.stl" scale="0.001 0.001 0.001"/>
+    <mesh name="left_hip_yaw_screws" file="left_hip_yaw_screws.stl" scale="0.001 0.001 0.001"/>
+    <mesh name="left_hip_yaw_harness_out" file="left_hip_yaw_harness_out.stl" scale="0.001 0.001 0.001"/>
+    <mesh name="left_hip_roll_harness_in" file="left_hip_roll_harness_in.stl" scale="0.001 0.001 0.001"/>
+    <mesh name="left_hip_cradle_bracket" file="left_hip_cradle_bracket.stl" scale="0.001 0.001 0.001"/>
+    <mesh name="left_hip_roll_horn" file="left_hip_roll_horn.stl" scale="0.001 0.001 0.001"/>
+    <mesh name="left_hip_roll_idler_pin" file="left_hip_roll_idler_pin.stl" scale="0.001 0.001 0.001"/>
+    <mesh name="left_hip_pitch_horn" file="left_hip_pitch_horn.stl" scale="0.001 0.001 0.001"/>
+    <mesh name="left_hip_pitch_idler_pin" file="left_hip_pitch_idler_pin.stl" scale="0.001 0.001 0.001"/>
+    <mesh name="left_hip_roll_harness_out" file="left_hip_roll_harness_out.stl" scale="0.001 0.001 0.001"/>
+    <mesh name="left_hip_pitch_harness_in" file="left_hip_pitch_harness_in.stl" scale="0.001 0.001 0.001"/>
+    <mesh name="left_thigh_bracket" file="left_thigh_bracket.stl" scale="0.001 0.001 0.001"/>
+    <mesh name="left_hip_pitch_servo" file="left_hip_pitch_servo.stl" scale="0.001 0.001 0.001"/>
+    <mesh name="left_hip_pitch_tab_screws" file="left_hip_pitch_tab_screws.stl" scale="0.001 0.001 0.001"/>
+    <mesh name="left_hip_pitch_idler_bearing" file="left_hip_pitch_idler_bearing.stl" scale="0.001 0.001 0.001"/>
+    <mesh name="left_knee_servo" file="left_knee_servo.stl" scale="0.001 0.001 0.001"/>
+    <mesh name="left_knee_tab_screws" file="left_knee_tab_screws.stl" scale="0.001 0.001 0.001"/>
+    <mesh name="left_knee_idler_bearing" file="left_knee_idler_bearing.stl" scale="0.001 0.001 0.001"/>
+    <mesh name="left_hip_pitch_harness_out" file="left_hip_pitch_harness_out.stl" scale="0.001 0.001 0.001"/>
+    <mesh name="left_knee_harness_in" file="left_knee_harness_in.stl" scale="0.001 0.001 0.001"/>
+    <mesh name="left_shin_bracket" file="left_shin_bracket.stl" scale="0.001 0.001 0.001"/>
+    <mesh name="left_knee_horn" file="left_knee_horn.stl" scale="0.001 0.001 0.001"/>
+    <mesh name="left_knee_idler_pin" file="left_knee_idler_pin.stl" scale="0.001 0.001 0.001"/>
+    <mesh name="left_ankle_servo" file="left_ankle_servo.stl" scale="0.001 0.001 0.001"/>
+    <mesh name="left_ankle_tab_screws" file="left_ankle_tab_screws.stl" scale="0.001 0.001 0.001"/>
+    <mesh name="left_ankle_idler_bearing" file="left_ankle_idler_bearing.stl" scale="0.001 0.001 0.001"/>
+    <mesh name="left_knee_harness_out" file="left_knee_harness_out.stl" scale="0.001 0.001 0.001"/>
+    <mesh name="left_foot_bracket" file="left_foot_bracket.stl" scale="0.001 0.001 0.001"/>
+    <mesh name="left_ankle_horn" file="left_ankle_horn.stl" scale="0.001 0.001 0.001"/>
+    <mesh name="left_ankle_idler_pin" file="left_ankle_idler_pin.stl" scale="0.001 0.001 0.001"/>
+    <mesh name="left_sole" file="left_sole.stl" scale="0.001 0.001 0.001"/>
+    <mesh name="right_hip_yaw_horn" file="right_hip_yaw_horn.stl" scale="0.001 0.001 0.001"/>
+    <mesh name="right_hip_bracket" file="right_hip_bracket.stl" scale="0.001 0.001 0.001"/>
+    <mesh name="right_hip_roll_servo" file="right_hip_roll_servo.stl" scale="0.001 0.001 0.001"/>
+    <mesh name="right_hip_roll_tab_screws" file="right_hip_roll_tab_screws.stl" scale="0.001 0.001 0.001"/>
+    <mesh name="right_hip_roll_idler_bearing" file="right_hip_roll_idler_bearing.stl" scale="0.001 0.001 0.001"/>
+    <mesh name="right_hip_yaw_shaft" file="right_hip_yaw_shaft.stl" scale="0.001 0.001 0.001"/>
+    <mesh name="right_hip_yaw_coupler" file="right_hip_yaw_coupler.stl" scale="0.001 0.001 0.001"/>
+    <mesh name="right_hip_yaw_screws" file="right_hip_yaw_screws.stl" scale="0.001 0.001 0.001"/>
+    <mesh name="right_hip_yaw_harness_out" file="right_hip_yaw_harness_out.stl" scale="0.001 0.001 0.001"/>
+    <mesh name="right_hip_roll_harness_in" file="right_hip_roll_harness_in.stl" scale="0.001 0.001 0.001"/>
+    <mesh name="right_hip_cradle_bracket" file="right_hip_cradle_bracket.stl" scale="0.001 0.001 0.001"/>
+    <mesh name="right_hip_roll_horn" file="right_hip_roll_horn.stl" scale="0.001 0.001 0.001"/>
+    <mesh name="right_hip_roll_idler_pin" file="right_hip_roll_idler_pin.stl" scale="0.001 0.001 0.001"/>
+    <mesh name="right_hip_pitch_horn" file="right_hip_pitch_horn.stl" scale="0.001 0.001 0.001"/>
+    <mesh name="right_hip_pitch_idler_pin" file="right_hip_pitch_idler_pin.stl" scale="0.001 0.001 0.001"/>
+    <mesh name="right_hip_roll_harness_out" file="right_hip_roll_harness_out.stl" scale="0.001 0.001 0.001"/>
+    <mesh name="right_hip_pitch_harness_in" file="right_hip_pitch_harness_in.stl" scale="0.001 0.001 0.001"/>
+    <mesh name="right_thigh_bracket" file="right_thigh_bracket.stl" scale="0.001 0.001 0.001"/>
+    <mesh name="right_hip_pitch_servo" file="right_hip_pitch_servo.stl" scale="0.001 0.001 0.001"/>
+    <mesh name="right_hip_pitch_tab_screws" file="right_hip_pitch_tab_screws.stl" scale="0.001 0.001 0.001"/>
+    <mesh name="right_hip_pitch_idler_bearing" file="right_hip_pitch_idler_bearing.stl" scale="0.001 0.001 0.001"/>
+    <mesh name="right_knee_servo" file="right_knee_servo.stl" scale="0.001 0.001 0.001"/>
+    <mesh name="right_knee_tab_screws" file="right_knee_tab_screws.stl" scale="0.001 0.001 0.001"/>
+    <mesh name="right_knee_idler_bearing" file="right_knee_idler_bearing.stl" scale="0.001 0.001 0.001"/>
+    <mesh name="right_hip_pitch_harness_out" file="right_hip_pitch_harness_out.stl" scale="0.001 0.001 0.001"/>
+    <mesh name="right_knee_harness_in" file="right_knee_harness_in.stl" scale="0.001 0.001 0.001"/>
+    <mesh name="right_shin_bracket" file="right_shin_bracket.stl" scale="0.001 0.001 0.001"/>
+    <mesh name="right_knee_horn" file="right_knee_horn.stl" scale="0.001 0.001 0.001"/>
+    <mesh name="right_knee_idler_pin" file="right_knee_idler_pin.stl" scale="0.001 0.001 0.001"/>
+    <mesh name="right_ankle_servo" file="right_ankle_servo.stl" scale="0.001 0.001 0.001"/>
+    <mesh name="right_ankle_tab_screws" file="right_ankle_tab_screws.stl" scale="0.001 0.001 0.001"/>
+    <mesh name="right_ankle_idler_bearing" file="right_ankle_idler_bearing.stl" scale="0.001 0.001 0.001"/>
+    <mesh name="right_knee_harness_out" file="right_knee_harness_out.stl" scale="0.001 0.001 0.001"/>
+    <mesh name="right_foot_bracket" file="right_foot_bracket.stl" scale="0.001 0.001 0.001"/>
+    <mesh name="right_ankle_horn" file="right_ankle_horn.stl" scale="0.001 0.001 0.001"/>
+    <mesh name="right_ankle_idler_pin" file="right_ankle_idler_pin.stl" scale="0.001 0.001 0.001"/>
+    <mesh name="right_sole" file="right_sole.stl" scale="0.001 0.001 0.001"/>
+    <mesh name="neck_pitch_horn" file="neck_pitch_horn.stl" scale="0.001 0.001 0.001"/>
+    <mesh name="neck_pitch_idler_pin" file="neck_pitch_idler_pin.stl" scale="0.001 0.001 0.001"/>
+    <mesh name="neck_link" file="neck_link.stl" scale="0.001 0.001 0.001"/>
+    <mesh name="head_pitch_tab_screws" file="head_pitch_tab_screws.stl" scale="0.001 0.001 0.001"/>
+    <mesh name="neck_arm_screws" file="neck_arm_screws.stl" scale="0.001 0.001 0.001"/>
+    <mesh name="head_pitch_thrust_in" file="head_pitch_thrust_in.stl" scale="0.001 0.001 0.001"/>
+    <mesh name="head_pitch_thrust_out" file="head_pitch_thrust_out.stl" scale="0.001 0.001 0.001"/>
+    <mesh name="head_pitch_thrust_screws" file="head_pitch_thrust_screws.stl" scale="0.001 0.001 0.001"/>
+    <mesh name="head_pitch_thrust_out_screws" file="head_pitch_thrust_out_screws.stl" scale="0.001 0.001 0.001"/>
+    <mesh name="neck_bumper" file="neck_bumper.stl" scale="0.001 0.001 0.001"/>
+    <mesh name="head_pitch_servo" file="head_pitch_servo.stl" scale="0.001 0.001 0.001"/>
+    <mesh name="neck_pitch_harness_out" file="neck_pitch_harness_out.stl" scale="0.001 0.001 0.001"/>
+    <mesh name="head_pitch_harness_in" file="head_pitch_harness_in.stl" scale="0.001 0.001 0.001"/>
+    <mesh name="head_tilt_bracket" file="head_tilt_bracket.stl" scale="0.001 0.001 0.001"/>
+    <mesh name="head_yaw_retainer_left" file="head_yaw_retainer_left.stl" scale="0.001 0.001 0.001"/>
+    <mesh name="head_yaw_retainer_right" file="head_yaw_retainer_right.stl" scale="0.001 0.001 0.001"/>
+    <mesh name="head_yaw_retainer_screws" file="head_yaw_retainer_screws.stl" scale="0.001 0.001 0.001"/>
+    <mesh name="head_pitch_horn" file="head_pitch_horn.stl" scale="0.001 0.001 0.001"/>
+    <mesh name="head_yaw_horn" file="head_yaw_horn.stl" scale="0.001 0.001 0.001"/>
+    <mesh name="head_pitch_harness_out" file="head_pitch_harness_out.stl" scale="0.001 0.001 0.001"/>
+    <mesh name="head_yaw_harness_in" file="head_yaw_harness_in.stl" scale="0.001 0.001 0.001"/>
+    <mesh name="head_turn_bracket" file="head_turn_bracket.stl" scale="0.001 0.001 0.001"/>
+    <mesh name="head_yaw_servo" file="head_yaw_servo.stl" scale="0.001 0.001 0.001"/>
+    <mesh name="head_roll_horn" file="head_roll_horn.stl" scale="0.001 0.001 0.001"/>
+    <mesh name="head_yaw_harness_out" file="head_yaw_harness_out.stl" scale="0.001 0.001 0.001"/>
+    <mesh name="head_roll_harness_in" file="head_roll_harness_in.stl" scale="0.001 0.001 0.001"/>
+    <mesh name="head_hood" file="head_hood.stl" scale="0.001 0.001 0.001"/>
+    <mesh name="upper_bill" file="upper_bill.stl" scale="0.001 0.001 0.001"/>
+    <mesh name="head_frame" file="head_frame.stl" scale="0.001 0.001 0.001"/>
+    <mesh name="jaw_pin_bushing" file="jaw_pin_bushing.stl" scale="0.001 0.001 0.001"/>
+    <mesh name="head_frame_screws_left" file="head_frame_screws_left.stl" scale="0.001 0.001 0.001"/>
+    <mesh name="head_frame_screws_right" file="head_frame_screws_right.stl" scale="0.001 0.001 0.001"/>
+    <mesh name="jaw_pin_bushing_screws" file="jaw_pin_bushing_screws.stl" scale="0.001 0.001 0.001"/>
+    <mesh name="head_roll_servo" file="head_roll_servo.stl" scale="0.001 0.001 0.001"/>
+    <mesh name="mouth_servo" file="mouth_servo.stl" scale="0.001 0.001 0.001"/>
+    <mesh name="head_roll_harness_out" file="head_roll_harness_out.stl" scale="0.001 0.001 0.001"/>
+    <mesh name="jaw_hub" file="jaw_hub.stl" scale="0.001 0.001 0.001"/>
+    <mesh name="lower_bill" file="lower_bill.stl" scale="0.001 0.001 0.001"/>
+    <mesh name="jaw_hub_screws" file="jaw_hub_screws.stl" scale="0.001 0.001 0.001"/>
+    <mesh name="mouth_horn" file="mouth_horn.stl" scale="0.001 0.001 0.001"/>
+  </asset>
+  <worldbody>
+    <body name="trunk" pos="0 0 0.15353" childclass="openduck">
+      <freejoint name="root"/>
+      <inertial pos="-0.0265384 0.000361498 0.0236572" mass="0.657512" fullinertia="0.000467094 0.00126973 0.00120488 -1.95618e-06 -5.45568e-05 7.32777e-06"/>
+      <geom class="visual" mesh="left_hip_yaw_servo" material="servo"/>
+      <geom class="visual" mesh="left_hip_yaw_bearing_lo" material="metal"/>
+      <geom class="visual" mesh="left_hip_yaw_bearing_hi" material="metal"/>
+      <geom class="visual" mesh="right_hip_yaw_servo" material="servo"/>
+      <geom class="visual" mesh="right_hip_yaw_bearing_lo" material="metal"/>
+      <geom class="visual" mesh="right_hip_yaw_bearing_hi" material="metal"/>
+      <geom class="visual" mesh="neck_pitch_servo" material="servo"/>
+      <geom class="visual" mesh="neck_pitch_idler_seat" material="bracket"/>
+      <geom class="visual" mesh="neck_pitch_idler_bearing" material="metal"/>
+      <geom class="visual" mesh="trunk_base" material="bracket"/>
+      <geom class="visual" mesh="buck_hood" material="bracket"/>
+      <geom class="visual" mesh="belly_duct" material="bracket"/>
+      <geom class="visual" mesh="torso_shell_left" material="shell"/>
+      <geom class="visual" mesh="torso_shell_right" material="shell"/>
+      <geom class="visual" mesh="torso_top" material="shell"/>
+      <geom class="visual" mesh="deck_cover" material="shell"/>
+      <geom class="visual" mesh="battery_strap" material="pad"/>
+      <geom class="visual" mesh="battery_door" material="bracket"/>
+      <geom class="visual" mesh="battery_4s_lipo" material="battery"/>
+      <geom class="visual" mesh="buck_20a" material="pcb2"/>
+      <geom class="visual" mesh="xl4015" material="pcb2"/>
+      <geom class="visual" mesh="aux_bus_cap" material="chip"/>
+      <geom class="visual" mesh="esp32_s3_devkitc" material="pcb"/>
+      <geom class="visual" mesh="pca9685_1" material="pcb2"/>
+      <geom class="visual" mesh="pca9685_2" material="pcb2"/>
+      <geom class="visual" mesh="imu_mpu6500" material="pcb"/>
+      <geom class="visual" mesh="divider_board" material="pcb"/>
+      <geom class="visual" mesh="main_switch" material="chip"/>
+      <geom class="visual" mesh="servo_hub" material="pcb"/>
+      <geom class="visual" mesh="ina226" material="pcb"/>
+      <geom class="visual" mesh="leg_bus_cap_1" material="chip"/>
+      <geom class="visual" mesh="leg_bus_cap_2" material="chip"/>
+      <geom class="visual" mesh="xt30_pair" material="chip"/>
+      <geom class="visual" mesh="fuse_15a" material="chip"/>
+      <geom class="visual" mesh="vbat_cap" material="chip"/>
+      <geom class="visual" mesh="overshoot_clamp" material="pcb"/>
+      <geom class="visual" mesh="lipo_alarm" material="pcb2"/>
+      <geom class="visual" mesh="power_latch" material="pcb"/>
+      <geom class="visual" mesh="ads1115_1" material="pcb"/>
+      <geom class="visual" mesh="ads1115_2" material="pcb"/>
+      <geom class="visual" mesh="mp1584" material="pcb2"/>
+      <geom class="visual" mesh="left_hip_trunk_wiring" material="harness"/>
+      <geom class="visual" mesh="left_hip_power_wiring" material="harness"/>
+      <geom class="visual" mesh="left_hip_signal_wiring" material="harness"/>
+      <geom class="visual" mesh="right_hip_trunk_wiring" material="harness"/>
+      <geom class="visual" mesh="right_hip_power_wiring" material="harness"/>
+      <geom class="visual" mesh="right_hip_signal_wiring" material="harness"/>
+      <geom class="visual" mesh="neck_trunk_wiring" material="harness"/>
+      <geom class="visual" mesh="neck_power_wiring" material="harness"/>
+      <geom class="visual" mesh="neck_signal_wiring" material="harness"/>
+      <geom class="visual" mesh="battery_lead_wiring" material="harness"/>
+      <geom class="visual" mesh="trunk_fasteners" material="metal"/>
+      <geom class="visual" mesh="left_hip_yaw_harness_in" material="harness"/>
+      <geom class="visual" mesh="right_hip_yaw_harness_in" material="harness"/>
+      <geom class="visual" mesh="neck_pitch_harness_in" material="harness"/>
+      <geom name="trunk_collision" class="collision" pos="-0.0241 0 0.024" quat="1 0 0 0" size="0.0701 0.04 0.048"/>
+      <site name="imu" pos="-0.0225 8.88178e-19 0.0323"/>
+      <body name="left_hip" pos="0.007692 0.012 -0.003">
+        <joint name="left_hip_yaw" class="es3054" axis="0 0 -1" range="-0.174533 0.366519"/>
+        <inertial pos="-0.000938313 0.0112197 -0.022745" mass="0.0966609" fullinertia="3.89755e-05 4.80183e-05 2.05835e-05 -4.97648e-07 3.40802e-06 5.33703e-06"/>
+        <geom class="visual" mesh="left_hip_yaw_horn" material="horn"/>
+        <geom class="visual" mesh="left_hip_bracket" material="bracket"/>
+        <geom class="visual" mesh="left_hip_roll_servo" material="servo"/>
+        <geom class="visual" mesh="left_hip_roll_tab_screws" material="metal"/>
+        <geom class="visual" mesh="left_hip_roll_idler_bearing" material="metal"/>
+        <geom class="visual" mesh="left_hip_yaw_shaft" material="metal"/>
+        <geom class="visual" mesh="left_hip_yaw_coupler" material="bracket"/>
+        <geom class="visual" mesh="left_hip_yaw_screws" material="metal"/>
+        <geom class="visual" mesh="left_hip_yaw_harness_out" material="harness"/>
+        <geom class="visual" mesh="left_hip_roll_harness_in" material="harness"/>
+        <body name="left_hip_cradle" pos="0.028408 0.014 -0.019435">
+          <joint name="left_hip_roll" class="ds32xx" axis="1 0 0" range="-0.349066 0.349066"/>
+          <inertial pos="-0.0217551 0.0204253 -0.0116531" mass="0.048436" fullinertia="4.53691e-05 4.26929e-05 5.32214e-05 -2.7168e-06 -2.57059e-06 -8.00823e-06"/>
+          <geom class="visual" mesh="left_hip_cradle_bracket" material="bracket"/>
+          <geom class="visual" mesh="left_hip_roll_horn" material="horn"/>
+          <geom class="visual" mesh="left_hip_roll_idler_pin" material="metal"/>
+          <geom class="visual" mesh="left_hip_pitch_horn" material="horn"/>
+          <geom class="visual" mesh="left_hip_pitch_idler_pin" material="metal"/>
+          <geom class="visual" mesh="left_hip_roll_harness_out" material="harness"/>
+          <geom class="visual" mesh="left_hip_pitch_harness_in" material="harness"/>
+          <body name="left_thigh" pos="-0.030972 0.025 0">
+            <joint name="left_hip_pitch" class="ds32xx" axis="0 1 0" range="-1.22173 1.5708"/>
+            <inertial pos="-0.0290401 0.0284036 -0.00860145" mass="0.162547" fullinertia="6.04303e-05 0.000110031 0.000105594 3.99257e-07 -2.45515e-05 -5.17289e-07"/>
+            <geom class="visual" mesh="left_thigh_bracket" material="bracket"/>
+            <geom class="visual" mesh="left_hip_pitch_servo" material="servo"/>
+            <geom class="visual" mesh="left_hip_pitch_tab_screws" material="metal"/>
+            <geom class="visual" mesh="left_hip_pitch_idler_bearing" material="metal"/>
+            <geom class="visual" mesh="left_knee_servo" material="servo"/>
+            <geom class="visual" mesh="left_knee_tab_screws" material="metal"/>
+            <geom class="visual" mesh="left_knee_idler_bearing" material="metal"/>
+            <geom class="visual" mesh="left_hip_pitch_harness_out" material="harness"/>
+            <geom class="visual" mesh="left_knee_harness_in" material="harness"/>
+            <body name="left_shin" pos="-0.045896 0 -0.028204">
+              <joint name="left_knee" class="ds32xx" axis="0 -1 0" range="-1.46608 1.3439"/>
+              <inertial pos="-0.00394591 0.0246198 -0.039842" mass="0.102798" fullinertia="5.56539e-05 4.12364e-05 3.60883e-05 8.18715e-07 4.7472e-07 2.34381e-06"/>
+              <geom class="visual" mesh="left_shin_bracket" material="bracket"/>
+              <geom class="visual" mesh="left_knee_horn" material="horn"/>
+              <geom class="visual" mesh="left_knee_idler_pin" material="metal"/>
+              <geom class="visual" mesh="left_ankle_servo" material="servo"/>
+              <geom class="visual" mesh="left_ankle_tab_screws" material="metal"/>
+              <geom class="visual" mesh="left_ankle_idler_bearing" material="metal"/>
+              <geom class="visual" mesh="left_knee_harness_out" material="harness"/>
+              <body name="left_foot" pos="0 0.0538 -0.053844">
+                <joint name="left_ankle" class="ds32xx" axis="0 1 0" range="-1.13446 1.11701"/>
+                <inertial pos="0.00701832 -0.023651 -0.0209875" mass="0.047691" fullinertia="2.81228e-05 2.09131e-05 3.6915e-05 -4.05103e-07 1.58151e-06 -3.73992e-06"/>
+                <geom class="visual" mesh="left_foot_bracket" material="bracket"/>
+                <geom class="visual" mesh="left_ankle_horn" material="horn"/>
+                <geom class="visual" mesh="left_ankle_idler_pin" material="metal"/>
+                <geom class="visual" mesh="left_sole" material="sole"/>
+                <geom name="left_foot_collision" class="collision" pos="0.008974 -0.0271179 -0.0295595" quat="0.999048 0.0436194 0 0" size="0.034614 0.032 0.0025"/>
+                <site name="left_foot_sole" pos="0.008974 -0.0269 -0.03205" quat="0.999048 0.0436194 0 0"/>
+              </body>
+            </body>
+          </body>
+        </body>
+      </body>
+      <body name="right_hip" pos="0.007692 -0.012 -0.003">
+        <joint name="right_hip_yaw" class="es3054" axis="0 0 -1" range="-0.366519 0.174533"/>
+        <inertial pos="-0.000938313 -0.0112197 -0.022745" mass="0.0966609" fullinertia="3.89755e-05 4.80183e-05 2.05835e-05 4.97648e-07 3.40802e-06 -5.33703e-06"/>
+        <geom class="visual" mesh="right_hip_yaw_horn" material="horn"/>
+        <geom class="visual" mesh="right_hip_bracket" material="bracket"/>
+        <geom class="visual" mesh="right_hip_roll_servo" material="servo"/>
+        <geom class="visual" mesh="right_hip_roll_tab_screws" material="metal"/>
+        <geom class="visual" mesh="right_hip_roll_idler_bearing" material="metal"/>
+        <geom class="visual" mesh="right_hip_yaw_shaft" material="metal"/>
+        <geom class="visual" mesh="right_hip_yaw_coupler" material="bracket"/>
+        <geom class="visual" mesh="right_hip_yaw_screws" material="metal"/>
+        <geom class="visual" mesh="right_hip_yaw_harness_out" material="harness"/>
+        <geom class="visual" mesh="right_hip_roll_harness_in" material="harness"/>
+        <body name="right_hip_cradle" pos="0.028408 -0.014 -0.019435">
+          <joint name="right_hip_roll" class="ds32xx" axis="1 0 0" range="-0.349066 0.349066"/>
+          <inertial pos="-0.0217551 -0.0204253 -0.0116531" mass="0.048436" fullinertia="4.53691e-05 4.26929e-05 5.32214e-05 2.7168e-06 -2.57059e-06 8.00823e-06"/>
+          <geom class="visual" mesh="right_hip_cradle_bracket" material="bracket"/>
+          <geom class="visual" mesh="right_hip_roll_horn" material="horn"/>
+          <geom class="visual" mesh="right_hip_roll_idler_pin" material="metal"/>
+          <geom class="visual" mesh="right_hip_pitch_horn" material="horn"/>
+          <geom class="visual" mesh="right_hip_pitch_idler_pin" material="metal"/>
+          <geom class="visual" mesh="right_hip_roll_harness_out" material="harness"/>
+          <geom class="visual" mesh="right_hip_pitch_harness_in" material="harness"/>
+          <body name="right_thigh" pos="-0.030972 -0.025 0">
+            <joint name="right_hip_pitch" class="ds32xx" axis="0 -1 0" range="-1.5708 1.22173"/>
+            <inertial pos="-0.0290401 -0.0284036 -0.00860145" mass="0.162547" fullinertia="6.04303e-05 0.000110031 0.000105594 -3.99257e-07 -2.45515e-05 5.17289e-07"/>
+            <geom class="visual" mesh="right_thigh_bracket" material="bracket"/>
+            <geom class="visual" mesh="right_hip_pitch_servo" material="servo"/>
+            <geom class="visual" mesh="right_hip_pitch_tab_screws" material="metal"/>
+            <geom class="visual" mesh="right_hip_pitch_idler_bearing" material="metal"/>
+            <geom class="visual" mesh="right_knee_servo" material="servo"/>
+            <geom class="visual" mesh="right_knee_tab_screws" material="metal"/>
+            <geom class="visual" mesh="right_knee_idler_bearing" material="metal"/>
+            <geom class="visual" mesh="right_hip_pitch_harness_out" material="harness"/>
+            <geom class="visual" mesh="right_knee_harness_in" material="harness"/>
+            <body name="right_shin" pos="-0.045896 0 -0.028204">
+              <joint name="right_knee" class="ds32xx" axis="0 1 0" range="-1.3439 1.46608"/>
+              <inertial pos="-0.00394591 -0.0246198 -0.039842" mass="0.102798" fullinertia="5.56539e-05 4.12364e-05 3.60883e-05 -8.18715e-07 4.7472e-07 -2.34381e-06"/>
+              <geom class="visual" mesh="right_shin_bracket" material="bracket"/>
+              <geom class="visual" mesh="right_knee_horn" material="horn"/>
+              <geom class="visual" mesh="right_knee_idler_pin" material="metal"/>
+              <geom class="visual" mesh="right_ankle_servo" material="servo"/>
+              <geom class="visual" mesh="right_ankle_tab_screws" material="metal"/>
+              <geom class="visual" mesh="right_ankle_idler_bearing" material="metal"/>
+              <geom class="visual" mesh="right_knee_harness_out" material="harness"/>
+              <body name="right_foot" pos="0 -0.0538 -0.053844">
+                <joint name="right_ankle" class="ds32xx" axis="0 -1 0" range="-1.11701 1.13446"/>
+                <inertial pos="0.00701832 0.023651 -0.0209875" mass="0.047691" fullinertia="2.81228e-05 2.09131e-05 3.6915e-05 4.05103e-07 1.58151e-06 3.73992e-06"/>
+                <geom class="visual" mesh="right_foot_bracket" material="bracket"/>
+                <geom class="visual" mesh="right_ankle_horn" material="horn"/>
+                <geom class="visual" mesh="right_ankle_idler_pin" material="metal"/>
+                <geom class="visual" mesh="right_sole" material="sole"/>
+                <geom name="right_foot_collision" class="collision" pos="0.008974 0.0271179 -0.0295595" quat="0.999048 -0.0436194 0 0" size="0.034614 0.032 0.0025"/>
+                <site name="right_foot_sole" pos="0.008974 0.0269 -0.03205" quat="0.999048 -0.0436194 0 0"/>
+              </body>
+            </body>
+          </body>
+        </body>
+      </body>
+      <body name="neck" pos="0.033332 0 0.041537">
+        <joint name="neck_pitch" class="ds32xx" axis="0 -1 0" range="-1.91986 0.698132"/>
+        <inertial pos="0.00103947 -0.00281064 0.0366062" mass="0.0503735" fullinertia="5.4069e-05 3.54695e-05 2.38442e-05 -1.47169e-07 -7.28359e-07 -5.83886e-06"/>
+        <geom class="visual" mesh="neck_pitch_horn" material="horn"/>
+        <geom class="visual" mesh="neck_pitch_idler_pin" material="metal"/>
+        <geom class="visual" mesh="neck_link" material="bracket"/>
+        <geom class="visual" mesh="head_pitch_tab_screws" material="metal"/>
+        <geom class="visual" mesh="neck_arm_screws" material="metal"/>
+        <geom class="visual" mesh="head_pitch_thrust_in" material="bracket"/>
+        <geom class="visual" mesh="head_pitch_thrust_out" material="bracket"/>
+        <geom class="visual" mesh="head_pitch_thrust_screws" material="metal"/>
+        <geom class="visual" mesh="head_pitch_thrust_out_screws" material="metal"/>
+        <geom class="visual" mesh="neck_bumper" material="pad"/>
+        <geom class="visual" mesh="head_pitch_servo" material="servo"/>
+        <geom class="visual" mesh="neck_pitch_harness_out" material="harness"/>
+        <geom class="visual" mesh="head_pitch_harness_in" material="harness"/>
+        <geom name="neck_bumper" class="collision" pos="0.021818 0 0.051463" quat="1 0 0 0" size="0.00365 0.012 0.0045"/>
+        <body name="head_tilt" pos="0 0 0.0641">
+          <joint name="head_pitch" class="mg90s" axis="0 1 0" range="-0.436332 1.25664"/>
+          <inertial pos="4.62394e-12 0.00417847 0.0158571" mass="0.00929797" fullinertia="2.76147e-06 1.44285e-06 1.929e-06 3.6215e-16 -5.01584e-16 5.64913e-07"/>
+          <geom class="visual" mesh="head_tilt_bracket" material="bracket"/>
+          <geom class="visual" mesh="head_yaw_retainer_left" material="bracket"/>
+          <geom class="visual" mesh="head_yaw_retainer_right" material="bracket"/>
+          <geom class="visual" mesh="head_yaw_retainer_screws" material="metal"/>
+          <geom class="visual" mesh="head_pitch_horn" material="horn"/>
+          <geom class="visual" mesh="head_yaw_horn" material="horn"/>
+          <geom class="visual" mesh="head_pitch_harness_out" material="harness"/>
+          <geom class="visual" mesh="head_yaw_harness_in" material="harness"/>
+          <body name="head_turn" pos="0 0 0.023973">
+            <joint name="head_yaw" class="mg90s" axis="0 0 1" range="-1.39626 1.39626"/>
+            <inertial pos="-0.00259589 -0.00451562 0.0166994" mass="0.0199824" fullinertia="2.868e-06 2.90016e-06 2.70879e-06 2.36522e-07 -1.06836e-07 -1.53036e-08"/>
+            <geom class="visual" mesh="head_turn_bracket" material="bracket"/>
+            <geom class="visual" mesh="head_yaw_servo" material="servo"/>
+            <geom class="visual" mesh="head_roll_horn" material="horn"/>
+            <geom class="visual" mesh="head_yaw_harness_out" material="harness"/>
+            <geom class="visual" mesh="head_roll_harness_in" material="harness"/>
+            <body name="head" pos="-0.022948 0 0.018589">
+              <joint name="head_roll" class="mg90s" axis="-1 0 0" range="-0.349066 0.279253"/>
+              <inertial pos="0.0161928 0.00261119 0.0129256" mass="0.111772" fullinertia="0.000185618 0.000199911 0.000288871 -7.64447e-06 4.06125e-06 2.64319e-06"/>
+              <geom class="visual" mesh="head_hood" material="shell"/>
+              <geom class="visual" mesh="upper_bill" material="trim"/>
+              <geom class="visual" mesh="head_frame" material="bracket"/>
+              <geom class="visual" mesh="jaw_pin_bushing" material="bracket"/>
+              <geom class="visual" mesh="head_frame_screws_left" material="metal"/>
+              <geom class="visual" mesh="head_frame_screws_right" material="metal"/>
+              <geom class="visual" mesh="jaw_pin_bushing_screws" material="metal"/>
+              <geom class="visual" mesh="head_roll_servo" material="servo"/>
+              <geom class="visual" mesh="mouth_servo" material="servo"/>
+              <geom class="visual" mesh="head_roll_harness_out" material="harness"/>
+              <geom name="head_collision" class="collision" pos="0.0347604 0 0.0145927" quat="1 0 0 0" size="0.0731444 0.0588438 0.0362083"/>
+              <body name="jaw" pos="0.023076 0.035896 0.003846">
+                <joint name="mouth" class="sg90" axis="0 1 0" range="0 0.558505"/>
+                <inertial pos="0.038 -0.0267773 -0.0132644" mass="0.0102504" fullinertia="2.00269e-05 9.11509e-06 2.7356e-05 3.55187e-06 2.53274e-06 -1.23983e-06"/>
+                <geom class="visual" mesh="jaw_hub" material="bracket"/>
+                <geom class="visual" mesh="lower_bill" material="trim"/>
+                <geom class="visual" mesh="jaw_hub_screws" material="metal"/>
+                <geom class="visual" mesh="mouth_horn" material="horn"/>
+              </body>
+            </body>
+          </body>
+        </body>
+      </body>
+    </body>
+  </worldbody>
+  <actuator>
+    <position name="left_hip_yaw" joint="left_hip_yaw" class="es3054" ctrlrange="-0.174533 0.366519"/>
+    <position name="left_hip_roll" joint="left_hip_roll" class="ds32xx" ctrlrange="-0.349066 0.349066"/>
+    <position name="left_hip_pitch" joint="left_hip_pitch" class="ds32xx" ctrlrange="-1.22173 1.5708"/>
+    <position name="left_knee" joint="left_knee" class="ds32xx" ctrlrange="-1.46608 1.3439"/>
+    <position name="left_ankle" joint="left_ankle" class="ds32xx" ctrlrange="-1.13446 1.11701"/>
+    <position name="right_hip_yaw" joint="right_hip_yaw" class="es3054" ctrlrange="-0.366519 0.174533"/>
+    <position name="right_hip_roll" joint="right_hip_roll" class="ds32xx" ctrlrange="-0.349066 0.349066"/>
+    <position name="right_hip_pitch" joint="right_hip_pitch" class="ds32xx" ctrlrange="-1.5708 1.22173"/>
+    <position name="right_knee" joint="right_knee" class="ds32xx" ctrlrange="-1.3439 1.46608"/>
+    <position name="right_ankle" joint="right_ankle" class="ds32xx" ctrlrange="-1.11701 1.13446"/>
+    <position name="neck_pitch" joint="neck_pitch" class="ds32xx" ctrlrange="-1.91986 0.698132"/>
+    <position name="head_pitch" joint="head_pitch" class="mg90s" ctrlrange="-0.436332 1.25664"/>
+    <position name="head_yaw" joint="head_yaw" class="mg90s" ctrlrange="-1.39626 1.39626"/>
+    <position name="head_roll" joint="head_roll" class="mg90s" ctrlrange="-0.349066 0.279253"/>
+    <position name="mouth" joint="mouth" class="sg90" ctrlrange="0 0.558505"/>
+  </actuator>
+  <sensor>
+    <gyro name="gyro" site="imu"/>
+    <accelerometer name="accelerometer" site="imu"/>
+    <framequat name="orientation" objtype="site" objname="imu"/>
+  </sensor>
+  <keyframe>
+    <key name="stand" qpos="0 0 0.15353 1 0 0 0 0 -0.0872665 -0.457922 -0.00493928 0.452983 0 0.0872665 0.457922 0.00493928 -0.452983 0.349066 0.349066 0 0 0" ctrl="0 -0.0872665 -0.457922 -0.00493928 0.452983 0 0.0872665 0.457922 0.00493928 -0.452983 0.349066 0.349066 0 0 0"/>
+  </keyframe>
+</mujoco>

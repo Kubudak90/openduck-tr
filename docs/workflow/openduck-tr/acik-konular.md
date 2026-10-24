@@ -40,6 +40,7 @@ tamamlanınca kapatılır.
 ## P5: TR-35 görevleri
 
 P5a (geometriden bağımsız kısım, P2-0 stub'ına karşı) birleşti; ayrıntı ve P5b kontrol listesi: `p5a-notlar.md`.
+P5b-ön (dalga-2 CAD'inde türetme, testler, duman; P7 hızlı yolu) birleşti: `p5b-notlar.md` (§6 kalan maddeler).
 
 - ~~MJX çözücü iterasyonu: tr35 sürtünmesi yaklaşık 16 iterasyon istiyor, bugün 4/8; maliyet yaklaşık 1.9 katı.
   Seçenek: frictionloss'u stall'un %3'ünün altına çekmek.~~ (P5a: done) Karar walk/main 8, getup 16, ls 8,

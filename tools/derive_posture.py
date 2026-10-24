@@ -21,7 +21,7 @@ build/ ve configs/'a yazmaz. Cikti belirlenimci (zaman damgasi yok, sirali anaht
 
 Adimlar (sinirlar PARAMS'ta; JSON "params"). Acilar SOL bacak mutlak (config isaret kurali: sag = -sol), derece.
   9  EXTRA kutulari: thigh/shin/hip/hip_cradle/neck/jaw govdelerinin gorsel mesh koselerinin govde cercevesindeki AABB'si.
-  10 oz-carpisma ciftleri (spec 3.2.2 v3.1); eksik geomlu ve keyframe HOME'da temas eden ciftler atilir (raporlanir).
+  10 oz-carpisma ciftleri (spec 3.2.2 v3.2); eksik geomlu ve keyframe HOME'da temas eden ciftler atilir (raporlanir).
   1  HOME: keyframe "stand". auto: COM - ayak merkezi x, [-17, +3] mm butcesinin disindaysa aile HOME'u (pitch 0,
      keyframe hip_yaw/roll ve bas; keyframe yuksekliginde duz ayakli en buyuk COM payli (hp, kn)).
   2  H_HOME: MuJoCo C oturtma (HOME qpos/ctrl, nominal tr35 aktuatorleri, DR yok, 2 s) govde z'si (0.1 mm).
@@ -66,7 +66,7 @@ DEFAULT_CONFIG = os.path.join(ROOT, "configs", "tr35_b2.json")
 S = 1.282                                    # Froude olcegi (tasarim sabiti)
 LEG5 = ("hip_yaw", "hip_roll", "hip_pitch", "knee", "ankle")
 FAM_J = ("hip_pitch", "knee", "ankle")       # = C.CROUCH_JOINTS
-HEAD_GEOM, JAW_GEOM, BUMPER = "head_collision", "jaw_collision", "neck_bumper"
+HEAD_GEOM, JAW_GEOM, BUMPER, NECK_GEOM = "head_collision", "jaw_collision", "neck_bumper", "neck_collision"
 EXTRA_BODIES = ("left_thigh", "right_thigh", "left_shin", "right_shin", "left_hip", "right_hip",
                 "left_hip_cradle", "right_hip_cradle", "neck", "jaw")
 HEIGHT_KEYS = ("H_HOME", "H_MIN_WALK", "H_MIN_STAND", "H_DEEP", "Z_SIT", "SEAT_Z", "SEAT_Z_TOL",
@@ -438,8 +438,9 @@ def extra_boxes(vis, bodies=EXTRA_BODIES, rnd=PARAMS["extra_round"]):
 
 
 def candidate_pairs(geoms, has_bumper=False):
-    """Spec 3.2.2 v3.1 oz-carpisma kurali (belirlenimci sira); geoms: mevcut RL geom adlari kumesi. Dondurur
-    (ciftler, eksik geomlu ciftler)."""
+    """Spec 3.2.2 v3.2 oz-carpisma kurali (belirlenimci sira); geoms: mevcut RL geom adlari kumesi. Dondurur
+    (ciftler, eksik geomlu ciftler). v3.2 (p2-entegrasyon.md 2, 10): cene <-> boyun ve kafa <-> kalca / kalca besigi
+    (spec eki K6.4 RL cift listesi)."""
     T, H, J = C.TRUNK_GEOM, HEAD_GEOM, JAW_GEOM
     g = lambda side, part: "%s_%s_collision" % (side, part)
     P = []
@@ -448,7 +449,9 @@ def candidate_pairs(geoms, has_bumper=False):
             P += [(g(side, limb), t) for t in (T, H, J)]
     for side in ("left", "right"):
         P += [(g(side, "foot"), t) for t in (H, J)]
-    P += [(H, T), (J, T)]
+    P += [(H, T), (J, T), (J, NECK_GEOM)]
+    for side in ("left", "right"):
+        P += [(H, g(side, b)) for b in ("hip", "hip_cradle")]
     for a in ("thigh", "shin", "foot"):
         for b in ("thigh", "shin", "foot"):
             if not a == b == "foot":

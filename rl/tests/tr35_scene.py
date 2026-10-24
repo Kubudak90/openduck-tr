@@ -41,12 +41,18 @@ def _golden():
     return _CACHE["golden"]
 
 
+COMMITTED_SCENE = os.path.join(ROOT, "build", "tr35_b2", "sim", "scene.xml")   # C.SCENE_PATHS["tr35_b2"] (P5b)
+
+
 def tr35_scene():
-    """$OPENDUCK_TR35_SCENE if set; otherwise build the P2-0 stub once per process into a temp dir with tools/golden.py
-    (freecadcmd, no check); no freecadcmd -> pytest.skip."""
+    """$OPENDUCK_TR35_SCENE if set; else the committed CAD build (build/tr35_b2/sim/scene.xml, the default tr35 scene
+    the derived file was made from); else build the P2-0 stub once per process into a temp dir with tools/golden.py
+    (freecadcmd, no check); no freecadcmd -> pytest.skip. OPENDUCK_TR35_SCENE=stub forces the stub."""
     env = os.environ.get("OPENDUCK_TR35_SCENE")
-    if env:
+    if env and env != "stub":
         return env
+    if env != "stub" and os.path.isfile(COMMITTED_SCENE):
+        return COMMITTED_SCENE
     if "scene" not in _CACHE:
         g = _golden()
         if g.find_freecadcmd() is None:

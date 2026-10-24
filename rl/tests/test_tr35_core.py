@@ -185,7 +185,8 @@ def test_load_derived_validation():
     """load_derived: sema, profil, anahtarlar, tipler ve iliskiler; bozuk dosya ValueError (alan adiyla)."""
     _, path = _boot()
     d = C.load_derived(path)
-    assert d["schema"] == 1 and d["profile"] == TR and d["source"]["stub"] is True
+    # depodaki dosya P5b'den beri gercek CAD'den (build/tr35_b2/sim) turetilir; test-yalniz bootstrap stub'dir
+    assert d["schema"] == 1 and d["profile"] == TR and d["source"]["stub"] is (path != C.DERIVED_PATHS[TR])
     assert d["tool"] in ("tools/derive_posture.py", "bootstrap")
     with open(path) as f:
         txt = f.read()
@@ -408,14 +409,16 @@ def test_tr35_process_constants_models_guard():
     assert md["walk"]["extra"] == [None] * len(md["walk"]["extra"])
     assert md["main"]["extra"] == [[0, 0]] * len(md["main"]["extra"]) and md["getup"]["extra"] == [[0, 1]] * len(md["getup"]["extra"])
     caps = C.load_derived(path)["caps_deg"]
+    bumper = [] if C.load_derived(path)["source"]["stub"] else ["neck_bumper"]   # P2c tampon geomu (gercek CAD)
     for v in ("main", "getup"):
         assert abs(md[v]["knee"][1] - caps["KNEE_LIMIT_DEG"]) < 1e-9 and abs(md[v]["knee_r"][0] + caps["KNEE_LIMIT_DEG"]) < 1e-9
         assert abs(md[v]["knee_j"][1] - caps["KNEE_LIMIT_DEG"] - C.JOINT_RANGE_MARGIN_DEG) < 1e-9
         assert md[v]["neck"][1] <= caps["NECK_PITCH_MAX_DEG"] + 1e-9
         assert md[v]["hy"][0] >= -caps["HIP_YAW_INWARD_MAX_DEG"] - 1e-9 and md[v]["hy_r"][1] <= caps["HIP_YAW_INWARD_MAX_DEG"] + 1e-9
-        assert md[v]["head_geoms"] == ["head_collision", "jaw_collision"]             # neck_bumper stub'da yok
-    assert md["walk"]["head_geoms"] == ["head_collision"]
-    assert o["pairs"] == {"walk": 0, "main": 1, "getup": 2}               # main: main_pairs alt kumesi
+        assert md[v]["head_geoms"] == ["head_collision", "jaw_collision"] + bumper     # neck_bumper stub'da yok
+    assert md["walk"]["head_geoms"] == ["head_collision"] + bumper
+    # main: main_pairs alt kumesi; trunk <-> neck_bumper yalniz tampon geomu varsa (gercek CAD) eklenir
+    assert o["pairs"] == {"walk": 0, "main": 1, "getup": 2 + len(bumper)}
     dq, dc, nplay, dqb, play = o["home"]
     assert abs(dq) < 1e-12 and abs(dc) < 1e-12 and nplay == 9 and abs(dqb) < 1e-12 and play == 0.0
 
@@ -486,9 +489,14 @@ tg = np.clip(tg, sbd.m.actuator_ctrlrange[:, 0], sbd.m.actuator_ctrlrange[:, 1])
 sbd.place(PB.axis_angle_quat((0, 1, 0), np.deg2rad(C.SEAT_PITCH_DEG)), tg, 0.001)
 sbd.settle()
 ge = sbd.gravity()
+# gercek CAD'de (P5b) COM oturusta ayaklarin ustunde: govde kutusu yuk tasimaz, zeminden ~0.3 mm yukarida durur
+# (margin 0: temas kaydi yok) -> ayaklar zeminde, govde kutusunun en alcak kosesi 1 mm icinde
 te = PB.floor_contact_geoms(sbd.m, sbd.d, sbd.idx.floor_geom)
+tg_ = int(sbd.idx.trunk_geom)
+R_, hs_ = sbd.d.geom_xmat[tg_].reshape(3, 3), sbd.m.geom_size[tg_]
+tz = min(float((sbd.d.geom_xpos[tg_] + R_ @ (np.array([a, b, c]) * hs_))[2]) for a in (-1, 1) for b in (-1, 1) for c in (-1, 1))
 out["seat_exact"] = [float(np.degrees(np.arcsin(ge[0]))), float(sbd.d.qpos[2]),
-                     bool(int(sbd.idx.trunk_geom) in te and set(int(x) for x in sbd.idx.foot_geom) <= te)]
+                     bool(tz <= 1e-3 and set(int(x) for x in sbd.idx.foot_geom) <= te)]
 # getup modelinde HOME'da EXTRA kutulari zemine degmez
 d0 = mujoco.MjData(m)
 d0.qpos[:] = idx.init_qpos
