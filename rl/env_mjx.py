@@ -321,6 +321,10 @@ class OpenDuckEnv(_EnvBase):
         self.push = bool(push) and self.dr["enabled"]
         self.noise = bool(noise)
         self.head_random = bool(head_random) and spec.head_mode != "policy"     # getup: bas politikada
+        # jest kanali (tr35 main, spec eki K6.1; env_cpu ile ayni: mevcut 6 bas uniform'u, yeni sayi yok)
+        self.gestures = self.head_random and self.task == "main" and bool(C.VOICE["gestures"])
+        if self.gestures:
+            T.check_head_slew(True)
         self.exact_setconst = bool(exact_setconst)
         if fixed_command is None or self.task == "walk":
             self.fixed_command = None if fixed_command is None else np.asarray(fixed_command, np.float32).reshape(3)
@@ -349,6 +353,7 @@ class OpenDuckEnv(_EnvBase):
         self.default_obs_q = f32(idx.default_obs_q)
         self.default_action_q = f32(idx.default_action_q)
         self.default_head = f32(idx.init_ctrl[idx.head_act_id])
+        self.other_act_id = np.asarray(idx.other_act_id)
         self.ctrl_lo, self.ctrl_hi = f32(idx.ctrl_lo), f32(idx.ctrl_hi)
         self.head_range = f32(idx.head_range)
         self.noise_vec = f32(T.noise_vector(np, self.task))
@@ -794,6 +799,9 @@ class OpenDuckEnv(_EnvBase):
             info["head_offset"] = jnp.zeros(len(idx.head_act_id))
             info["head_target"] = jnp.zeros(len(idx.head_act_id))
             info["head_timer"] = _uniform(k_ht, *_HR["resample_s"])
+        if self.gestures:                  # jest durumu (T.gesture_init) + segment degisimi kesme istegi
+            info.update({"g_" + k: _f32(v) for k, v in T.gesture_init(jnp, jnp.float32(0.0)).items()})
+            info["g_cutreq"] = jnp.float32(0.0)
         if self.push:
             info["push_timer"] = _uniform(k_pt, *self.dr["push_interval_s"])
         if self.K > 0:
@@ -838,20 +846,37 @@ class OpenDuckEnv(_EnvBase):
         ctrl = self.init_ctrl
         if self.head_random:
             u = jax.random.uniform(k_head, (6,))
-            timer = info["head_timer"] - C.CTRL_DT
+            gest = self.gestures
+            if gest:                       # jest suresince zamanlayici durur (spec eki K6.1)
+                timer = info["head_timer"] - C.CTRL_DT * jnp.where(info["g_kind"] > 0.5, 0.0, 1.0)
+            else:
+                timer = info["head_timer"] - C.CTRL_DT
             rs = timer <= 0.0
-            tgt = jnp.where(u[0] < _HR["prob"], (2.0 * u[1:5] - 1.0) * self.head_range, 0.0)
+            if gest:                       # u0: jest / rastgele / sifir (C.GESTURE_SAMPLE), u1: jest turu
+                greq, rnd = T.gesture_sample(jnp, u[0], u[1])
+                tgt = jnp.where(rnd > 0.5, (2.0 * u[1:5] - 1.0) * self.head_range, 0.0)
+            else:
+                tgt = jnp.where(u[0] < _HR["prob"], (2.0 * u[1:5] - 1.0) * self.head_range, 0.0)
             lo, hi = _HR["resample_s"]
             head_target = jnp.where(rs, tgt, info["head_target"])
             info["head_timer"] = jnp.where(rs, lo + (hi - lo) * u[5], timer)
             gated = head_target
             if task == "main":
                 gated = head_target * jnp.where(info["alpha"] < C.ALPHA_STAND_MAX, 1.0, 0.0)
+            if gest:                       # jest (sonumleme dahil) suresince rastgele hedef 0
+                gst = {k: info["g_" + k] for k in ("kind", "n", "amp", "cut_n")}
+                gst, gout, gact, _ = T.gesture_step(jnp, gst, jnp.where(rs, greq, 0.0), info["alpha"], info["g_cutreq"])
+                info.update({"g_" + k: _f32(v) for k, v in gst.items()})
+                info["g_cutreq"] = jnp.float32(0.0)
+                gated = gated * (1.0 - gact)
             head_offset = info["head_offset"] + (gated - info["head_offset"]) * (C.CTRL_DT / _HR["filter_tau"])
             info["head_target"], info["head_offset"] = head_target, head_offset
             head_q = self.default_head + head_offset
             if task == "main":
                 head_q = head_q + ref["head_offset"]
+            if gest:
+                head_q = head_q + gout[:4]
+                ctrl = ctrl.at[self.other_act_id].add(gout[4:])
             ctrl = ctrl.at[idx.head_act_id].set(head_q)
         elif task == "main":
             ctrl = ctrl.at[idx.head_act_id].set(self.default_head + ref["head_offset"])
@@ -943,10 +968,13 @@ class OpenDuckEnv(_EnvBase):
             timer = info["seg_timer"] - C.CTRL_DT
             if self.fixed_command is None:
                 rs = (timer <= 0.0) & (info["cmd_lock"] < 0.5)
-                seg, cmd_new, dur = T.sample_segment(jnp, jax.random.uniform(k_cmd, (T.NUM_SEGMENT_U,)), command)
+                seg, cmd_new, dur = T.sample_segment(jnp, jax.random.uniform(k_cmd, (T.NUM_SEGMENT_U,)), command,
+                                                     prev_kind=info["seg"])
                 command = jnp.where(rs, _f32(cmd_new), command)
                 info["seg"] = jnp.where(rs, _f32(seg), info["seg"])
                 timer = jnp.where(rs, _f32(dur), timer)
+                if self.gestures:          # segment degisimi jesti keser (spec eki K6.1)
+                    info["g_cutreq"] = jnp.where(rs, jnp.float32(1.0), info["g_cutreq"])
             info["seg_timer"] = timer
 
         # 12. (sifirlama merge_reset'te)
