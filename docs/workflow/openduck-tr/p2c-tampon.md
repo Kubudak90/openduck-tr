@@ -12,7 +12,8 @@ All coordinates: mm, trunk frame, zero pose (x forward, y left, z up). g = 9.81 
 | neck | `head_pitch_thrust_in`, `head_pitch_thrust_out` (bracket) | thrust faces on both sides of the head_tilt rotor disc, 0.3 mm running gap (inner: 4 x M2 to the walls; outer: foot on the bridge, 2 x M2) |
 | neck | `neck_bumper` (pad, TPU 95A) | chin/forehead bumper, press-fit on the stem tongue; `collision_box` = pad box, exported as MJCF geom `neck_bumper` |
 | head_tilt | `head_tilt_bracket` (bracket) | one-piece L: rotor disc (embeds the head_pitch horn, arms vertical) + upper arm + yaw table (embeds the head_yaw horn from below, arms along y) |
-| head_turn | `head_turn_bracket` (bracket) | yaw MG90S tab frame (servo drops in from above, tab screws from above), thrust ring on the yaw table (0.3 mm), rear plate (embeds the roll horn, arms along y), front plate + roll pin d8 |
+| head_tilt | `head_yaw_retainer_left/right` (bracket), `head_yaw_retainer_screws` | two PETG arcs on the yaw table (+-y, 80 deg each, r 12..17, 2 x M2 into the table, heads sunk): their lips hold the head_turn ring flange from above (0.3 mm), verification round 2 (D3) |
+| head_turn | `head_turn_bracket` (bracket) | yaw MG90S tab frame (servo drops in from above, tab screws from above), thrust ring on the yaw table (0.3 mm) with an outer flange (r 13.5, 1.2 thick; trimmed at +x to the head_turn envelope) under the retainer lips (0.3 mm), rear plate (embeds the roll horn, arms along y), front plate + roll pin d8 |
 | head | `head_frame` (bracket) | ring deck around the head_tilt/head_turn passage, roll MG90S tab plate, SG90 tab plate, roll-pin front bushing (split cap at assembly), roll thrust ring (0.3 mm behind the head_turn rear plate), chin block (bumper contact face) |
 | head | `head_hood` (shell, PLA), `upper_bill` (trim, PLA) | constant 1.8 mm wall (`params.wall`), open-bottom dome x -28..80, top z 199; bill shell to x 118.3 |
 | head | `jaw_pin_bushing` (bracket) | right jaw pin bearing, screwed to the hood's right wall (2 x M2) |
@@ -80,7 +81,7 @@ the bumper (sec. 3).
 | Joint (servo) | Load beyond the joint | COM offset from the horn centre | Bending moment without support (static / 3 g) | Passive support taking it | Shaft keeps |
 |---|---|---|---|---|---|
 | head_pitch (MG90S) | 150.2 g, W 1.47 N | (-2.7, -14.6, 49.8) | 21.5 N.mm / 220 N.mm (lateral) | rotor disc r 12 between two thrust faces (gap 0.3 each): couple arm ~20 mm -> 11 N at 3 g, < 0.5 MPa on PETG; axial (y) load also on the faces | torque + radial shear <= 4.4 N |
-| head_yaw (MG90S) | 141.8 g, W 1.39 N | (-2.9, 2.1, 27.9) | 5 N.mm / 116 N.mm; axial 1.39 N / 4.2 N (compression) | head_turn thrust ring r 9..11.5 on the yaw table (gap 0.3): 11 N edge load at 3 g, 0.14 MPa; carries the head's weight | torque + radial shear |
+| head_yaw (MG90S) | 141.8 g, W 1.39 N | (-2.9, 2.1, 27.9) | 5 N.mm / 116 N.mm; axial 1.39 N / 4.2 N (compression), the same in tension when the head is inverted (getup, falls) | down: head_turn thrust ring r 9..11.5 on the yaw table (gap 0.3): 11 N edge load at 3 g, 0.14 MPa; carries the head's weight. Up (D3): ring flange r 11.5..13.5 under the lips of two retainer arcs (gap 0.3, 1.5 mm radial overlap, 0.6 mm in the +x trim), 2 x M2 per arc into the table: 14 N at 10 g gives about 2 MPa lip bending (1.3 mm PETG). The tipping moment closes one side on the table and the other under a lip | torque + radial shear |
 | head_roll (MG90S) | 122.0 g, W 1.20 N | COM x 30.3 between horn (x ~8) and front pin (x ~44.9) | two-point support: horn reaction 0.47 N, pin 0.72 N (1.4 / 2.2 N at 3 g) | roll pin d8 in the head-frame front bushing (radial gap 0.25); axial: backward -> front plate on the bushing wall (0.5), forward -> roll thrust ring (0.3) | torque + radial shear |
 | mouth (SG90) | 10.3 g, W 0.10 N | COM between horn (y 54.5) and right pin (y -54.5) | two-point support: 0.06 / 0.04 N | right pin d5 in `jaw_pin_bushing`; axial (y): outer arms on the hood walls (0.5) | torque (3.8 N.mm static, stall 177) |
 | neck_pitch (DS32xx) | head module 201.3 g, W 1.97 N | see sec. 3 | radial: U-link A (Al arm on the spline) and B (M3 pin in the F623ZZ) 57.8 mm apart (sec. 3). Axial (y, lateral head load: 5.9 N at 3 g, 19.7 N at 10 g): toward the servo (+y) the leg A thrust sleeve (r 8.2..11.5, 0.2 mm gap) bears on the end faces of the trunk_base neck-cradle side walls (y -21.0), about 20 mm2, 1.0 MPa at 10 g; away from it (-y) the leg B nut presses a brass spacer on the F623ZZ inner race (0.05 mm gap), outer race on the 1 mm seat lip (52 mm2, 0.4 MPa; F623ZZ C0r 180 N) | torque + radial |
@@ -115,14 +116,14 @@ head_pitch upper 72: the MJCF joint range (limit + 3 = 75) ends 1 deg before the
 | horns (DS arm 5 + 3 x MG90S + SG90) | 7.0 | 7.0 | |
 | neck idler pin | 1.8 | 1.8 | M3 screw + nut + brass spacer (`servos.ds_idler_screw`, as in the legs; budget mass) |
 | printed: neck U + bumper | 26 | 25.5 | neck_link 21.2 (with the leg A thrust sleeve), thrust_in 1.1, thrust_out 2.0, bumper (TPU) 1.2 |
-| printed: tilt | 8 | 6.6 | head_tilt_bracket |
-| printed: turn | 8 | 4.8 | head_turn_bracket |
+| printed: tilt | 8 | 7.0 | head_tilt_bracket 6.6, head_yaw retainer arcs 2 x 0.2 (D3) |
+| printed: turn | 8 | 5.0 | head_turn_bracket (with the D3 flange) |
 | printed: frame | 12 | 14.5 | head_frame 13.1, jaw_pin_bushing 0.4, jaw_hub 1.0 |
 | printed: shells | 68 | 68.8 | head_hood (constant wall 1.8) |
 | printed: bill | 8 | 13.9 | upper_bill 5.6, lower_bill 8.3 |
-| fasteners | 8 | 4.2 | M2.5 + nuts, M2 screws (modelled in their holes) |
+| fasteners | 8 | 5.0 | M2.5 + nuts, M2 screws (modelled in their holes; + 4 x M2 retainer screws, D3) |
 | wiring | 6 | 5.2 | 8 harness tubes (incl. neck_pitch in-tube in the trunk link, 0.8) |
-| **Total** | **202.0** | **201.3** | |
+| **Total** | **202.0** (203.5 after D3) | **202.7** | |
 
 Printed 132.9 g vs 130 (+2.9, bills over, neck/tilt/turn under), fasteners and wiring under. Robot total with the
 P2a/P2b stubs: 1845.4 g (x 1.05 = 1938 g <= 1950).

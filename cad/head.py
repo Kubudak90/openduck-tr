@@ -463,10 +463,53 @@ def _tilt(m, sv, H, hz):
     tilt = rotor.fuse([up, cross]).removeSplitter()
     cut = _horn_seat(tp, xfp, F, yr1 - hf) + _horn_seat(ty, xfy, F, yzf - zc0)
     cut += _harness_cut(hz, "head_tilt", F["harness_clear"])
+    ret = _yaw_retainer(m, H, zc1)
+    cut += ret["pilots"]
     m._add("head_tilt", "head_tilt_bracket", _cut(tilt, cut), "bracket")
+    for name, arc in ret["arcs"]:
+        m._add("head_tilt", name, arc, "bracket")
+    _metal(m, "head_tilt", "head_yaw_retainer_screws", "z", ret["screws"], F["m2_pilot_d"] / 2.0 - 0.05,
+           ret["screw_z"][0], ret["screw_z"][1], H["mass_g"]["m2_screw"])
     for key in ("head_pitch", "head_yaw"):
         sp = m.servo_parts(key, horn_toward=H["horn_toward"][key])
         m._add("head_tilt", key + "_horn", sp["horn"], "horn", m.horn_mass(key))
+
+
+def _zsector(r0, r1, x, y, z0, z1, a0, a1):
+    """z ekseni etrafinda halka dilimi: r0..r1, z0..z1, aci a0..a1 (derece, +x'ten +y'ye)."""
+    import Part
+    s = Part.makeCylinder(r1, z1 - z0, V(x, y, z0), V(0, 0, 1), a1 - a0)
+    if r0 > 0.0:
+        s = s.cut(Part.makeCylinder(r0, z1 - z0 + 2.0, V(x, y, z0 - 1.0), V(0, 0, 1), 360.0))
+    return rotated(s, (x, y, z0), (0, 0, 1), a0)
+
+
+def _yaw_retainer(m, H, zc1):
+    """head_yaw eksenel tutucusu (head_tilt, PETG, iki yay): head_turn halkasinin flansi (_turn) tabla ustu (zc1) ile
+    yaylarin dudagi arasinda 0.3 mm bosluklarla tutulur. Kafa asagi (agirlik): halka -> tabla; kafa yukari (ters
+    durus, kalkma, darbe): flans -> dudak -> 2 x M2 / yay -> tabla. MG90S mili yalniz tork + radyal tasir. Yaylar
+    tablanin +-y tarafinda (tabla x'te +-12, head_tilt zarfi), flans 360 derece (yaw +-80'de her yay altinda flans
+    kalir). Doner {"arcs": [(ad, kati)], "pilots": tabla delikleri, "screws": [(x, y)], "screw_z": (z0, z1)}."""
+    p, U, R, F = m.p, H["turn"], H["tilt"]["retainer"], H["fit"]
+    yx, yy, _ = p["j_head_yaw"]
+    zf0 = zc1 + F["gap"]                                       # flans alti (halka alti)
+    zl0 = zf0 + U["flange_t"] + F["gap"]                       # dudak alti
+    zl1 = zl0 + R["lip_t"]
+    rw0 = U["flange_r"] + F["gap"]                             # yay duvari ic yuzu (flansa radyal bosluk)
+    arcs, pilots, screws = [], [], []
+    for name, c in (("head_yaw_retainer_left", 90.0), ("head_yaw_retainer_right", 270.0)):
+        a0, a1 = c - R["half_deg"], c + R["half_deg"]
+        arc = _zsector(rw0, R["r"][1], yx, yy, zc1, zl1, a0, a1).fuse(
+            _zsector(R["r"][0], R["r"][1], yx, yy, zl0, zl1, a0, a1)).removeSplitter()
+        pts = [(yx + R["screw_r"] * math.cos(math.radians(c + s * R["screw_deg"])),
+                yy + R["screw_r"] * math.sin(math.radians(c + s * R["screw_deg"]))) for s in (-1, 1)]
+        hole = [zcyl(F["m2_clear_d"] / 2.0, x, y, zc1 - 1.0, zl1 + 1.0) for x, y in pts]
+        hole += [zcyl(R["head_d"] / 2.0, x, y, zl1 - R["head_h"], zl1 + 1.0) for x, y in pts]
+        arcs.append((name, _cut(arc, hole)))
+        pilots += [zcyl(F["m2_pilot_d"] / 2.0, x, y, zc1 - R["screw_depth"], zc1 + 0.01) for x, y in pts]
+        screws += pts
+    return {"arcs": arcs, "pilots": pilots, "screws": screws,
+            "screw_z": (zc1 - R["screw_depth"] + 0.5, zl1 - R["head_h"] - 0.01)}
 
 
 def _turn(m, sv, H, hz):
@@ -490,6 +533,12 @@ def _turn(m, sv, H, hz):
     xfr0, xfr1 = yx - w2 - F["pocket_clear"] - U["frame_side"], yx + w2 + F["pocket_clear"] + U["frame_side"]
     ring = zcyl(U["ring_r"][1], yx, yy, zc1 + F["gap"], z_tower - F["clear"]).cut(
         zcyl(U["ring_r"][0], yx, yy, zc1, z_tower))
+    # eksenel tutma flansi (_yaw_retainer yaylarinin dudagi altinda): +x'te head_turn zarfi icin kirpik
+    flange = zcyl(U["flange_r"], yx, yy, zc1 + F["gap"], zc1 + F["gap"] + U["flange_t"]).cut(
+        zcyl(U["ring_r"][1] - 0.01, yx, yy, zc1, z_tower)).common(
+        box(yx - U["flange_r"] - 1.0, yx + U["flange_x"], yy - U["flange_r"] - 1.0, yy + U["flange_r"] + 1.0,
+            zc1, z_tower))
+    ring = ring.fuse(flange)
     rm = sum(U["ring_r"]) / 2.0
     posts = [zcyl(U["post_r"], yx + rm * math.cos(math.radians(a)), yy + rm * math.sin(math.radians(a)),
                   z_tower - F["clear"] - 0.01, ztf0 + 0.01) for a in U["post_deg"]]

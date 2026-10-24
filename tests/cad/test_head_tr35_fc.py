@@ -61,6 +61,28 @@ res["gaps"] = {"thrust_in": d("head_tilt_bracket", "head_pitch_thrust_in"),
                "neck_thrust": d("neck_link", "trunk_base"),
                "neck_idler": d("neck_pitch_idler_pin", "neck_pitch_idler_bearing"),
                "neck_servo": d("neck_link", "neck_pitch_servo")}
+# head_yaw eksenel tutucusu (D3): flans tabla ile yaylarin dudagi arasinda; head_turn z'de kaydirilinca once 0.3'te
+# tutucuya (yukari) / tablaya (asagi) dayanir; yaw sinir + 3 boyunca yaylar head_turn parcalarina degmez
+import FreeCAD as App
+yx, yy, yz = m.p["j_head_yaw"]
+ret = [n for n in items if n.startswith("head_yaw_retainer_") and n != "head_yaw_retainer_screws"]
+turn = items["head_turn_bracket"][1].shape
+def lift(dz):
+    t = turn.copy(); t.translate(App.Vector(0, 0, dz))
+    return {"up": sum(t.common(items[n][1].shape).Volume for n in ret),
+            "down": t.common(items["head_tilt_bracket"][1].shape).Volume}
+res["yaw_lift"] = {str(dz): lift(dz) for dz in (0.25, 0.4, -0.25, -0.4)}
+res["gaps"]["yaw_retainer"] = min(d(n, "head_turn_bracket") for n in ret)
+sweep = {}
+lim = [j for j in m.joints if j["name"] == "head_yaw"][0]
+for q in range(int(lim["lower"]) - 3, int(lim["upper"]) + 4, 4):
+    for it in [it for ln, it in items.values() if ln == "head_turn"]:
+        sh = it.shape.copy(); sh.rotate(App.Vector(yx, yy, yz), App.Vector(0, 0, 1), q)
+        for n in ret + ["head_yaw_retainer_screws"]:
+            v = sh.distToShape(items[n][1].shape)[0]
+            k = n + " | " + it.name
+            sweep[k] = min(sweep.get(k, 1e9), v)
+res["yaw_retainer_sweep"] = sweep
 stand = m.pose("stand")
 J = {j["name"]: j for j in m.joints}
 poses = []
@@ -129,11 +151,16 @@ def test_envelopes_only_requested_changes(built):
     assert r["outside"].get("neck_link", 0.0) <= stem
 
 
+# kafa yapisi butcesi (asagidan yukari): p2-interface.md 8'deki 202.0 g + head_yaw eksenel tutucusu 1.5 g (dogrulama 2,
+# D3; trunk butcesinden, p2-entegrasyon.md 10). Ses modulunun 30 g'i (spec eki K3.1) P2d'nindir, burada yok.
+HEAD_BUDGET_G = 203.5
+
+
 def test_head_mass_budget(built):
-    """p2-interface.md butcesi 202.0 g (asagidan yukari): kafa link'leri + trunk link'indeki neck_pitch kablo girisi."""
+    """Kafa link'leri + trunk link'indeki neck_pitch kablo girisi <= HEAD_BUDGET_G."""
     _, r = built
     total = sum(r["link_mass_g"].values()) + r["head_trunk_link_g"]
-    assert total <= 202.0 + 1e-6, (total, r["link_mass_g"])
+    assert total <= HEAD_BUDGET_G + 1e-6, (total, r["link_mass_g"])
     k = r["kind_mass_g"]
     assert k["servo"] == pytest.approx(3 * 13.4 + 9.0)
     assert k["horn"] == pytest.approx(7.0)
@@ -141,13 +168,21 @@ def test_head_mass_budget(built):
 
 def test_passive_supports(built):
     """MG90S miline egilme/eksenel yuk gitmesin: head_pitch diski iki baski yuzu arasinda, yaw halkasi tablanin
-    uzerinde, roll pimi on yatakta, gaga pimi yatakta (bosluklar params.head.fit)."""
+    uzerinde ve flansi tutucu yaylarin altinda, roll pimi on yatakta, gaga pimi yatakta (bosluklar params.head.fit)."""
     _, r = built
     F = build_config.load("tr35_b2")["params"]["head"]["fit"]
     g = r["gaps"]
     assert g["thrust_in"] == pytest.approx(F["gap"], abs=0.02)
     assert g["thrust_out"] == pytest.approx(F["gap"], abs=0.02)
     assert g["yaw_ring"] == pytest.approx(F["gap"], abs=0.02)
+    # head_yaw eksenel tutma (dogrulama 2, D3): kafa yukari cekilince flans 0.3'ten sonra yaylarin dudagina, asagi
+    # bastirilinca halka tablaya dayanir; MG90S mili eksenel yuk almaz
+    assert g["yaw_retainer"] == pytest.approx(F["gap"], abs=0.02)
+    lift = r["yaw_lift"]
+    assert lift["0.25"]["up"] == 0.0 and lift["0.4"]["up"] > 1.0
+    assert lift["-0.25"]["down"] == 0.0 and lift["-0.4"]["down"] > 1.0
+    sw = r["yaw_retainer_sweep"]
+    assert min(sw.values()) >= 0.25, sorted(sw.items(), key=lambda kv: kv[1])[:3]
     assert 0.0 < g["roll_pin"] <= 0.5
     assert 0.0 < g["jaw_pin"] <= 0.5
     # boyun DS32xx eksenel yuku milde degil (p2c-tampon.md 4): +y A kolu baski kovani trunk_base besik duvarlarina
@@ -157,10 +192,24 @@ def test_passive_supports(built):
     assert g["neck_servo"] > g["neck_thrust"] + 1.0
 
 
+# Bilinen kusur (dogrulama 2, D5; P2d'ye devredildi, spec eki K3.6 "head_yaw +-80 burulma taramasi"): head_yaw
+# gecisinin giris ve cikis tupleri yaw 0'da gecis noktasindan 2 d uzakta da ust uste biner (kablo kendi icinden gecer).
+# Donmus geometride gecerli guzergah yok (p2-entegrasyon.md 10.3); check.py bunu sayar. P2d duzeltince bu kume bosalir.
+KNOWN = {("head_yaw_harness_in", "head_yaw_harness_out")}
+
+
 def test_no_collisions_at_limits_and_combos(built):
     _, r = built
-    bad = {n: h for n, h in r["hits"].items() if h}
+    bad = {n: [x for x in h if (x[1], x[2]) not in KNOWN] for n, h in r["hits"].items()}
+    bad = {n: h for n, h in bad.items() if h}
     assert not bad, bad
+
+
+def test_known_head_yaw_crossing_defect_tracked(built):
+    """KNOWN hala mevcut: P2d head_yaw gecisini duzelttiginde bu test kirilir ve KNOWN bosaltilir."""
+    _, r = built
+    seen = {(x[1], x[2]) for h in r["hits"].values() for x in h}
+    assert KNOWN <= seen, "head_yaw gecis kusuru duzelmis: KNOWN'u ve p2-entegrasyon.md 10.3'u guncelleyin"
 
 
 def test_bumper_takes_head_first(built):
