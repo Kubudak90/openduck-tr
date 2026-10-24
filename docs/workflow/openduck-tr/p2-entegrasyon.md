@@ -539,4 +539,12 @@ halkası uzunluğu belirtilir.
 
 ### 10.7 Kafa modülü taraması (son geometri)
 
-Sonuç commit'te eklenir.
+`OPENDUCK_CHECK_LINKS=head`, tutucunun son hâli (±25°, pahlı); 1210 s, çıkış kodu 1:
+
+| Bölüm | Sonuç |
+|---|---|
+| 1) Tek eklem | 37 poz, 31 sayılan; hepsi head_yaw geçişi (§10.3) |
+| 3) Aynı link | 0 |
+| 4) Komşu çiftler | 100 poz, 60 sayılan; hepsi head_yaw geçişi. Modül dışı kablo 0, "yapı önce" 0 |
+| 4) Modül dışı yapı (bilgi; MJCF çiftleri) | 7 poz-çift: kafa ↔ trunk (neck +40 / head_pitch −20) ve üst gaga ↔ kalça beşiği (spec 3.2.2 v3.2) |
+| 6) Zarflar | içerme 0, giriş 0, zarf-zarf 0 |
