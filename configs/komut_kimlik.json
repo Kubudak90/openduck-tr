@@ -1,0 +1,38 @@
+{
+ "schema": 1,
+ "ornek": true,
+ "not": "ORNEK tablo (P5k; spec eki K4). DF2301Q kimlikleri ogrenme sirasiyla atanir; gercek tablo G-SES-a ogrenme adiminda (K8) bu dosyanin yerine yazilir. Coktan bire: bir kelimenin ikinci sablonu bos kimliklerden (17-21) birini alir. Tabloda olmayan kimlik yok sayilir ve loglanir; 200-208 ogrenme kipi uyarisi.",
+ "uyanma": [1, 2],
+ "komutlar": {
+  "5": "gel",
+  "6": "dur",
+  "7": "geri",
+  "8": "saga",
+  "9": "sola",
+  "10": "otur",
+  "11": "kalk",
+  "12": "egil",
+  "13": "yuksel",
+  "14": "evet",
+  "15": "hayir",
+  "16": "vak",
+  "17": "dur"
+ },
+ "kelimeler": {
+  "uyanma": "ördek",
+  "gel": "gel",
+  "dur": "dur",
+  "geri": "geri",
+  "saga": "sağa dön",
+  "sola": "sola dön",
+  "otur": "otur",
+  "kalk": "kalk",
+  "egil": "eğil",
+  "yuksel": "yüksel",
+  "evet": "evet",
+  "hayir": "hayır",
+  "vak": "vak"
+ },
+ "bos_kimlikler": [18, 19, 20, 21],
+ "ogrenme_kimlikleri": [200, 201, 202, 203, 204, 205, 206, 207, 208]
+}

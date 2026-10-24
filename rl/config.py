@@ -364,6 +364,24 @@ GETUP_HEAD_SCALE = None            # tr35: getup bas aksiyon olcegi ust siniri (
 MOVING_EPS = 0.05                  # walk: moving = |komut| > bu
 RAIL_SOFT_A = 15.0                 # A, LEG ray talebi cezasinin yumusak esigi (A4: > 15 A suresi <= %2)
 MAIN["stand_gz"] = -0.9            # kalkis/ayakta dikligi (MAIN["seat_gz"] oturus kosulundan ayri)
+
+# --- Sesli komut katmani (spec eki K; rl/commands.py, task_math jest kanali ve komut atomlari) -------------------
+# Jest tablosu (K6.1; geometriden bagimsiz spec sayilari). (eklem, genlik rad, frekans Hz, cevrim); tik: darbe suresi
+# s ve darbe sayisi. "beak" 0 <-> genlik (acik), oturusta (alpha = 1) en cok GESTURE_SEATED_MAX_DEG. "click2" yalniz red
+# isaretinin cift gaga tiki (egitimde orneklenmez; tik darbesinin iki kati).
+GESTURES = {
+    "nod": {"joint": "head_pitch", "amp": 0.2, "freq": 1.5, "cycles": 2, "shape": "sin"},
+    "shake": {"joint": "head_yaw", "amp": 0.4, "freq": 1.2, "cycles": 2, "shape": "sin"},
+    "beak": {"joint": "mouth", "amp": math.radians(25.0), "freq": 2.0, "cycles": 2, "shape": "open"},
+    "click": {"joint": "mouth", "amp": math.radians(12.0), "pulse_s": 0.3, "pulses": 1, "shape": "pulse"},
+    "click2": {"joint": "mouth", "amp": math.radians(12.0), "pulse_s": 0.3, "pulses": 2, "shape": "pulse"},
+}
+GESTURE_FADE_S = 0.25              # kesmede yukseltilmis kosinus sonumleme
+GESTURE_SEATED_MAX_DEG = 15.0      # alpha = 1'de gaga genligi ust siniri
+GESTURE_SAMPLE = (0.3, 0.35, 0.35)  # main bas yeniden orneklemesi: jest / rastgele / sifir (egitim)
+ATOM = {"frac": 0.2, "speed": 0.8, "segment_s": (3.5, 15.0)}   # main yurume segmentlerinin atom orani, hiz kesri
+HOLD_S = (1.0, 2.0)                # oturustan onceki "tut" segmenti suresi U(.) (>= 1 s; sifir hiz, onceki h)
+VOICE = {"gestures": False, "atoms": False}   # egitimde jest kanali / komut atomlari (tr35: ikisi de acik)
 # POSE_BANK boyutlari: OPENDUCK_BANK_N=<int> hepsini ezer (duman kosulari, testler); yoksa degismez
 _bank_n = os.environ.get("OPENDUCK_BANK_N")
 if _bank_n:
@@ -551,6 +569,8 @@ def tr35_constants(derived, kappa=None):
              standup_window_s=round(x["MAIN"]["standup_window_s"] * sq, 1),
              sitdown_window_s=round(x["MAIN"]["sitdown_window_s"] * sq, 1))
     o["MAIN"] = M
+    o["MAIN_SEGMENTS"] = tuple(x["MAIN_SEGMENTS"]) + ("hold", "atom")   # task_math SEG_HOLD 4, SEG_ATOM 5
+    o["VOICE"] = {"gestures": True, "atoms": True}                      # spec eki K6.1-K6.2 (P7 main egitimi)
     o["SIT_RAMP_S"] = x["SIT_RAMP_S"] * sq
     o["STAND_RAMP_S"] = x["STAND_RAMP_S"] * sq
 

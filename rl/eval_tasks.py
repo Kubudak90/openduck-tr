@@ -65,6 +65,7 @@ ray = LEG talebi (olcekleme oncesi alt adim ortalamasi). Oran kurallari: nokta =
   A8 sim/collision_check.py, tr35 gorsel sahnesinde (ayni robot / bosluk duzeni) her A4-A6 grubu.
 """
 import argparse
+import copy
 import functools
 import importlib.util
 import inspect
@@ -112,7 +113,7 @@ CRIT_TR35 = {
     "A6_head_ratio_p95": 1.0, "A6_head_sat_frac": 0.05, "A6_handover_point": 0.80,
     "A7_atol": 1e-5, "A7_ms": 2.0, "A7_hidden": [256, 128, 64], "A8_mm3": 1.0,
 }
-N_TR35 = {"A4": 512, "A5": 256, "A6": 128, "handover": 128}     # spec 6 orneklem buyuklukleri (x --n-scale)
+N_TR35 = {"A4": 512, "A5": 256, "A6": 128, "handover": 128, "A10_S1": 256, "A10_S2": 256}   # spec N (x --n-scale)
 TR_A4_S, TR_A4_WINDOW = 20.0, (5.0, 20.0)
 TR_A4_GROUPS = (("fwd", 0.25), ("turn_pos", 0.125), ("turn_neg", 0.125), ("random", 0.5))
 TR_A6_S = 12.0
@@ -365,6 +366,184 @@ class _Traj(object):
                 self.steps[j].append(k + 1)
 
 
+# --- A10 sesli komut senaryolari (spec eki K7) ---------------------------------------------------------------------
+# Modul modeli ve konusmaci (kullanici) sabitleri: K7 (pencere 15 s yenilenmeyen, gecikme U(0.3, 1.5) s, kalan pencere
+# 1.5 s + kelime suresinden kisaysa once "ordek" + 0.5 s tepki). Kelime sureleri spec'te yok: komut 0.6 s, ordek 0.5 s.
+A10 = {"wake_s": 15.0, "lat": (0.3, 1.5), "react_s": 0.5, "word_s": 0.6, "wake_word_s": 0.5, "margin_s": 1.5,
+       "s1_gap_s": 1.0, "s1_dur_s": 8.0, "s1_word_timeout_s": 25.0, "s1_after_fail_s": 15.0, "s1_cap_s": 150.0,
+       "s2_words": 20, "s2_gap_s": (1.0, 6.0), "s2_tail_s": 6.0, "s2_cap_s": 240.0, "s2_noise_ids": (99, 203),
+       "pen_mm": 2.0, "stop_v": 0.02, "stop_avg_s": 0.2, "measure_after_s": 1.0, "bias_u": 0.04,
+       "ho_cap_s": 30.0}
+S1_WORDS = ("kalk", "gel", "dur", "saga", "sola", "geri", "egil", "yuksel", "evet", "hayir", "vak", "otur")
+S1_DONE = {"kalk": "T1", "otur": "T2", "saga": "turn", "sola": "turn", "geri": "motion", "egil": "height",
+           "yuksel": "height", "evet": "gesture", "hayir": "gesture", "vak": "gesture", "dur": "dur", "gel": "gel"}
+CRIT_A10 = {"s1_point": 0.85, "s1_w_lower": 0.80, "gel_p10": 0.7, "gel_p90": 1.3, "turn_p90_deg": 20.0,
+            "height_p10_frac": 0.5, "gesture_p10": 0.8, "dur_p90_m": 0.4, "s2_fall_w_upper": 0.03,
+            "s2_trans_fall_w_upper": 0.05, "s2_invariant_violations": 0, "cell_min": 20, "exposure_s": 20.0}
+
+
+LATENCY_PATH = os.path.join(C.ROOT, "configs", "ses_gecikme.json")
+
+
+def a10_latency(path=None):
+    """Tanima gecikmesi DR'i (spec eki K7, K8): G-SES-a olcumu varsa configs/ses_gecikme.json "uniform_s" ([p05, p95];
+    tools/bench/voice_report.py rapor yazar), yoksa varsayilan A10["lat"]. Yeni olcum yeniden egitim gerektirmez (K6.3).
+    Doner ((alt, ust) s, kaynak)."""
+    p = path or LATENCY_PATH
+    if os.path.isfile(p):
+        with open(p) as f:
+            u = json.load(f).get("uniform_s")
+        if u is not None and len(u) == 2 and 0.0 <= float(u[0]) <= float(u[1]):
+            return (float(u[0]), float(u[1])), "G-SES-a: " + os.path.relpath(p, C.ROOT)
+    return tuple(A10["lat"]), "varsayilan (spec eki K7)"
+
+
+class VoiceModule(object):
+    """DF2301Q modeli (yalniz A10; spec eki K4/K7): uyanma kimligi tanininca 15 s'lik, gecerli komutla YENILENMEYEN
+    pencere; komut, bitisi pencere icindeyse kelime bitisinden U(lat) s sonra kimlik olayi; disindakiler duser.
+    lat: (alt, ust) s, a10_latency()."""
+
+    def __init__(self, rng, tab, lat=None):
+        self.rng, self.tab = rng, tab
+        self.lat_range = tuple(lat or A10["lat"])
+        self.wake_id = min(tab.wake)
+        self.until, self.t_wake = -1e9, -1e9
+        self.q, self.dropped = [], []
+
+    def lat(self):
+        lo, hi = self.lat_range
+        return float(lo + (hi - lo) * self.rng.random())
+
+    def say(self, t_end, word):
+        """Konusulan kelime (bitis zamani). word "wake" ya da komut. Dondurur tanima zamani (None: dustu)."""
+        if word == "wake":
+            t = t_end + self.lat()
+            self.q.append((t, self.wake_id, "wake"))
+            return t
+        if not (self.t_wake <= t_end <= self.until):
+            self.dropped.append((t_end, word))
+            return None
+        t = t_end + self.lat()
+        self.q.append((t, self.tab.ids_of(word)[0], word))
+        return t
+
+    def inject(self, t, i):
+        """Beyaz liste disi / ogrenme kimligi (A10 degismez testi; modul uykuda da gonderir varsayimi)."""
+        self.q.append((t, int(i), "noise"))
+
+    def pop(self, t):
+        """t'ye kadar tanimlanan olaylar [(t, id, ad)] (sirali); uyanma penceresi burada acilir."""
+        self.q.sort(key=lambda e: e[0])
+        out = [e for e in self.q if e[0] <= t + 1e-9]
+        self.q = [e for e in self.q if e[0] > t + 1e-9]
+        for e in out:
+            if e[2] == "wake":
+                self.t_wake, self.until = e[0], e[0] + A10["wake_s"]
+        return out
+
+
+class Speaker(object):
+    """A10 konusmaci: S1 (sabit dizi; her kelime onceki komut tamamlandiktan 1.0 s sonra, dur gel uygulamasindan 8 s
+    sonra ve hemen once yeniden uyandirma) ya da S2 (20 rastgele kelime; her biri oncekinin uygulanmasindan U(1, 6) s
+    sonra). Uyanma kurali: kalan pencere < 1.5 s + kelime suresi ise once ordek, LED + 0.5 s tepki, sonra kelime."""
+
+    def __init__(self, mode, words, rng, module, t0):
+        self.mode, self.words, self.rng, self.m = mode, list(words), rng, module
+        self.i, self.phase, self.t_next = 0, "wait", t0
+        self.t_wake_sent, self.cur, self.t_word_end = None, None, None
+        self.dur_plan = None                 # S1: (t_ordek, t_dur)
+        self.failed, self.why = False, None
+
+    @property
+    def done(self):
+        return self.i >= len(self.words) and self.phase == "wait"
+
+    def _say(self, t, word):
+        self.cur, self.t_word_end = word, t + A10["word_s"]
+        self.m.say(self.t_word_end, word)
+        self.phase = "spoken"
+
+    def _wake(self, t):
+        self.t_wake_sent = t
+        self.m.say(t + A10["wake_word_s"], "wake")
+
+    def update(self, t):
+        """Kontrol adimi basinda (modul olaylari dagitilmadan once): bu adimda soylenecekleri modele verir."""
+        if self.failed or self.i >= len(self.words):
+            return
+        w = self.words[self.i]
+        if self.phase == "wait" and t >= self.t_next - 1e-9:
+            if self.m.until - t < A10["margin_s"] + A10["word_s"]:
+                self._wake(t)
+                self.phase = "waking"
+            else:
+                self._say(t, w)
+        elif self.phase == "waking" and self.m.t_wake >= self.t_wake_sent and t >= self.m.t_wake + A10["react_s"] - 1e-9:
+            self._say(t, w)
+        elif self.phase == "dur_plan":
+            t_w, t_d = self.dur_plan
+            if self.t_wake_sent is None or self.t_wake_sent < t_w:
+                if t >= t_w - 1e-9:
+                    self._wake(t)
+            elif t >= t_d - 1e-9 and self.m.t_wake >= self.t_wake_sent and t >= self.m.t_wake + A10["react_s"] - 1e-9:
+                self._say(t, "dur")
+
+    def applied(self, word, t, ok):
+        """Kelime denetleyicide islendi (t); ok: K5 'apply' isareti. S2: sonraki U(1, 6) s; S1: tamamlanma beklenir."""
+        if word != self.cur or self.phase != "spoken":
+            return
+        if self.mode == "S2":
+            lo, hi = A10["s2_gap_s"]
+            self.t_next, self.phase, self.i = t + lo + (hi - lo) * self.rng.random(), "wait", self.i + 1
+            return
+        if not ok:
+            self.failed, self.why = True, "%s uygulanmadi" % word
+            return
+        if word == "gel":                        # dur, gel uygulamasindan 8 s sonra; hemen once yeniden uyandirma
+            pre = A10["wake_word_s"] + self.m.lat_range[1] + A10["react_s"]
+            self.dur_plan = (t + A10["s1_dur_s"] - pre, t + A10["s1_dur_s"])
+            self.i, self.phase, self.t_wake_sent = self.i + 1, "dur_plan", None
+            return
+        self.phase, self.t_apply = "await", t
+
+    def completed(self, kind, t):
+        """S1: beklenen tamamlanma (commands done) -> sonraki kelime t + 1.0 s."""
+        if self.mode != "S1" or self.phase != "await" or S1_DONE.get(self.cur) != kind:
+            return False
+        self.i, self.phase, self.t_next = self.i + 1, "wait", t + A10["s1_gap_s"]
+        return True
+
+    def check_timeout(self, t):
+        if self.mode == "S1" and self.phase == "await" and t - self.t_apply > A10["s1_word_timeout_s"]:
+            self.failed, self.why = True, "%s tamamlanmadi (zaman asimi)" % self.cur
+
+
+def _yaw(q):
+    return float(math.atan2(2.0 * (q[0] * q[3] + q[1] * q[2]), 1.0 - 2.0 * (q[2] * q[2] + q[3] * q[3])))
+
+
+def _wrap(a):
+    return (a + math.pi) % (2.0 * math.pi) - math.pi
+
+
+def _pct(v, q):
+    v = [x for x in v if x is not None]
+    return _num(np.percentile(v, q)) if v else None
+
+
+def extra_floor_penetration(env, i):
+    """Getup ortami i'nin (set_state sonrasi) EXTRA kutulari - zemin temaslarindaki en buyuk girisim (m; 0: yok)."""
+    idx, d = env.robot_index, env.mj_data(i)
+    ex = set(int(g) for g in idx.extra_geoms)
+    pen = 0.0
+    for c in range(d.ncon):
+        con = d.contact[c]
+        g = (int(con.geom1), int(con.geom2))
+        if idx.floor_geom in g and (g[0] in ex or g[1] in ex):
+            pen = max(pen, -float(con.dist))
+    return pen
+
+
 class Evaluator(object):
     """xl330 (A1-A4, A8) ve OpenDuck-TR (tr35_*: A4-A8) olcumleri. robot / backlash / scene_path / getup_head
     verilirse her ortama gecer (None: surec varsayilani; getup_head yalniz getup'ta ve "free" degilse). tr35: t_knee
@@ -385,13 +564,16 @@ class Evaluator(object):
         self.n_scale = float(n_scale)
         sc = lambda k, lo: max(lo, int(round(N_TR35[k] * self.n_scale)))
         self.n_a4, self.n_a5, self.n_a6, self.n_ho = sc("A4", 4), sc("A5", 1), sc("A6", 2), sc("handover", 1)
+        self.n_s1, self.n_s2 = sc("A10_S1", 1), sc("A10_S2", 2)
         if t_knee is None:
             from . import actuators as ACT
             t_knee = ACT.CLASSES["ds32xx"]["tau_s"] / 3.0
         self.t_knee = float(t_knee)
         self._tex, self._pidx, self._ms = None, None, None
+        self.a10_seat, self._seat = "bank", None          # A10 oturmus baslangic: "bank" (oturus bankasi) | "exact"
+        self.a10_lat, self.a10_lat_src = a10_latency()   # tanima gecikmesi DR'i (G-SES-a olcumu ya da varsayilan)
 
-    def _env(self, task, n, **kw):
+    def _env(self, task, n, flags=None, **kw):
         kw.setdefault("seed", self.seed)
         for k, v in (("robot", self.robot), ("scene_path", self.scene_path)):
             if v is not None:
@@ -401,7 +583,8 @@ class Evaluator(object):
             kw.update(self._textures_kw(n))
         if task == "getup" and self.getup_head not in (None, "free"):
             kw.setdefault("getup_head", self.getup_head)
-        return VecEnv(n, num_workers=0, task=task, episode_details=True, bank_n=self.bank_n, **self.flags, **kw)
+        return VecEnv(n, num_workers=0, task=task, episode_details=True, bank_n=self.bank_n,
+                      **(self.flags if flags is None else flags), **kw)
 
     def _textures_kw(self, n):
         """Gecici: env_cpu.physics_model(textures=False) + bosluk eklemi derlenmiyor (apply_to_spec'in ara
@@ -1088,6 +1271,538 @@ class Evaluator(object):
         out["pass"] = bool(all_pass(cr) and main is not None)
         return out
 
+    # --- A10 sesli komut senaryolari (spec eki K7) ------------------------------------------------------
+    def _exact_seat(self):
+        """Turetilmis oturus pozu (SEAT_DEG + HEAD_SIT, govde SEAT_PITCH_DEG, gurultusuz) MuJoCo C'de oturtulmus tek
+        durum, banka bicimi (A10 --a10-seat exact: P2-0 stub'inda oturus bankasi one devriliyor, p5a-notlar 2.3)."""
+        if self._seat is None:
+            b = PB._Builder("main", self.robot, self.scene_path)
+            m, d, idx = b.m, b.d, b.idx
+            ref = T.posture_ref(np, np.array(C.H_HOME), np.array(1.0), idx.default_obs_q)
+            ctrl = idx.init_ctrl.copy()
+            ctrl[idx.obs_act_id[:10]] = ref["q_ref"]
+            ctrl[idx.head_act_id] = idx.default_obs_q[10:14] + ref["head_offset"]
+            ctrl = np.clip(ctrl, m.actuator_ctrlrange[:, 0], m.actuator_ctrlrange[:, 1])
+            b.place(PB.axis_angle_quat((0, 1, 0), np.deg2rad(C.SEAT_PITCH_DEG)), ctrl, 0.001)
+            b.settle()
+            self._seat = {"qpos": d.qpos[None].copy(), "qvel": np.zeros((1, m.nv)), "ctrl": ctrl[None].copy()}
+        return self._seat
+
+    @staticmethod
+    def _sense(s, i):
+        """Denetleyici girdileri (olculen: tr35 sensor modeli; yoksa gercek durum): (gravity, gyro, qd, q)."""
+        if "gravity_obs" in s:
+            return s["gravity_obs"][i], s["gyro_obs"][i], s["qd_obs"][i], s["q_obs"][i]
+        return T.projected_gravity(np, s["quat"][i]), s["gyro"][i], s["qd"][i], s["q"][i]
+
+    def a10_rollout(self, main, getup, mode, n, bias_u=None, seed_off=0, frame_cb=None, acc=None, rec_name=None,
+                    trace=None):
+        """A10 rollout'u (spec eki K7): n bolum, mode "S1" (sabit dizi, oturmus baslangic) | "S2" (20 rastgele kelime,
+        %50 HOME / %50 oturmus) | "HO" (A6 devri A10 duzeninde: devirme -> dusme algisi -> getup -> devir). Bolum main
+        varyantinda (EXTRA kutulari zemine etkisiz) baslar; denetleyici (rl/commands.py) politika degistirince durum
+        tr35_handover gibi kopyalanir (getup varyanti; kopya anindaki EXTRA-zemin girisimi kaydedilir). BEKLE: getup
+        ortaminda son ctrl'dan olculen poza 0.5 s rampa, sonra poz tutulur (PWM kapali simulasyonda yok). Bolum basina
+        kayit listesi dondurur. bias_u: gyro bias U(+-bias_u) (duyarlilik). acc: TorqueAcc (main + getup politikali
+        adimlar). frame_cb(t, data, etiket): video (bolum 0). rec_name: A8 yorunge grubu (ilk A8_K bolum). trace (liste):
+        bolum 0'in denetleyici satirlari (commands.trace_row; altin izler)."""
+        from . import commands as CM
+        from . import play as PL
+        from .robot_model import expand_state
+        tab = CM.load_id_table()
+        cap = {"S1": A10["s1_cap_s"], "S2": A10["s2_cap_s"], "HO": A10["ho_cap_s"]}[mode]
+        n_steps = int(round(cap / DT))
+        fl = dict(self.flags, head_random=False)            # bas: komut katmaninin jestleri (egitim rastgelesi yok)
+        zero = TK.pad_command("main", np.zeros(3))
+        env = self._env("main", n, flags=fl, seed=self.seed + seed_off, fixed_command=zero, reset_probs={"home": 1.0},
+                        terminate=False, max_episode_steps=n_steps + 2)
+        genv = self._env("getup", n, flags=fl, seed=self.seed + 1 + seed_off, reset_probs={"stand": 1.0},
+                         progress=1.0, max_episode_steps=n_steps + 2)
+        code = {"S1": 1, "S2": 2, "HO": 3}[mode]
+        seated = np.zeros(n, bool)
+        if mode == "S1":
+            seated[:] = True
+        elif mode == "S2":
+            seated[1::2] = True
+        eps = []
+        k_rec = min(A8_K, n) if (self.collision and rec_name) else 0
+        try:
+            obs, _ = env.reset()
+            gobs, _ = genv.reset()
+            idx_m, idx_g = env.robot_index, genv.robot_index
+            if seated.any():
+                if self.a10_seat == "exact":                 # turetilmis oturus pozu, gurultusuz (stub tanisi)
+                    b = self._exact_seat()
+                else:
+                    cfg = self.bank_n.get("seated") if isinstance(self.bank_n, dict) else self.bank_n
+                    b = self._bank("seated", int(max(1, min(int(seated.sum()), cfg or C.POSE_BANK["seated_n"]))))
+                Q, V = expand_state(env.mj_model(0), b["qpos"], b["qvel"])
+                for r, i in enumerate(np.flatnonzero(seated)):
+                    j = r % len(Q)
+                    obs, _ = env.set_state(int(i), Q[j], V[j], ctrl=np.array(b["ctrl"][j]), alpha=1.0)
+            if bias_u:
+                brng = np.random.default_rng([self.seed, 12, seed_off, code])
+                for e in (env, genv):
+                    if getattr(e._core, "tr35", False):
+                        e._core.sp["gb"][:] = brng.uniform(-bias_u, bias_u, (n, 3))
+            g_scale, g_home = genv._core.act_scale, idx_g.default_action_q
+            leg_act = idx_g.action_act_id[:10]
+            for i in range(n):
+                r = np.random.default_rng([self.seed, 11, seed_off, code, i])
+                vm = VoiceModule(r, tab, self.a10_lat)
+                if mode == "S1":
+                    spk = Speaker("S1", S1_WORDS, r, vm, 1.0)
+                elif mode == "S2":
+                    words = [CM.WORDS[int(x)] for x in r.integers(0, len(CM.WORDS), A10["s2_words"])]
+                    lo, hi = A10["s2_gap_s"]
+                    spk = Speaker("S2", words, r, vm, lo + (hi - lo) * r.random())
+                    for nid in A10["s2_noise_ids"]:
+                        vm.inject(5.0 + 55.0 * r.random(), nid)
+                else:
+                    spk = None
+                eps.append({"sup": CM.Supervisor(tab, idx_m.default_obs_q, "M" if seated[i] else "A"), "vm": vm,
+                            "spk": spk, "where": "main", "hold": None, "pol": "main", "ended": None,
+                            "seated0": bool(seated[i]), "words": [], "falls": [], "pen": [], "handover": [], "viol": [],
+                            "cells": {}, "exposure_s": 0.0, "trans": 0, "trans_falls": 0, "fall_getup_ok": 0,
+                            "b_entries": [], "tips": 0, "t_tip": None, "t_up": None, "yaw_u": None, "yaw_prev": None,
+                            "dur_track": None, "gest_track": None, "turns": [], "end_t": None,
+                            "s_prev": "M" if seated[i] else "A", "traj": [], "traj_steps": []})
+            dirs = sorted(PL.TIP_AXES)
+            nb = max(1, int(round(CM.B_RAMP_S / DT)))
+            sm, sg = env.task_state(), genv.task_state()
+            for k in range(n_steps):
+                t = k * DT
+                cmds = np.tile(zero, (n, 1))
+                gest = np.zeros((n, len(T.GEST_CHANNELS)))
+                chg_g = False
+                for i, E in enumerate(eps):
+                    if E["ended"] is not None:
+                        continue
+                    sup, on_main = E["sup"], E["where"] == "main"
+                    s, d = (sm, env.mj_data(i)) if on_main else (sg, genv.mj_data(i))
+                    p, quat = d.qpos[0:2].copy(), d.qpos[3:7].copy()
+                    yaw = _yaw(quat)
+                    E["yaw_u"] = yaw if E["yaw_u"] is None else E["yaw_u"] + _wrap(yaw - E["yaw_prev"])
+                    E["yaw_prev"] = yaw
+                    st = {"p": p, "yaw": E["yaw_u"], "z": float(s["trunk_z"][i]), "v": float(np.hypot(*d.qvel[0:2])),
+                          "gz": float(T.projected_gravity(np, quat)[2]), "contact": bool(np.all(s["contact"][i] > 0.5)),
+                          "trunk_floor": bool(s["trunk_floor"][i] > 0.5),
+                          "alpha": float(s["alpha"][i]) if on_main else 0.0}
+                    if mode == "HO" and on_main and sup.state == "A" and E["t_up"] is None:      # devirme
+                        if (E["tips"] == 0 and t >= TR_HO["stand_s"] - 1e-9) or \
+                                (0 < E["tips"] < PL.TIP_MAX and t - E["t_tip"] >= PL.TIP_RETRY_S - 1e-9):
+                            PL.tip_over(d, dirs[i % len(dirs)])
+                            E["tips"], E["t_tip"] = E["tips"] + 1, t
+                        elif E["tips"] >= PL.TIP_MAX and t - E["t_tip"] >= PL.TIP_RETRY_S - 1e-9 and not E["falls"]:
+                            E["ended"] = "no_fall"
+                            continue
+                    spk = E["spk"]
+                    if spk is not None:
+                        spk.update(t)
+                        if mode == "S1" and spk.phase == "spoken" and spk.cur == "dur" and E["dur_track"] is None:
+                            E["dur_track"] = {"t0": spk.t_word_end, "path": 0.0, "p": None, "v": [], "dist": None}
+                    evs = E["vm"].pop(t)
+                    g, w, qd, q = self._sense(s, i)
+                    a_in, h_in = st["alpha"], float(s["h_ref"][i]) if on_main else C.H_HOME
+                    inp = CM.Inputs(t, [e[1] for e in evs], g, w, qd, q, a_in, h_in)
+                    if evs and all(e[2] == "noise" for e in evs):          # degismez: tabloda olmayan kimlik etkisiz
+                        ref = copy.deepcopy(sup).step(CM.Inputs(t, [], g, w, qd, q, a_in, h_in))
+                        out = sup.step(inp)
+                        if not self._a10_same(ref, out):
+                            E["viol"].append((t, "kimlik %s etkili" % [e[1] for e in evs]))
+                    else:
+                        out = sup.step(inp)
+                    if trace is not None and i == 0:             # altin iz (tools/commands_golden.py)
+                        trace.append(CM.trace_row(inp, out))
+                    self._a10_book(E, t, out, evs, st, s, i, mode)
+                    # yurutucu: politika degisimi / getup yeniden baslatma / devir (tr35_handover durum kopyasi)
+                    pol, pp = out["policy"], E["pol"]
+                    if pol != pp or out["getup_restart"] or out["handover"]:
+                        if pol == "none":                     # BEKLE: son ctrl ve olculen poz (robotun bulundugu ortam)
+                            c0 = np.asarray(s["ctrl_prev"][i])[leg_act] if "ctrl_prev" in s else g_home[:10].copy()
+                            E["hold"] = {"c0": c0, "q": np.asarray(q)[:10].copy()}
+                        else:
+                            E["hold"] = None
+                        if pp == "main" and pol in ("getup", "none"):
+                            dm = env.mj_data(i)
+                            gobs, _ = genv.set_state(i, dm.qpos.copy(), dm.qvel.copy(), warmstart=dm.qacc_warmstart.copy())
+                            E["pen"].append({"t": t, "to": pol, "pen_mm": 1e3 * extra_floor_penetration(genv, i)})
+                            E["where"], chg_g = "getup", True
+                        elif pol == "main" and pp in ("getup", "none"):
+                            dg = genv.mj_data(i)
+                            obs, _ = env.set_state(i, dg.qpos.copy(), dg.qvel.copy(), warmstart=dg.qacc_warmstart.copy(),
+                                                   alpha=float(out["main_alpha"]))
+                            E["where"] = "main"
+                        elif pol == "getup":                  # 2. getup denemesi ya da B -> F: getup bastan
+                            dg = genv.mj_data(i)
+                            gobs, _ = genv.set_state(i, dg.qpos.copy(), dg.qvel.copy(), warmstart=dg.qacc_warmstart.copy())
+                            chg_g = True
+                        E["pol"] = pol
+                    if out["command"] is not None:
+                        cmds[i] = out["command"]
+                        gest[i] = out["gesture"]
+                    if frame_cb is not None and i == 0:
+                        frame_cb(t, env.mj_data(0) if E["where"] == "main" else genv.mj_data(0),
+                                 "%s %s" % (out["state"], spk.cur if spk is not None and spk.cur else ""))
+                obs, _ = env.set_commands(cmds, refresh_obs=True)
+                env.set_gesture(gest)
+                if chg_g:
+                    gobs, _ = genv.observe()
+                am, ag = main(obs), np.array(getup(gobs), dtype=np.float32)
+                for i, E in enumerate(eps):
+                    if E["ended"] is None and E["hold"] is not None:      # BEKLE: rampa + poz tutma (getup aksiyonu)
+                        tgt = E["hold"]["c0"] + (E["hold"]["q"] - E["hold"]["c0"]) * min(E["sup"].b_n / nb, 1.0)
+                        a = np.zeros(ag.shape[1], np.float32)
+                        a[:10] = np.clip((tgt - g_home[:10]) / g_scale[:10], -1.0, 1.0)
+                        ag[i] = a
+                obs, _, _, done_m, _ = env.step(am)
+                gobs, _, _, done_g, _ = genv.step(ag)
+                sm, sg = env.task_state(), genv.task_state()
+                live_m, live_g = np.zeros(n, bool), np.zeros(n, bool)
+                for i, E in enumerate(eps):
+                    if E["ended"] is not None:
+                        continue
+                    on_main = E["where"] == "main"
+                    if (done_m if on_main else done_g)[i]:
+                        E["ended"] = "physics"
+                        continue
+                    if E["pol"] == "main":
+                        live_m[i] = True
+                    elif E["pol"] == "getup":
+                        live_g[i] = True
+                    if i < k_rec and (k + 1) % A8_STRIDE == 0:
+                        E["traj"].append((env if on_main else genv).mj_data(i).qpos.copy())
+                        E["traj_steps"].append(k + 1)
+                    self._a10_end(E, t + DT, mode)
+                if acc is not None:
+                    acc.add(sm, live_m)
+                    acc.add(sg, live_g)
+                if all(E["ended"] is not None for E in eps):
+                    break
+        finally:
+            env.close()
+            genv.close()
+        for E in eps:
+            if E["ended"] is None:
+                E["ended"] = "cap"
+        if k_rec:
+            self.traj[rec_name] = {"qpos": [np.array(E["traj"]) for E in eps[:k_rec]],
+                                   "steps": [list(E["traj_steps"]) for E in eps[:k_rec]]}
+        return eps
+
+    @staticmethod
+    def _a10_same(a, b):
+        """Iki denetleyici ciktisi (isaretler haric) ayni mi (beyaz liste degismezi)."""
+        for k in ("state", "policy", "led", "led_mode", "pwm_off", "getup_restart", "handover", "pending"):
+            if a[k] != b[k]:
+                return False
+        if (a["command"] is None) != (b["command"] is None):
+            return False
+        if a["command"] is not None and not np.array_equal(a["command"], b["command"]):
+            return False
+        return np.array_equal(a["gesture"], b["gesture"]) and a["events"] == b["events"]
+
+    def _a10_book(self, E, t, out, evs, st, s, i, mode):
+        """Bir denetleyici adiminin kaydi: degismezler, hucre kapsamasi, dusmeler, gecisler, maruziyet, S1 adimlari ve
+        olcumleri (gel, donus, eğil/yüksel, evet/hayir, dur)."""
+        from . import commands as CM
+        sup, spk = E["sup"], E["spk"]
+        state = out["state"]
+        for c in out["events"]:
+            E["cells"][c] = E["cells"].get(c, 0) + 1
+        # K5 degismezleri
+        cmd = out["command"]
+        if state in ("F", "B") and cmd is not None:
+            E["viol"].append((t, "F/B'de main komutu"))
+        if state in ("OE", "M", "O", "K") and cmd is not None and np.any(cmd[:3] != 0.0):
+            E["viol"].append((t, "%s'de hiz komutu" % state))
+        if cmd is not None and not (C.H_MIN_WALK - 1e-6 <= float(cmd[3]) <= C.H_HOME + 1e-6):
+            E["viol"].append((t, "h %.4f aralik disi" % float(cmd[3])))
+        dur_ids = set(sup.tab.ids_of("dur"))
+        if any(e[1] in dur_ids for e in evs) and not any(c.startswith("dur/") for c in out["events"]):
+            E["viol"].append((t, "dur dusuruldu"))
+        if out["pending"] is not None and not (state in ("O", "K") or (state == "A" and sup.handoff_n > 0)):
+            E["viol"].append((t, "bekleyen %s durumunda %s" % (out["pending"], state)))
+        # maruziyet, gecis ve dusmeler
+        prev = E["s_prev"]
+        if prev in ("A", "OE", "Y", "D", "M"):
+            E["exposure_s"] += DT
+        if state in ("O", "K") and prev != state:
+            E["trans"] += 1
+        for kind, w, cell, extra in out["signals"]:
+            if kind == "fall":
+                E["falls"].append({"t": t, "state": prev, "cell": cell})
+                if prev in ("O", "K"):
+                    E["trans_falls"] += 1
+            if kind == "bekle":
+                E["b_entries"].append({"t": t, "why": extra, "from": prev})
+        if out["handover"]:
+            E["handover"].append(t)
+            if E["falls"]:
+                E["fall_getup_ok"] += 1
+            if mode == "HO" and E["t_up"] is None:
+                E["t_up"] = t
+        if mode == "HO" and E["t_up"] is not None and E["falls"] and E["falls"][-1]["t"] > E["t_up"]:
+            E["ended"] = "refall"
+        E["s_prev"] = state
+        if state == "D" and prev != "D":
+            E["turns"].append({"t": t, "bias_updated": bool(sup.turn_bias_updated)})
+        # konusmaci ve S1 adimlari
+        delivered = [e[2] for e in evs if e[2] not in ("wake", "noise")]
+        for w in delivered:
+            ok = any(k2 == "apply" and w2 == w for k2, w2, _, _ in out["signals"])
+            if spk is not None:
+                spk.applied(w, t, ok)
+            if mode == "S1":
+                E["words"].append({"word": w, "t_apply": t, "ok_apply": ok, "t_done": None, "score": None,
+                                   "st0": dict(st, p=st["p"].copy())})
+        if mode == "S1" and spk is not None:
+            for kind, w in out["done"]:
+                if spk.completed(kind, t):
+                    E["words"][-1]["t_done"] = t
+            spk.check_timeout(t)
+            for wr in E["words"]:
+                self._a10_score(E, wr, t, out, st)
+        self._a10_measure(E, t, out, st, s, i)
+
+    def _a10_score(self, E, wr, t, out, st):
+        """S1 adim puani: kalk / otur A5 gercek durum kurallari (pencere icinde), digerleri K5 tamamlanmasi."""
+        if wr["score"] is not None or not wr["ok_apply"]:
+            if not wr["ok_apply"] and wr["score"] is None:
+                wr["score"] = False
+            return
+        w, dt_ = wr["word"], t - wr["t_apply"]
+        if w == "kalk":
+            if st["z"] > C.MAIN["standup_z"] and st["contact"] and st["gz"] < C.MAIN["stand_gz"] and \
+                    dt_ <= C.MAIN["standup_window_s"] + 1e-9 and E["where"] == "main":
+                wr["score"] = True
+            elif dt_ > C.MAIN["standup_window_s"] + 1e-9:
+                wr["score"] = False
+        elif w == "otur":
+            c = out["command"]
+            if c is not None and c[4] > 0.5 and st["alpha"] >= 1.0 - 1e-6 and st["trunk_floor"] and \
+                    st["gz"] < C.MAIN["seat_gz"] and dt_ <= C.MAIN["sitdown_window_s"] + 1e-9:
+                wr["score"] = True
+            elif dt_ > C.MAIN["sitdown_window_s"] + 1e-9:
+                wr["score"] = False
+        elif w == "gel":
+            if any(x["word"] == "dur" and x["ok_apply"] for x in E["words"]):
+                wr["score"] = not E["falls"]
+        elif wr["t_done"] is not None:
+            wr["score"] = not E["falls"]
+
+    def _a10_measure(self, E, t, out, st, s, i):
+        """S1 olcumleri (K7): gel orani, donus hatasi (bitisten 1 s sonra), eğil/yüksel z degisimi (h_ref hedefte + 1 s),
+        evet/hayir orta cevrim tepeden tepeye orani (pot q / komut), dur durma mesafesi (kelime bitisinden)."""
+        from . import commands as CM
+        ws = E["words"]
+        for kind, w in out["done"]:
+            if kind in ("turn", "height") and ws:
+                last = next((x for x in reversed(ws) if S1_DONE.get(x["word"]) == kind), None)
+                if last is not None and last.get("m_due") is None:
+                    last["m_due"] = t + A10["measure_after_s"]
+        for wr in ws:
+            if wr.get("m_due") is not None and wr.get("m") is None and t >= wr["m_due"] - 1e-9:
+                if wr["word"] in ("saga", "sola"):
+                    sgn = -1.0 if wr["word"] == "saga" else 1.0
+                    wr["m"] = abs(math.degrees(sgn * (st["yaw"] - wr["st0"]["yaw"])) - 90.0)
+                else:
+                    sgn = -1.0 if wr["word"] == "egil" else 1.0
+                    wr["m"] = sgn * (st["z"] - wr["st0"]["z"]) / CM.K["dh"]
+        # gel: dur uygulandiginda yer degistirme / (0.8 vx_max x uygulama suresi)
+        if ws and ws[-1]["word"] == "dur" and ws[-1]["ok_apply"] and ws[-1].get("gel_done") is None:
+            g = next((x for x in reversed(ws[:-1]) if x["word"] == "gel"), None)
+            if g is not None and g.get("m") is None:
+                yaw0 = g["st0"]["yaw"]
+                dp = ws[-1]["st0"]["p"] - g["st0"]["p"]
+                T_ = ws[-1]["t_apply"] - g["t_apply"]
+                g["m"] = float((dp[0] * math.cos(yaw0) + dp[1] * math.sin(yaw0)) / (CM.K["vx_gel"] * T_)) if T_ > 0 else None
+            ws[-1]["gel_done"] = True
+        # dur: kelime bitisinden (gecikme dahil) |v| < 0.02 (0.2 s ortalama) olana dek yol
+        dtk = E["dur_track"]
+        if dtk is not None and dtk["dist"] is None and t >= dtk["t0"] - 1e-9:
+            if dtk["p"] is not None:
+                dtk["path"] += float(np.hypot(*(st["p"] - dtk["p"])))
+            dtk["p"] = st["p"].copy()
+            dtk["v"].append(st["v"])
+            m = int(round(A10["stop_avg_s"] / DT))
+            if len(dtk["v"]) >= m and float(np.mean(dtk["v"][-m:])) < A10["stop_v"]:
+                dtk["dist"] = dtk["path"]                     # rapor: E["dur_track"]["dist"] (kelime kaydindan once olabilir)
+        # evet / hayir: orta tam cevrim (Tukey tam genlik bolgesi), pot q ve komut ctrl tepeden tepeye
+        for kind, w, cell, extra in out["signals"]:
+            if kind == "gesture" and w in ("evet", "hayir"):
+                k = int(CM.WORD_GESTURE[w])
+                E["gest_track"] = {"word": w, "t0": t, "j": T.GEST_TAB["ch"][k], "lo": float(T.GEST_TAB["taper"][k]),
+                                   "hi": float(T.GEST_TAB["dur"][k] - T.GEST_TAB["taper"][k]), "q": [], "c": []}
+        gt = E["gest_track"]
+        if gt is not None and "head_ctrl" in s and "q_obs" in s:
+            tau = t - gt["t0"] - DT                                   # bu okumanin uyguladigi jest zamani
+            if gt["lo"] - 1e-9 <= tau <= gt["hi"] + 1e-9:
+                j = gt["j"]
+                gt["q"].append(float(s["q_obs"][i][C.OBS_JOINTS.index(T.GEST_CHANNELS[j])]))
+                gt["c"].append(float(s["head_ctrl"][i][j]))
+            elif tau > gt["hi"] + 1e-9:
+                cpp = max(gt["c"]) - min(gt["c"]) if gt["c"] else 0.0
+                r = (max(gt["q"]) - min(gt["q"])) / cpp if cpp > 0 else None
+                d = next((x for x in reversed(ws) if x["word"] == gt["word"]), None)
+                if d is not None:
+                    d["m"] = r
+                E["gest_track"] = None
+
+    def _a10_end(self, E, t, mode):
+        """Bolum sonu: S1 tum adimlar tamam + 1 s ya da basarisizlik / dusme + s1_after_fail_s (getup ve devir izlenir)
+        ya da B; S2 20 kelime uygulandi + kuyruk; HO devirden AFTER_HANDOFF_S sonra (basari) / B / zaman."""
+        spk, sup = E["spk"], E["sup"]
+        if mode == "S1":
+            if spk.done and t >= spk.t_next - 1e-9:
+                E["ended"] = "done"
+            elif spk.failed or E["falls"]:
+                E["end_t"] = E["end_t"] or t
+                if t - E["end_t"] >= A10["s1_after_fail_s"] or sup.state == "B" or \
+                        (E["handover"] and t - E["handover"][-1] >= TR_HO["after_s"]):
+                    E["ended"] = "failed"
+        elif mode == "S2":
+            if spk.done and t >= spk.t_next - 1e-9:
+                E["end_t"] = E["end_t"] or t
+                if t - E["end_t"] >= A10["s2_tail_s"]:
+                    E["ended"] = "done"
+        else:
+            if E["t_up"] is not None and t - E["t_up"] >= TR_HO["after_s"] - 1e-9:
+                E["ended"] = "ok"
+            elif sup.state == "B":
+                E["ended"] = "getup_failed"
+
+    def tr35_a10(self, main, getup):
+        """A10 (spec eki K7): S1 ve S2 (N = n_s1 / n_s2), ayni duzenekte A6 devri (N = n_ho), gyro bias duyarliligi
+        (U(+-0.04), yalniz rapor); A4 tork / ray / limit olcutleri (A8 icin A10_* yorungeleri)."""
+        acc = self._acc()
+        t0 = time.time()
+        s1 = self.a10_rollout(main, getup, "S1", self.n_s1, acc=acc, rec_name="A10_S1")
+        t1 = time.time()
+        s2 = self.a10_rollout(main, getup, "S2", self.n_s2, acc=acc, rec_name="A10_S2")
+        t2 = time.time()
+        ho = self.a10_rollout(main, getup, "HO", self.n_ho, rec_name="A10_HO")
+        t3 = time.time()
+        b1 = self.a10_rollout(main, getup, "S1", self.n_s1, bias_u=A10["bias_u"], seed_off=100)
+        b2 = self.a10_rollout(main, getup, "S2", self.n_s2, bias_u=A10["bias_u"], seed_off=100)
+        t4 = time.time()
+        out = {"N": {"S1": self.n_s1, "S2": self.n_s2, "handover": self.n_ho},
+               "module": dict(A10, lat=self.a10_lat, lat_source=self.a10_lat_src),
+               "criteria_values": CRIT_A10, "S1": self._a10_s1_report(s1), "S2": self._a10_s2_report(s2),
+               "handover": self._a10_ho_report(ho),
+               "bias_sensitivity": {"gyro_bias_u": A10["bias_u"], "report_only": True,
+                                    "S1": self._a10_s1_report(b1), "S2": self._a10_s2_report(b2)},
+               "seconds": {"S1": round(t1 - t0, 1), "S2": round(t2 - t1, 1), "handover": round(t3 - t2, 1),
+                           "bias": round(t4 - t3, 1)}}
+        summ = acc.summary()
+        out["torque"] = summ
+        cr = {"S1": out["S1"]["criteria"], "S2": out["S2"]["criteria"], "handover": out["handover"]["criteria"]}
+        cr.update(torque_criteria(summ, self.t_knee))
+        out["criteria"] = cr
+        out["pass"] = all_pass(cr)
+        return out
+
+    @staticmethod
+    def _pen_report(eps):
+        pens = [p["pen_mm"] for E in eps for p in E["pen"]]
+        return {"copies": len(pens), "max_mm": _num(max(pens)) if pens else None,
+                "over_2mm": [dict(p, episode=i) for i, E in enumerate(eps) for p in E["pen"] if p["pen_mm"] > A10["pen_mm"]]}
+
+    def _a10_s1_report(self, eps):
+        n = len(eps)
+        ok = [bool(E["words"] and len(E["words"]) == len(S1_WORDS) and all(w["score"] for w in E["words"])
+                   and not E["falls"]) for E in eps]
+        steps = {w: {"n": 0, "ok": 0} for w in S1_WORDS}
+        vals = {"gel": [], "turn": [], "height": [], "gesture": [], "dur": []}
+        for E in eps:
+            for wr in E["words"]:
+                d = steps.setdefault(wr["word"], {"n": 0, "ok": 0})
+                d["n"] += 1
+                d["ok"] += int(bool(wr["score"]))
+                m = wr.get("m")
+                key = {"gel": "gel", "saga": "turn", "sola": "turn", "egil": "height", "yuksel": "height",
+                       "evet": "gesture", "hayir": "gesture"}.get(wr["word"])
+                if key and m is not None:
+                    vals[key].append(float(m))
+            if E["dur_track"] is not None and E["dur_track"]["dist"] is not None:
+                vals["dur"].append(float(E["dur_track"]["dist"]))
+        rr = rate_rule(sum(ok), n, CRIT_A10["s1_point"], CRIT_A10["s1_w_lower"])
+        p10, p90 = (lambda v: _pct(v, 10)), (lambda v: _pct(v, 90))
+        met = {"gel_ratio": {"n": len(vals["gel"]), "p10": p10(vals["gel"]), "p90": p90(vals["gel"])},
+               "turn_err_deg": {"n": len(vals["turn"]), "p90": p90(vals["turn"]), "max": _num(max(vals["turn"])) if vals["turn"] else None},
+               "height_frac_dH": {"n": len(vals["height"]), "p10": p10(vals["height"])},
+               "gesture_p2p_ratio": {"n": len(vals["gesture"]), "p10": p10(vals["gesture"])},
+               "dur_stop_m": {"n": len(vals["dur"]), "p90": p90(vals["dur"])}}
+        cr = {"completion": rr["criteria"],
+              "gel_p10": crit(met["gel_ratio"]["p10"], CRIT_A10["gel_p10"], ">="),
+              "gel_p90": crit(met["gel_ratio"]["p90"], CRIT_A10["gel_p90"], "<="),
+              "turn_p90": crit(met["turn_err_deg"]["p90"], CRIT_A10["turn_p90_deg"], "<="),
+              "height_p10": crit(met["height_frac_dH"]["p10"], CRIT_A10["height_p10_frac"], ">="),
+              "gesture_p10": crit(met["gesture_p2p_ratio"]["p10"], CRIT_A10["gesture_p10"], ">="),
+              "dur_p90": crit(met["dur_stop_m"]["p90"], CRIT_A10["dur_p90_m"], "<=")}
+        turns = [x for E in eps for x in E["turns"]]
+        return {"episodes": n, "completion": rr, "steps": steps, "metrics": met, "criteria": cr,
+                "ended": self._count([E["ended"] for E in eps]), "falls": sum(len(E["falls"]) for E in eps),
+                "fall_getup_handover": sum(E["fall_getup_ok"] for E in eps), "penetration": self._pen_report(eps),
+                "invariant_violations": sum(len(E["viol"]) for E in eps),
+                "turns_with_bias_update": _rate(sum(x["bias_updated"] for x in turns), len(turns)),
+                "module_dropped": sum(len(E["vm"].dropped) for E in eps), "pass": all_pass(cr)}
+
+    @staticmethod
+    def _count(v):
+        out = {}
+        for x in v:
+            out[str(x)] = out.get(str(x), 0) + 1
+        return out
+
+    def _a10_s2_report(self, eps):
+        from . import commands as CM
+        n = len(eps)
+        exp_s = sum(E["exposure_s"] for E in eps)
+        falls_exp = sum(1 for E in eps for f in E["falls"] if f["state"] not in ("O", "K"))
+        units = exp_s / CRIT_A10["exposure_s"]
+        lo, hi = wilson(falls_exp, units) if units > 0 else [None, None]
+        fr = {"falls": falls_exp, "exposure_s": _num(exp_s), "units_20s": _num(units), "rate_per_20s": _rate(falls_exp, units),
+              "w_upper": hi, "criteria": {"w_upper": crit(hi, CRIT_A10["s2_fall_w_upper"], "<=")}}
+        trans = sum(E["trans"] for E in eps)
+        tf = rate_rule(sum(E["trans_falls"] for E in eps), trans, w_upper_max=CRIT_A10["s2_trans_fall_w_upper"])
+        viol = [v for E in eps for v in E["viol"]]
+        cells = {}
+        for E in eps:
+            for c, k in E["cells"].items():
+                cells[c] = cells.get(c, 0) + k
+        grid = {}
+        low = []
+        for row in CM.ROWS:
+            grid[row] = {}
+            for s in CM.STATES:
+                key = "%s/%s" % (row, s)
+                grid[row][s] = cells.get(key, 0)
+                if grid[row][s] < CRIT_A10["cell_min"]:
+                    low.append({"cell": key, "count": grid[row][s], "unreachable": CM.UNREACHABLE.get((row, s))})
+        extra = {c: k for c, k in cells.items() if c.split("/")[0] in CM.ROWS and c.split("/")[1] not in CM.STATES}
+        cr = {"falls_per_20s_w_upper": fr["criteria"]["w_upper"], "transition_falls_w_upper": tf["criteria"]["w_upper"],
+              "invariants": crit(len(viol), CRIT_A10["s2_invariant_violations"], "<="),
+              "cells_min": crit(sum(1 for x in low if not x["unreachable"]), 0, "<=")}
+        return {"episodes": n, "start_seated": sum(E["seated0"] for E in eps), "falls_exposure": fr,
+                "transitions": trans, "transition_falls": tf, "invariant_violations": len(viol),
+                "violations": [{"t": v[0], "what": v[1]} for v in viol[:50]], "cells": grid, "cells_extra": extra,
+                "cells_below_min": low, "fall_getup_handover": sum(E["fall_getup_ok"] for E in eps),
+                "b_entries": sum(len(E["b_entries"]) for E in eps), "ended": self._count([E["ended"] for E in eps]),
+                "penetration": self._pen_report(eps), "module_dropped": sum(len(E["vm"].dropped) for E in eps),
+                "turns_with_bias_update": _rate(sum(x["bias_updated"] for E in eps for x in E["turns"]),
+                                                sum(len(E["turns"]) for E in eps)),
+                "criteria": cr, "pass": all_pass(cr)}
+
+    def _a10_ho_report(self, eps):
+        n = len(eps)
+        ok = sum(1 for E in eps if E["ended"] == "ok")
+        rr = rate_rule(ok, n, point_min=CRIT_TR35["A6_handover_point"])
+        up = [E["t_up"] - E["falls"][0]["t"] for E in eps if E["t_up"] is not None and E["falls"]]
+        return {"episodes": n, "successes": ok, "rate": rr, "failures": self._count([E["ended"] for E in eps
+                                                                                   if E["ended"] != "ok"]),
+                "t_fall_to_main": _stats(up), "tips_used": _stats([E["tips"] for E in eps]),
+                "penetration": self._pen_report(eps), "criteria": rr["criteria"], "pass": all_pass(rr["criteria"])}
+
     # --- A7 / A8 -------------------------------------------------------------------------------------
     @staticmethod
     def tr35_a7(paths):
@@ -1156,8 +1871,9 @@ def criteria_mode(criteria, pol):
 
 
 def _evaluate_tr35(base, pol, paths, seed, flags, bank_n, collision, log, robot, backlash, scene_path, getup_head,
-                   t_knee, n_scale, a7_onnx, t0):
-    """OpenDuck-TR spec 6 A4-A8 (modul notu). base: politika yukleme sonucu (policies, errors)."""
+                   t_knee, n_scale, a7_onnx, t0, a10=False):
+    """OpenDuck-TR spec 6 A4-A8 (modul notu). base: politika yukleme sonucu (policies, errors). a10: True -> ayrica A10
+    (spec eki K7, sesli komut); "only" -> yalniz A10 (+ A8)."""
     robot = robot or TR35
     backlash = True if backlash is None else bool(backlash)
     collision = True if collision is None else bool(collision)
@@ -1198,13 +1914,24 @@ def _evaluate_tr35(base, pol, paths, seed, flags, bank_n, collision, log, robot,
         out[name] = r
         log("%s: %s (%.1f s)" % (name, "GECTI" if r.get("pass") else "gecmedi", r["seconds"]))
 
-    section("A4", lambda: ev.tr35_a4(pol["walk"], pol["main"]), any_of=("walk", "main"))
-    section("A5", lambda: ev.tr35_a5(pol["main"]), need=("main",))
-    section("A6", lambda: ev.tr35_a6(pol["getup"], pol["main"]), need=("getup",))
+    base_keys = ("A4", "A5", "A6", "A7")
+    if a10 == "only":
+        base_keys = ()
+        for k in ("A4", "A5", "A6", "A7"):
+            out[k] = {"status": "not_run", "reason": "--a10-only"}
+    if base_keys:
+        section("A4", lambda: ev.tr35_a4(pol["walk"], pol["main"]), any_of=("walk", "main"))
+        section("A5", lambda: ev.tr35_a5(pol["main"]), need=("main",))
+        section("A6", lambda: ev.tr35_a6(pol["getup"], pol["main"]), need=("getup",))
+    if a10:
+        out["N"].update(A10_S1=ev.n_s1, A10_S2=ev.n_s2)
+        section("A10", lambda: ev.tr35_a10(pol["main"], pol["getup"]), need=("main", "getup"))
     onnx = [(r, paths[r]) for r in ("main", "walk", "getup")
             if pol[r] is not None and str(paths[r] or "").endswith(".onnx")]
     onnx += [("extra_%d" % i, p) for i, p in enumerate(a7_onnx or [])]
-    if onnx:
+    if not base_keys:
+        pass
+    elif onnx:
         section("A7", lambda: ev.tr35_a7(onnx))
     else:
         out["A7"] = {"status": "skipped", "reason": "ONNX politika yok (zero / .pt): --a7-onnx ile verilebilir"}
@@ -1215,7 +1942,7 @@ def _evaluate_tr35(base, pol, paths, seed, flags, bank_n, collision, log, robot,
             out["A8"] = {"status": "skipped", "reason": "yorunge yok (hicbir rollout calismadi)"}
     else:
         out["A8"] = {"status": "not_run", "reason": "--no-collision: A8 olculmedi ve genel kabule dahil degil"}
-    keys = ("A4", "A5", "A6", "A7") + (("A8",) if collision else ())
+    keys = base_keys + (("A10",) if a10 else ()) + (("A8",) if collision else ())
     out["pass"] = {k: out[k].get("pass") for k in keys}
     out["pass_all"] = all(v is True for v in out["pass"].values())
     out["pass_all_includes"] = list(keys)
@@ -1225,9 +1952,11 @@ def _evaluate_tr35(base, pol, paths, seed, flags, bank_n, collision, log, robot,
 
 def evaluate(main=None, walk=None, getup=None, episodes=64, seed=0, randomize=True, noise=True, push=True,
              head_random=True, bank_n=None, collision=False, log=print, a4_episodes=A4_EPISODES, criteria="auto",
-             robot=None, backlash=None, scene_path=None, getup_head=None, t_knee=None, n_scale=1.0, a7_onnx=None):
+             robot=None, backlash=None, scene_path=None, getup_head=None, t_knee=None, n_scale=1.0, a7_onnx=None,
+             a10=False):
     """Politika yollari ("zero" dahil) -> sonuc sozlugu (JSON'a yazilabilir). criteria "auto" | "xl330" | "tr35"
-    (criteria_mode); tr35 kipinde robot ... a7_onnx kullanilir (collision None: tr35'te acik, xl330'da kapali)."""
+    (criteria_mode); tr35 kipinde robot ... a7_onnx, a10 (False | True | "only"; spec eki K7) kullanilir (collision
+    None: tr35'te acik, xl330'da kapali)."""
     t0 = time.time()
     log = log or (lambda *a, **k: None)
     ev = Evaluator(episodes, seed, randomize, noise, push, head_random, bank_n, collision, log, a4_episodes,
@@ -1257,7 +1986,7 @@ def evaluate(main=None, walk=None, getup=None, episodes=64, seed=0, randomize=Tr
     if criteria_mode(criteria, pol) == TR35:
         flags = dict(randomize=randomize, noise=noise, push=push, head_random=head_random)
         return _evaluate_tr35(out, pol, {"main": main, "walk": walk, "getup": getup}, seed, flags, bank_n, collision,
-                              log, robot, backlash, scene_path, getup_head, t_knee, n_scale, a7_onnx, t0)
+                              log, robot, backlash, scene_path, getup_head, t_knee, n_scale, a7_onnx, t0, a10)
 
     def section(name, need, fn):
         miss = [r for r in need if pol[r] is None]
@@ -1343,6 +2072,8 @@ def parse_args(argv=None):
     g.add_argument("--n-scale", type=float, default=1.0, help="spec N carpani (duman kosulari)")
     g.add_argument("--a7-onnx", action="append", default=None, help="A7'ye eklenecek ONNX (tekrarlanabilir)")
     g.add_argument("--no-collision", action="store_true", help="tr35: A8'i atla (varsayilan olculur)")
+    g.add_argument("--a10", action="store_true", help="tr35: A10 sesli komut senaryolari (spec eki K7) da olculur")
+    g.add_argument("--a10-only", action="store_true", help="tr35: yalniz A10 (+ A8)")
     return p.parse_args(argv)
 
 
@@ -1356,7 +2087,8 @@ def main(argv=None):
                    not a.no_noise, not a.no_push, not a.no_head, a.bank_n, collision,
                    log=lambda *x: print(*x, file=sys.stderr, flush=True), a4_episodes=a.a4_episodes,
                    criteria=a.criteria, robot=a.robot, backlash=a.backlash, scene_path=a.scene,
-                   getup_head=a.getup_head, t_knee=a.t_knee, n_scale=a.n_scale, a7_onnx=a.a7_onnx)
+                   getup_head=a.getup_head, t_knee=a.t_knee, n_scale=a.n_scale, a7_onnx=a.a7_onnx,
+                   a10="only" if a.a10_only else bool(a.a10))
     txt = json.dumps(out, indent=1)
     if a.out:
         with open(a.out, "w") as f:

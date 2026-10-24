@@ -282,6 +282,7 @@ class RobotIndex(object):
         self.action_qpos_adr = np.array([m.jnt_qposadr[jid(n)] for n in self.action_joints])
         self.action_obs_idx = np.array([C.OBS_JOINTS.index(n) for n in self.action_joints])
         self.head_act_id = np.array([aid(n) for n in C.HEAD_JOINTS])
+        self.other_act_id = np.array([aid(n) for n in C.OTHER_JOINTS])      # gaga (jest kanali, spec eki K6.1)
         self.obs_act_id = np.array([aid(n) for n in C.OBS_JOINTS])
         self.hip_pose_idx = np.array([C.OBS_JOINTS.index(n) for n in C.HIP_POSE_JOINTS])
 

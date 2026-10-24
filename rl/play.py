@@ -40,6 +40,7 @@ import os
 
 import numpy as np
 
+from . import commands as CM
 from . import config as C
 from . import task_math as T
 from . import tasks as TK
@@ -100,7 +101,7 @@ def tr35_programs():
 
 if C.ROBOT_PROFILE == TR35:  # xl330 programlari yukarida aynen
     DEMO, SIT_DEMO, GETUP_DEMO, TIP_W = tr35_programs()
-DEMOS = {"walk": DEMO, "sit": SIT_DEMO, "getup": GETUP_DEMO}
+DEMOS = {"walk": DEMO, "sit": SIT_DEMO, "getup": GETUP_DEMO, "voice": ()}   # voice: A10 S1 (spec eki K7), run_voice
 
 
 def infer_task(obs_dim, action_dim):
@@ -200,35 +201,14 @@ def tip_over(data, direction, w=None):
     data.qvel[3:6] += (TIP_W if w is None else w) * np.asarray(TIP_AXES[direction])
 
 
-class Supervisor(object):
-    """main <-> getup devri (spec 3.7, C.SUPERVISOR). update(s) her kontrol adiminda AKTIF politikanin
-    ortam durumuyla (VecEnv.task_state(), tek ortam) cagrilir; devir olursa yeni modu ("getup" | "main")
-    dondurur, yoksa None.
-      main -> getup: gz > fall_gz art arda fall_steps adim
-      getup -> main: task_math.getup_success_now(use_height=False) ready_hold_s boyunca (robotta z olculmez)
+class Supervisor(CM.FallMonitor):
+    """main <-> getup devri (spec 3.7, C.SUPERVISOR). Mantik rl/commands.FallMonitor'da (spec eki K5: tek dusme algisi;
+    play ve eval onu cagirir). update(s) her kontrol adiminda AKTIF politikanin ortam durumuyla (VecEnv.task_state(),
+    tek ortam) cagrilir; devir olursa yeni modu ("getup" | "main") dondurur, yoksa None.
+      main -> getup: gz > fall_gz art arda fall_steps adim (tr35: olculen gz_obs)
+      getup -> main: task_math.getup_success_now(use_height=False) ready_hold_s boyunca (robotta z olculmez; tr35:
+                     olculen gravity / gyro / pot q)
     Devirde cagiran: last_action = 0, alpha = 0, h_ref = H_HOME (VecEnv.set_state) ve handoff_zero_cmd_s sifir komut."""
-
-    def __init__(self, cfg=None, dt=C.CTRL_DT, mode="main"):
-        self.cfg = dict(C.SUPERVISOR if cfg is None else cfg)
-        self.dt = dt
-        self.mode = mode
-        self.n_fall = 0
-        self.t_ready = np.zeros(1)
-
-    def update(self, s):
-        if self.mode == "main":
-            gz = float(np.max(T.projected_gravity(np, s["quat"])[..., 2]))
-            self.n_fall = self.n_fall + 1 if gz > self.cfg["fall_gz"] else 0
-            if self.n_fall >= self.cfg["fall_steps"]:
-                self.mode, self.n_fall, self.t_ready = "getup", 0, np.zeros(1)
-                return "getup"
-            return None
-        ok = T.getup_success_now(np, s, use_height=False)
-        self.t_ready, held = T.hold_timer(np, self.t_ready, ok.reshape(-1)[:1], self.cfg["ready_hold_s"], self.dt)
-        if held[0] > 0.5:
-            self.mode, self.t_ready = "main", np.zeros(1)
-            return "main"
-        return None
 
 
 class Recorder(object):
@@ -335,6 +315,8 @@ def parse_args(argv=None):
     p.add_argument("--scene", default=None, help="sahne MJCF'si (varsayilan config.SCENE_PATH; or. tr35 yer tutucu)")
     p.add_argument("--getup-head", choices=("free", "fixed"), default=None,
                    help="getup politikasinin kafa modu (varsayilan: getup meta'sindaki getup_head)")
+    p.add_argument("--voice-seat", choices=("bank", "exact"), default=None,
+                   help="--demo voice oturmus baslangic: oturus bankasi (varsayilan) ya da turetilmis poz")
     a = p.parse_args(argv)
     if a.command is not None and len(a.command) not in (3, 5):
         p.error("--command 3 (vx vy wz) ya da 5 (vx vy wz h sit) deger alir")
@@ -422,7 +404,56 @@ class _Seg(object):
         return out
 
 
+def run_voice(args):
+    """--demo voice: A10 S1 sesli komut dizisinin bir kosusu (rl/eval_tasks.a10_rollout, N = 1; rl/commands.py
+    denetleyicisi, modul modeli ve konusmaci; DR / itme / gurultu kapali, oynatma ortami gibi). Video / GIF: kareler
+    rollout'un aktif ortamindan (main ya da getup varyanti; ayni qpos duzeni). --voice-seat exact: turetilmis oturus pozu
+    (P2-0 stub'inda oturus bankasi one devriliyor)."""
+    from . import eval_tasks as E
+    policy = load_policy(args.policy, task="main" if args.policy == "zero" else None)
+    check_role(policy, ("main",), "--policy")
+    if not args.getup_policy:
+        raise ValueError("--demo voice icin --getup-policy gerekli")
+    gpolicy = load_policy(args.getup_policy, task="getup")
+    scene = getattr(args, "scene", None)
+    ev = E.Evaluator(seed=args.seed, randomize=False, noise=False, push=False, head_random=False, bank_n=16,
+                     collision=False, scene_path=scene, backlash=False)
+    ev.a10_seat = getattr(args, "voice_seat", None) or "bank"
+    rec, nxt = None, [0.0]
+    if args.video or args.gif:
+        os.environ.setdefault("MUJOCO_GL", "egl")
+        from .robot_model import RobotIndex, build_model
+        rec = Recorder(args.width, args.height, RobotIndex(build_model(scene, variant="main")).trunk_body,
+                       shadows=not args.no_shadows, video=args.video, gif=args.gif, scene_path=scene)
+
+    def frame(t, data, label):
+        while rec is not None and nxt[0] <= t + 1e-9:
+            rec.capture(data.qpos, "A10 S1  %s  t %.1fs" % (label, t))
+            nxt[0] += 1.0 / FPS
+    try:
+        eps = ev.a10_rollout(policy, gpolicy, "S1", 1, frame_cb=frame if rec is not None else None)
+    finally:
+        if rec is not None:
+            rec.close()
+    rep = ev._a10_s1_report(eps)
+    words = [{"word": w["word"], "t_apply": w["t_apply"], "t_done": w["t_done"], "ok": bool(w["score"]),
+              "metric": w.get("m")} for w in eps[0]["words"]]
+    out = {"policy": args.policy, "getup_policy": args.getup_policy, "seed": args.seed, "demo": "voice",
+           "task": "main", "ended": eps[0]["ended"], "words": words, "falls": eps[0]["falls"],
+           "report": {k: rep[k] for k in ("completion", "metrics", "penetration", "invariant_violations")}}
+    for w in words:
+        print("%-7s uygulama %6.2f s  tamam %s  %s" % (w["word"], w["t_apply"], "-" if w["t_done"] is None else
+                                                         "%.2f s" % w["t_done"], "ok" if w["ok"] else "BASARISIZ"))
+    print("A10 S1: bitis %s, dusme %d" % (out["ended"], len(out["falls"])))
+    if args.json:
+        with open(args.json, "w") as f:
+            json.dump(out, f, indent=1, default=str)
+    return out
+
+
 def run(args):
+    if args.demo == "voice":
+        return run_voice(args)
     render = bool(args.video or args.gif)
     if render:
         os.environ.setdefault("MUJOCO_GL", "egl")
