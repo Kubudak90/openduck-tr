@@ -263,6 +263,11 @@ def _config_snapshot():
     return {k: getattr(C, k) for k in dir(C) if k.isupper() and not k.startswith("_")}
 
 
+# verilirse C.PPO / gorev varsayilaninin ustune yazilan PPO anahtarlari (argparse SUPPRESS)
+PPO_ARG_KEYS = ("init_noise_std", "entropy_coef", "learning_rate", "schedule", "desired_kl", "gamma",
+                "num_steps_per_env")
+
+
 def parse_args(argv=None):
     p = argparse.ArgumentParser(description="OpenDuck yurume politikasi: CPU PPO egitimi")
     p.add_argument("--out", required=True, help="cikti klasoru, or. runs/NAME")
@@ -290,6 +295,15 @@ def parse_args(argv=None):
                    help="baslangic aksiyon gurultusu std (varsayilan gorevden, yoksa C.PPO; tr35 P7 ayari 0.5)")
     p.add_argument("--entropy-coef", type=float, default=argparse.SUPPRESS,
                    help="entropi katsayisi (varsayilan C.PPO)")
+    p.add_argument("--learning-rate", type=float, default=argparse.SUPPRESS,
+                   help="ogrenme hizi (adaptive: baslangic; varsayilan C.PPO)")
+    p.add_argument("--schedule", choices=("adaptive", "fixed"), default=argparse.SUPPRESS,
+                   help="ogrenme hizi plani: adaptive (KL'ye gore) ya da fixed (MJX/Brax gibi; varsayilan C.PPO)")
+    p.add_argument("--desired-kl", type=float, default=argparse.SUPPRESS, help="adaptive hedef KL (varsayilan C.PPO)")
+    p.add_argument("--gamma", type=float, default=argparse.SUPPRESS,
+                   help="indirim (varsayilan gorevden, yoksa C.PPO; MJX walk/main 0.97)")
+    p.add_argument("--num-steps-per-env", type=int, default=argparse.SUPPRESS,
+                   help="iterasyon basina ortam adimi (varsayilan C.PPO)")
     a = p.parse_args(argv)
     cpus = effective_cpus()
     if a.workers is None:
@@ -351,7 +365,7 @@ def main(argv=None):
         post = lambda p: EC.safe_export(p, os.path.join(args.out, "c"))
     try:
         cfg = dict(task_ppo_cfg(spec) or {})
-        cfg.update({k: getattr(args, k) for k in ("init_noise_std", "entropy_coef") if hasattr(args, k)})
+        cfg.update({k: getattr(args, k) for k in PPO_ARG_KEYS if hasattr(args, k)})
         runner = Runner(env, args.out, cfg=cfg or None, seed=args.seed, save_interval=args.save_interval,
                         threads=args.threads, update_threads=args.update_threads, resume=args.resume,
                         meta_fn=lambda steps: policy_meta(steps, "cpu_torch", idx, spec.name, network=net.get("v"),

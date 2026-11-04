@@ -548,6 +548,12 @@ def test_task_ppo_cfg_and_cli():
     assert not hasattr(a, "init_noise_std") and not hasattr(a, "entropy_coef")
     a = parse_args(["--out", "x", "--init-noise-std", "0.5", "--entropy-coef", "0.01"])
     assert a.init_noise_std == 0.5 and a.entropy_coef == 0.01
+    from rl.train import PPO_ARG_KEYS
+    assert all(not hasattr(parse_args(["--out", "x"]), k) for k in PPO_ARG_KEYS)
+    a = parse_args(["--out", "x", "--learning-rate", "3e-4", "--schedule", "fixed", "--desired-kl", "0.02",
+                    "--gamma", "0.97", "--num-steps-per-env", "32"])
+    assert (a.learning_rate, a.schedule, a.desired_kl, a.gamma, a.num_steps_per_env) == (3e-4, "fixed", 0.02, 0.97, 32)
+    assert all(k in C.PPO for k in PPO_ARG_KEYS)
 
 
 def test_real_env_task_smoke():
