@@ -80,6 +80,7 @@ Açık:
 - Ayar, `tr35_constants` varsayılanına alınmadı (TUNE ile verilir); main/getup sonuçlarından sonra karar.
 - `--env-precision default` (TF32) hızı ölçülmedi; getup < 28k SPS (1e9 ≈ 10+ sa).
 - Mac'te CPU eğitimi: `p7-mac.md`.
+- Colab GPU eğitimi ve ilk getup koşusu (başarısız, aksiyon patlaması): `p7-colab.md`.
 
 ## 5. Harcama (RunPod, 0.89 $/sa)
 
